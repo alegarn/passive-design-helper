@@ -33,6 +33,10 @@ function printHelp() {
   console.log('  --format, -f <md|txt|csv>  Summary output format (md, txt, csv)');
   console.log('  --out, -o <path>           Path for summary output file');
   console.log('  --json, -j [path]          Write JSON summary (optional path, default tactics_summary.json)');
+  console.log('  --only <csv|md|txt|json>    Produce only one output type and skip others');
+  console.log('  --no-ts                    Do not write the timeseries CSV');
+  console.log('  --choose                   In auto mode, allow simple choice of input file when multiple exist');
+  console.log('  --select <N>               In auto mode select the N-th CSV (1-based) deterministically');
   console.log('\nExamples:');
   console.log('  node tactics-cli.js data.csv --format md --out summary.md --ts timeseries.csv --json summary.json');
   console.log('  node tactics-cli.js --auto --assume-day-first sample.csv');
@@ -50,6 +54,12 @@ function printHelp() {
     if (i >= 0 && ARGV[i+1] && !ARGV[i+1].startsWith('--')) return ARGV[i+1];
     return null;
   }
+
+  // new flags
+  const onlyFlag = argVal('--only'); // csv | md | txt | json
+  const noTsFlag = ARGV.includes('--no-ts'); // skip timeseries csv
+  const autoChoose = ARGV.includes('--choose') || ARGV.includes('--auto-choose'); // in auto mode allow choosing input
+  const selectVal = argVal('--select'); // deterministic selection index (1-based)
 
   let inputPath = ARGV[0] && !ARGV[0].startsWith('--') ? ARGV[0] : null;
   const formatFlag = (argVal('--format') || argVal('-f') || '').toLowerCase();
@@ -74,18 +84,38 @@ function printHelp() {
       if (!inputPath) { console.error('No input file. Exiting.'); process.exit(1); }
     } else {
       if (AUTO) {
-        // choose the most recently modified CSV file deterministically
-        let latest = null;
-        let latestMtime = -1;
-        for (const f of files) {
-          try {
-            const st = fs.statSync(path.join(process.cwd(), f));
-            if (st.mtimeMs > latestMtime) { latestMtime = st.mtimeMs; latest = f; }
-          } catch (e) { /* ignore stat errors */ }
+        // if --select provided, use that deterministically (1-based index)
+        if (selectVal) {
+          const n = Number(selectVal);
+          if (Number.isNaN(n) || n < 1 || n > files.length) { console.error('--select index out of range'); process.exit(1); }
+          inputPath = path.join(process.cwd(), files[n-1]);
+          console.log(`Auto mode: selected CSV '${files[n-1]}' by --select`);
+        } else {
+          // choose the most recently modified CSV file deterministically
+          let latest = null;
+          let latestMtime = -1;
+          for (const f of files) {
+            try {
+              const st = fs.statSync(path.join(process.cwd(), f));
+              if (st.mtimeMs > latestMtime) { latestMtime = st.mtimeMs; latest = f; }
+            } catch (e) { /* ignore stat errors */ }
+          }
+          if (!latest) { console.error('No readable CSV files found for auto mode.'); process.exit(1); }
+          inputPath = path.join(process.cwd(), latest);
+          console.log(`Auto mode: selected CSV '${latest}' (most recently modified)`);
         }
-        if (!latest) { console.error('No readable CSV files found for auto mode.'); process.exit(1); }
-        inputPath = path.join(process.cwd(), latest);
-        console.log(`Auto mode: selected CSV '${latest}' (most recently modified)`);
+        // if autoChoose, allow simple validation/choice
+        if (autoChoose) {
+          console.log('Multiple CSV files available:');
+          files.forEach((f,i) => console.log(`  [${i+1}] ${f}`));
+          const ans = await prompt(`Accept '${path.basename(inputPath)}'? Enter number to choose different file or press Enter to accept: `);
+          if (ans) {
+            const n = Number(ans);
+            if (!Number.isNaN(n) && n >= 1 && n <= files.length) inputPath = path.join(process.cwd(), files[n-1]);
+            else console.log('Invalid choice, keeping auto-selected file.');
+          }
+          console.log('Using file:', path.basename(inputPath));
+        }
       } else {
         console.log('CSV files found:');
         files.forEach((f,i) => console.log(`  [${i+1}] ${f}`));
@@ -319,12 +349,82 @@ function printHelp() {
   const agg = {}; const tsOutLines = ['datetime,temperature,humidity,zone,color'];
   // prepare bucketed aggregation (per-day or per-month) depending on total range
   const totalRangeMs = rows[rows.length-1].ts - rows[0].ts;
-  const oneDayMs = 24*60*60*1000;
-  const useMonthly = totalRangeMs > (30 * oneDayMs);
+  const oneHourMs = 60*60*1000;
+  const oneDayMs = 24*oneHourMs;
+
+  // detect sampling resolution more robustly
+  const medianMs = medianDiff || 0;
+  let samplingUnit = 'irregular';
+  if (medianMs === 0) samplingUnit = 'single';
+  else if (medianMs <= 90*1000) samplingUnit = 'seconds';
+  else if (medianMs <= 90*60*1000) samplingUnit = 'minutes';
+  else if (medianMs <= 3*oneHourMs) samplingUnit = 'hour';
+  else if (medianMs <= 2*oneDayMs) samplingUnit = 'day';
+  else samplingUnit = 'month+';
+
+  // detect whether original timestamps contain time-of-day info and if it's constant 00:00:00
+  let timePartExists = 0; let timePartNonZero = 0;
+  for (const r of rows) {
+    const tr = String(r.timeRaw || '');
+    if (tr.match(/\d{1,2}:\d{2}(?::\d{2})?/)) timePartExists++;
+    const m = tr.match(/(\d{1,2}):(\d{2})(?::(\d{2}))?/);
+    if (m) {
+      const hh = Number(m[1]); const mm = Number(m[2]); const ss = Number(m[3]||0);
+      if (hh !== 0 || mm !== 0 || ss !== 0) timePartNonZero++;
+    }
+  }
+
+  // Decide timeline grouping (per-month / per-day / per-hour)
+  const sdTmp = new Date(rows[0].ts);
+  const edTmp = new Date(rows[rows.length-1].ts);
+  const monthsSpan = (edTmp.getUTCFullYear() - sdTmp.getUTCFullYear()) * 12 + (edTmp.getUTCMonth() - sdTmp.getUTCMonth()) + 1;
+
+  // Detected timeline (before asking the user)
+  let detectedTimeline = 'month';
+  if (AUTO) {
+    // Full-auto rules: prefer the largest grouping possible per your request
+    if (monthsSpan > 2) detectedTimeline = 'month';
+    else if (monthsSpan === 1 && samplingUnit === 'hour') detectedTimeline = 'day';
+    else if (totalRangeMs <= 2*oneDayMs && samplingUnit === 'hour') detectedTimeline = 'hour';
+    else if (monthsSpan <= 2 && samplingUnit === 'hour' && totalRangeMs <= 31*oneDayMs) detectedTimeline = 'day';
+    else detectedTimeline = 'month';
+  } else {
+    // Interactive default detection
+    if (totalRangeMs <= oneDayMs) {
+      detectedTimeline = (timePartExists && (samplingUnit === 'hour' || samplingUnit === 'minutes' || timePartNonZero>0)) ? 'hour' : 'day';
+    } else if (totalRangeMs <= 31*oneDayMs) {
+      detectedTimeline = (samplingUnit === 'hour' || samplingUnit === 'minutes' || samplingUnit === 'seconds') ? 'day' : 'month';
+    } else {
+      detectedTimeline = 'month';
+    }
+  }
+
+  // If not auto, ask the user which grouping they want (default is detected)
+  let timelineUnit = detectedTimeline;
+  if (!AUTO) {
+    const ans = await prompt(`Choose timeline grouping for the summary (month / day / hour) [auto=${detectedTimeline}]: `);
+    const pick = (ans || '').trim().toLowerCase();
+    if (pick === '') {
+      timelineUnit = detectedTimeline;
+    } else if (['month','day','hour'].includes(pick)) {
+      timelineUnit = pick;
+    } else if (pick === 'auto') {
+      timelineUnit = detectedTimeline;
+    } else {
+      console.log('Unrecognized choice, using detected grouping:', detectedTimeline);
+      timelineUnit = detectedTimeline;
+    }
+  } else {
+    // in auto mode use detectedTimeline
+    timelineUnit = detectedTimeline;
+  }
+
   function bucketKey(ts) {
     const d = new Date(ts);
-    if (useMonthly) return `${d.getUTCFullYear()}-${String(d.getUTCMonth()+1).padStart(2,'0')}`;
-    return `${d.getUTCFullYear()}-${String(d.getUTCMonth()+1).padStart(2,'0')}-${String(d.getUTCDate()).padStart(2,'0')}`;
+    if (timelineUnit === 'month') return `${d.getUTCFullYear()}-${String(d.getUTCMonth()+1).padStart(2,'0')}`;
+    if (timelineUnit === 'day') return `${d.getUTCFullYear()}-${String(d.getUTCMonth()+1).padStart(2,'0')}-${String(d.getUTCDate()).padStart(2,'0')}`;
+    // hour
+    return `${d.getUTCFullYear()}-${String(d.getUTCMonth()+1).padStart(2,'0')}-${String(d.getUTCDate()).padStart(2,'0')} ${String(d.getUTCHours()).padStart(2,'0')}:00`;
   }
   const perBucket = {};
   for (const r of rows) {
@@ -353,21 +453,65 @@ function printHelp() {
   }).sort((a,b)=>b.hours - a.hours);
 
   // write timeseries CSV
-  try { fs.writeFileSync(outTS, tsOutLines.join('\n'), 'utf8'); } catch(e) { console.error('Could not write timeseries file:', e.message); }
+  // Decide which outputs to write based on flags and interactive choices
+  let writeTS = true;
+  let writeSummary = true;
+  let writeJSON = Boolean(jsonPath);
+  if (onlyFlag) {
+    writeTS = false; writeSummary = false; writeJSON = false;
+    const of = (onlyFlag || '').toLowerCase();
+    if (of === 'csv') writeTS = true;
+    else if (of === 'md' || of === 'txt' || of === 'csv') writeSummary = true;
+    else if (of === 'json') writeJSON = true;
+  }
+  if (noTsFlag) writeTS = false;
+
+  // Interactive: ask whether timeseries CSV is needed and show a short sample
+  if (!AUTO && writeTS) {
+    // show two example lines
+    console.log('\nExample of timeseries output (first 2 data lines):');
+    console.log(tsOutLines[0]);
+    for (let i = 1; i <= Math.min(2, tsOutLines.length-1); i++) console.log(tsOutLines[i]);
+    const ans = await prompt('Write timeseries CSV? (Y/n): ');
+    if ((ans || '').toLowerCase().startsWith('n')) writeTS = false;
+  }
+
+  if (AUTO) {
+    // in auto mode respect onlyFlag/noTsFlag; otherwise keep defaults
+    // nothing to do here
+  }
+
+  if (writeTS) {
+    try { fs.writeFileSync(outTS, tsOutLines.join('\n'), 'utf8'); console.log('Timeseries for plotting written to', outTS); }
+    catch(e) { console.error('Could not write timeseries file:', e.message); }
+  } else {
+    console.log('Timeseries CSV skipped.');
+  }
 
   // prepare summary in chosen format
   let outContent = '';
-  // detected period / title for summary
+  // detected period / title for summary (format depends on timelineUnit)
   const startTs = rows.length ? rows[0].ts : null;
   const endTs = rows.length ? rows[rows.length-1].ts : null;
   let periodTitle = '';
   if (startTs && endTs) {
     const sd = new Date(startTs);
     const ed = new Date(endTs);
-    if (useMonthly) {
-      periodTitle = `${String(sd.getUTCMonth()+1).padStart(2,'0')}-${sd.getUTCFullYear()}`;
-    } else {
-      // if same day
+    if (timelineUnit === 'month') {
+      // show MM-YYYY covering the start month (or multiple months?) if span within one month show that month
+      if (sd.getUTCFullYear() === ed.getUTCFullYear() && sd.getUTCMonth() === ed.getUTCMonth()) {
+        periodTitle = `${String(sd.getUTCMonth()+1).padStart(2,'0')}-${sd.getUTCFullYear()}`;
+      } else {
+        // multi-month range
+        periodTitle = `${String(sd.getUTCMonth()+1).padStart(2,'0')}-${sd.getUTCFullYear()} to ${String(ed.getUTCMonth()+1).padStart(2,'0')}-${ed.getUTCFullYear()}`;
+      }
+    } else if (timelineUnit === 'day') {
+      const sISO = `${sd.getUTCFullYear()}-${String(sd.getUTCMonth()+1).padStart(2,'0')}-${String(sd.getUTCDate()).padStart(2,'0')}`;
+      const eISO = `${ed.getUTCFullYear()}-${String(ed.getUTCMonth()+1).padStart(2,'0')}-${String(ed.getUTCDate()).padStart(2,'0')}`;
+      if (sISO === eISO) periodTitle = sISO;
+      else periodTitle = `${sISO} to ${eISO}`;
+    } else if (timelineUnit === 'hour') {
+      // show start day or day range
       const sISO = `${sd.getUTCFullYear()}-${String(sd.getUTCMonth()+1).padStart(2,'0')}-${String(sd.getUTCDate()).padStart(2,'0')}`;
       const eISO = `${ed.getUTCFullYear()}-${String(ed.getUTCMonth()+1).padStart(2,'0')}-${String(ed.getUTCDate()).padStart(2,'0')}`;
       if (sISO === eISO) periodTitle = sISO;
@@ -392,9 +536,9 @@ function printHelp() {
   // timeline breakdown (per-month or per-day depending on range)
   const bucketKeys = Object.keys(perBucket).sort();
   if (bucketKeys.length > 0) {
-    if (outFormat === 'md') outContent += `\n## Timeline breakdown (${useMonthly ? 'per-month' : 'per-day'})\n\n`;
+    if (outFormat === 'md') outContent += `\n## Timeline breakdown (${timelineUnit === 'month' ? 'per-month' : timelineUnit === 'hour' ? 'per-hour' : 'per-day'})\n\n`;
     else if (outFormat === 'csv') outContent += '\nperiod,zone,hours,percent\n';
-    else outContent += `\nTimeline breakdown (${useMonthly ? 'per-month' : 'per-day'}):\n`;
+    else outContent += `\nTimeline breakdown (${timelineUnit === 'month' ? 'per-month' : timelineUnit === 'hour' ? 'per-hour' : 'per-day'}):\n`;
 
     for (const bk of bucketKeys) {
       const bucketTotal = Object.values(perBucket[bk]).reduce((s,v)=>s+v,0) || 1;
@@ -431,10 +575,14 @@ function printHelp() {
   for (const s of summary) md += `| ${s.zone} | ${s.hours} | ${s.percent} % |\n`;
   console.log(md);
 
-  try {
-    fs.writeFileSync(outPath, outContent, 'utf8');
-    console.log('Summary written to', outPath);
-  } catch (e) { console.error('Could not write summary file:', e.message); }
+  if (writeSummary) {
+    try {
+      fs.writeFileSync(outPath, outContent, 'utf8');
+      console.log('Summary written to', outPath);
+    } catch (e) { console.error('Could not write summary file:', e.message); }
+  } else {
+    console.log('Summary output skipped.');
+  }
 
   // write JSON summary if requested
   if (jsonPath) {
