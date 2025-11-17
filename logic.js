@@ -249,13 +249,23 @@ function printHelp() {
   function tryParseDate(s, preferDayFirst) {
     if (!s || !s.trim()) return NaN;
     const raw = s.trim();
-    // 1) ISO direct
+    // 1) ISO direct - but skip if we prefer day-first and this looks like ambiguous format
     let d = Date.parse(raw);
-    if (!isNaN(d)) return d;
-    // normalize spaces
-    const norm = raw.replace(/\s+/g, ' ');
+    
+    
+    // If we prefer day-first and this looks like DD/MM/YYYY format, don't use direct parse
+    // because Date.parse() will interpret as MM/DD/YYYY
+    if (!isNaN(d) && preferDayFirst && raw.match(/^\d{1,2}[\/\-]\d{1,2}[\/\-]\d{2,4}/)) {
+      // Skip direct parse and force regex parsing
+    } else if (!isNaN(d)) {
+      return d;
+    }
+    // normalize spaces and trim
+    const norm = raw.replace(/\s+/g, ' ').trim();
+    
     // pattern: DD/MM/YYYY HH:MM:SS or MM/DD/YYYY HH:MM:SS
     const m = norm.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2,4})(?:[ T](\d{1,2}:\d{2}(?::\d{2})?))?$/);
+    
     if (m) {
       const a = Number(m[1]), b = Number(m[2]), y = Number(m[3]);
       const timePart = m[4] || '00:00:00';
@@ -263,11 +273,20 @@ function printHelp() {
         const iso = `${y.toString().padStart(4,'0')}-${String(b).padStart(2,'0')}-${String(a).padStart(2,'0')}T${timePart}`;
         const dt = Date.parse(iso);
         if (!isNaN(dt)) return dt;
+        // try month-first as fallback
+        const iso2 = `${y.toString().padStart(4,'0')}-${String(a).padStart(2,'0')}-${String(b).padStart(2,'0')}T${timePart}`;
+        const dt2 = Date.parse(iso2);
+        if (!isNaN(dt2)) return dt2;
+      } else {
+        // try month-first first
+        const iso2 = `${y.toString().padStart(4,'0')}-${String(a).padStart(2,'0')}-${String(b).padStart(2,'0')}T${timePart}`;
+        const dt2 = Date.parse(iso2);
+        if (!isNaN(dt2)) return dt2;
+        // try day-first as fallback
+        const iso = `${y.toString().padStart(4,'0')}-${String(b).padStart(2,'0')}-${String(a).padStart(2,'0')}T${timePart}`;
+        const dt = Date.parse(iso);
+        if (!isNaN(dt)) return dt;
       }
-      // try month-first
-      const iso2 = `${y.toString().padStart(4,'0')}-${String(a).padStart(2,'0')}-${String(b).padStart(2,'0')}T${timePart}`;
-      const dt2 = Date.parse(iso2);
-      if (!isNaN(dt2)) return dt2;
     }
     // try epoch seconds or ms
     const onlyDigits = raw.replace(/[^0-9]/g, '');
@@ -290,7 +309,42 @@ function printHelp() {
     const m = sd && sd.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2,4})/);
     if (m) { const a = Number(m[1]); if (a > 12) { dayFirstLikely = true; break; } }
   }
+  // Additional heuristic: if filename suggests single month and dates show day>12, force day-first
+  const filename = path.basename(inputPath).toLowerCase();
+  const isSingleMonthFile = filename.includes('_01_') || filename.includes('_02_') || filename.includes('_03_') ||
+                           filename.includes('_04_') || filename.includes('_05_') || filename.includes('_06_') ||
+                           filename.includes('_07_') || filename.includes('_08_') || filename.includes('_09_') ||
+                           filename.includes('_10_') || filename.includes('_11_') || filename.includes('_12_');
+  if (isSingleMonthFile && !dayFirstLikely) {
+    // Check if any date has day > 12 or if month in filename matches second component
+    for (const sd of sampleDates) {
+      const m = sd && sd.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2,4})/);
+      if (m) {
+        const day = Number(m[1]);
+        const month = Number(m[2]);
+        // Extract month from filename (e.g., _04_ from 2024_04_si_samrong_hourly.csv)
+        const filenameMonthMatch = filename.match(/_(\d{2})_/);
+        if (filenameMonthMatch) {
+          const filenameMonth = Number(filenameMonthMatch[1]);
+          if (month === filenameMonth && day <= 31) {
+            dayFirstLikely = true;
+            break;
+          }
+        }
+        if (day > 12) {
+          dayFirstLikely = true;
+          break;
+        }
+      }
+    }
+  }
   if (ASSUME_DAY_FIRST) dayFirstLikely = true;
+  
+  // DEBUG: Add debug output to see what's happening
+  console.log('DEBUG: dayFirstLikely:', dayFirstLikely);
+  console.log('DEBUG: filename:', filename);
+  console.log('DEBUG: isSingleMonthFile:', isSingleMonthFile);
+  console.log('DEBUG: sampleDates[0]:', sampleDates[0]);
   if (!AUTO) {
     if (dayFirstLikely) {
       const pick = await prompt('Date samples look like DD/MM/YYYY. Parse as day-first? (Y/n): ');
@@ -309,10 +363,36 @@ function printHelp() {
     treatAsUTC = (tzAns || '1').trim() === '2';
   }
 
+  // Helper function to normalize access to date parts based on treatAsUTC
+  function dateParts(ts) {
+    const d = new Date(ts);
+    if (treatAsUTC) {
+      return {
+        year: d.getUTCFullYear(),
+        month: d.getUTCMonth() + 1, // 1-based month
+        day: d.getUTCDate(),
+        hours: d.getUTCHours(),
+        minutes: d.getUTCMinutes(),
+        seconds: d.getUTCSeconds()
+      };
+    } else {
+      return {
+        year: d.getFullYear(),
+        month: d.getMonth() + 1, // 1-based month
+        day: d.getDate(),
+        hours: d.getHours(),
+        minutes: d.getMinutes(),
+        seconds: d.getSeconds()
+      };
+    }
+  }
+
   for (let i = 1; i < lines.length; i++) {
     const cols = csvSplitLine(lines[i]);
     const timeRaw = cols[timeCol], tempRaw = cols[tempCol], rhRaw = cols[rhCol];
     let tms = tryParseDate(timeRaw, dayFirstLikely);
+    
+    
     if (isNaN(tms) && timeRaw && timeRaw.trim().match(/^(\d+)$/)) {
       // maybe epoch seconds
       const n = Number(timeRaw.trim());
@@ -377,16 +457,39 @@ function printHelp() {
   // Decide timeline grouping (per-month / per-day / per-hour)
   const sdTmp = new Date(rows[0].ts);
   const edTmp = new Date(rows[rows.length-1].ts);
-  const monthsSpan = (edTmp.getUTCFullYear() - sdTmp.getUTCFullYear()) * 12 + (edTmp.getUTCMonth() - sdTmp.getUTCMonth()) + 1;
+  const sdParts = dateParts(rows[0].ts);
+  const edParts = dateParts(rows[rows.length-1].ts);
+  
+  // Data-driven monthsSpan: count distinct year-month buckets from actual data
+  const monthSet = new Set();
+  for (const row of rows) {
+    const parts = dateParts(row.ts);
+    monthSet.add(`${parts.year}-${String(parts.month).padStart(2, '0')}`);
+  }
+  const monthsSpan = monthSet.size;
+  
+  // Debug output to check date detection
+  console.log('DEBUG: First date:', sdTmp.toISOString(), `(using ${treatAsUTC ? 'UTC' : 'local'})`);
+  console.log('DEBUG: Last date:', edTmp.toISOString(), `(using ${treatAsUTC ? 'UTC' : 'local'})`);
+  console.log('DEBUG: Months span:', monthsSpan);
+  console.log('DEBUG: Total range (days):', totalRangeMs / (24*60*60*1000));
 
   // Detected timeline (before asking the user)
   let detectedTimeline = 'month';
   if (AUTO) {
     // Full-auto rules: prefer the largest grouping possible per your request
+    // Check if filename suggests single month data
+    const filename = path.basename(inputPath).toLowerCase();
+    const isSingleMonthFile = filename.includes('_01_') || filename.includes('_02_') || filename.includes('_03_') ||
+                             filename.includes('_04_') || filename.includes('_05_') || filename.includes('_06_') ||
+                             filename.includes('_07_') || filename.includes('_08_') || filename.includes('_09_') ||
+                             filename.includes('_10_') || filename.includes('_11_') || filename.includes('_12_');
+    
     if (monthsSpan > 2) detectedTimeline = 'month';
     else if (monthsSpan === 1 && samplingUnit === 'hour') detectedTimeline = 'day';
     else if (totalRangeMs <= 2*oneDayMs && samplingUnit === 'hour') detectedTimeline = 'hour';
-    else if (monthsSpan <= 2 && samplingUnit === 'hour' && totalRangeMs <= 31*oneDayMs) detectedTimeline = 'day';
+    else if ((monthsSpan <= 2 || isSingleMonthFile) && samplingUnit === 'hour') detectedTimeline = 'day';  // For 1-2 months of hourly data or single month file, use day breakdown
+    else if (monthsSpan === 1) detectedTimeline = 'day';  // Single month should default to day breakdown
     else detectedTimeline = 'month';
   } else {
     // Interactive default detection
@@ -420,11 +523,11 @@ function printHelp() {
   }
 
   function bucketKey(ts) {
-    const d = new Date(ts);
-    if (timelineUnit === 'month') return `${d.getUTCFullYear()}-${String(d.getUTCMonth()+1).padStart(2,'0')}`;
-    if (timelineUnit === 'day') return `${d.getUTCFullYear()}-${String(d.getUTCMonth()+1).padStart(2,'0')}-${String(d.getUTCDate()).padStart(2,'0')}`;
+    const parts = dateParts(ts);
+    if (timelineUnit === 'month') return `${parts.year}-${String(parts.month).padStart(2,'0')}`;
+    if (timelineUnit === 'day') return `${parts.year}-${String(parts.month).padStart(2,'0')}-${String(parts.day).padStart(2,'0')}`;
     // hour
-    return `${d.getUTCFullYear()}-${String(d.getUTCMonth()+1).padStart(2,'0')}-${String(d.getUTCDate()).padStart(2,'0')} ${String(d.getUTCHours()).padStart(2,'0')}:00`;
+    return `${parts.year}-${String(parts.month).padStart(2,'0')}-${String(parts.day).padStart(2,'0')} ${String(parts.hours).padStart(2,'0')}:00`;
   }
   const perBucket = {};
   for (const r of rows) {
@@ -495,25 +598,25 @@ function printHelp() {
   const endTs = rows.length ? rows[rows.length-1].ts : null;
   let periodTitle = '';
   if (startTs && endTs) {
-    const sd = new Date(startTs);
-    const ed = new Date(endTs);
+    const sdParts = dateParts(startTs);
+    const edParts = dateParts(endTs);
     if (timelineUnit === 'month') {
       // show MM-YYYY covering the start month (or multiple months?) if span within one month show that month
-      if (sd.getUTCFullYear() === ed.getUTCFullYear() && sd.getUTCMonth() === ed.getUTCMonth()) {
-        periodTitle = `${String(sd.getUTCMonth()+1).padStart(2,'0')}-${sd.getUTCFullYear()}`;
+      if (sdParts.year === edParts.year && sdParts.month === edParts.month) {
+        periodTitle = `${String(sdParts.month).padStart(2,'0')}-${sdParts.year}`;
       } else {
         // multi-month range
-        periodTitle = `${String(sd.getUTCMonth()+1).padStart(2,'0')}-${sd.getUTCFullYear()} to ${String(ed.getUTCMonth()+1).padStart(2,'0')}-${ed.getUTCFullYear()}`;
+        periodTitle = `${String(sdParts.month).padStart(2,'0')}-${sdParts.year} to ${String(edParts.month).padStart(2,'0')}-${edParts.year}`;
       }
     } else if (timelineUnit === 'day') {
-      const sISO = `${sd.getUTCFullYear()}-${String(sd.getUTCMonth()+1).padStart(2,'0')}-${String(sd.getUTCDate()).padStart(2,'0')}`;
-      const eISO = `${ed.getUTCFullYear()}-${String(ed.getUTCMonth()+1).padStart(2,'0')}-${String(ed.getUTCDate()).padStart(2,'0')}`;
+      const sISO = `${sdParts.year}-${String(sdParts.month).padStart(2,'0')}-${String(sdParts.day).padStart(2,'0')}`;
+      const eISO = `${edParts.year}-${String(edParts.month).padStart(2,'0')}-${String(edParts.day).padStart(2,'0')}`;
       if (sISO === eISO) periodTitle = sISO;
       else periodTitle = `${sISO} to ${eISO}`;
     } else if (timelineUnit === 'hour') {
       // show start day or day range
-      const sISO = `${sd.getUTCFullYear()}-${String(sd.getUTCMonth()+1).padStart(2,'0')}-${String(sd.getUTCDate()).padStart(2,'0')}`;
-      const eISO = `${ed.getUTCFullYear()}-${String(ed.getUTCMonth()+1).padStart(2,'0')}-${String(ed.getUTCDate()).padStart(2,'0')}`;
+      const sISO = `${sdParts.year}-${String(sdParts.month).padStart(2,'0')}-${String(sdParts.day).padStart(2,'0')}`;
+      const eISO = `${edParts.year}-${String(edParts.month).padStart(2,'0')}-${String(edParts.day).padStart(2,'0')}`;
       if (sISO === eISO) periodTitle = sISO;
       else periodTitle = `${sISO} to ${eISO}`;
     }
