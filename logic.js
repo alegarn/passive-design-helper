@@ -22,8 +22,28 @@ async function prompt(q) {
   return new Promise(resolve => rl.question(q, ans => { rl.close(); resolve(ans.trim()); }));
 }
 
+function printHelp() {
+  console.log('Usage: node tactics-cli.js [input.csv] [options]');
+  console.log('Options:');
+  console.log('  -h, --help                 Show this help and exit');
+  console.log('  --auto                     Non-interactive auto mode (trust detections)');
+  console.log('  --assume-day-first         Assume day-first date format when ambiguous');
+  console.log('  --utc                      Treat parsed datetimes as UTC');
+  console.log('  --ts <path>                Path for timeseries CSV output (default: tactics_timeseries.csv)');
+  console.log('  --format, -f <md|txt|csv>  Summary output format (md, txt, csv)');
+  console.log('  --out, -o <path>           Path for summary output file');
+  console.log('  --json, -j [path]          Write JSON summary (optional path, default tactics_summary.json)');
+  console.log('\nExamples:');
+  console.log('  node tactics-cli.js data.csv --format md --out summary.md --ts timeseries.csv --json summary.json');
+  console.log('  node tactics-cli.js --auto --assume-day-first sample.csv');
+}
+
 (async function main() {
   const ARGV = process.argv.slice(2);
+  if (ARGV.includes('-h') || ARGV.includes('--help')) { printHelp(); process.exit(0); }
+  const AUTO = ARGV.includes('--auto'); // non-interactive, trust detections
+  const ASSUME_DAY_FIRST = ARGV.includes('--assume-day-first');
+  const FORCE_UTC = ARGV.includes('--utc');
 
   function argVal(name) {
     const i = ARGV.indexOf(name);
@@ -48,17 +68,33 @@ async function prompt(q) {
   if (!inputPath) {
     const files = fs.readdirSync(process.cwd()).filter(f => f.toLowerCase().endsWith('.csv'));
     if (files.length === 0) {
+      if (AUTO) { console.error('No .csv found in cwd. Auto mode cannot continue.'); process.exit(1); }
       const manual = await prompt('No .csv found in cwd. Enter path to CSV file: ');
       inputPath = manual || null;
       if (!inputPath) { console.error('No input file. Exiting.'); process.exit(1); }
     } else {
-      console.log('CSV files found:');
-      files.forEach((f,i) => console.log(`  [${i+1}] ${f}`));
-      const ans = await prompt('Choose number or enter path: ');
-      const n = Number(ans);
-      if (!Number.isNaN(n) && n >= 1 && n <= files.length) inputPath = path.join(process.cwd(), files[n-1]);
-      else inputPath = ans || null;
-      if (!inputPath) { console.error('No input file chosen. Exiting.'); process.exit(1); }
+      if (AUTO) {
+        // choose the most recently modified CSV file deterministically
+        let latest = null;
+        let latestMtime = -1;
+        for (const f of files) {
+          try {
+            const st = fs.statSync(path.join(process.cwd(), f));
+            if (st.mtimeMs > latestMtime) { latestMtime = st.mtimeMs; latest = f; }
+          } catch (e) { /* ignore stat errors */ }
+        }
+        if (!latest) { console.error('No readable CSV files found for auto mode.'); process.exit(1); }
+        inputPath = path.join(process.cwd(), latest);
+        console.log(`Auto mode: selected CSV '${latest}' (most recently modified)`);
+      } else {
+        console.log('CSV files found:');
+        files.forEach((f,i) => console.log(`  [${i+1}] ${f}`));
+        const ans = await prompt('Choose number or enter path: ');
+        const n = Number(ans);
+        if (!Number.isNaN(n) && n >= 1 && n <= files.length) inputPath = path.join(process.cwd(), files[n-1]);
+        else inputPath = ans || null;
+        if (!inputPath) { console.error('No input file chosen. Exiting.'); process.exit(1); }
+      }
     }
   }
 
@@ -161,6 +197,7 @@ async function prompt(q) {
   console.log('\nDetected CSV headers:');
   headers.forEach((h, i) => console.log(`  [${i}] ${h}`));
   async function confirmCol(name, currentIdx) {
+    if (AUTO) return currentIdx; // trust detection in auto mode
     const curLabel = currentIdx >= 0 ? `${currentIdx} (${headers[currentIdx]})` : 'not detected';
     const ans = await prompt(`Column for ${name} [detected: ${curLabel}] - enter index to override or press Enter to accept: `);
     if (!ans) return currentIdx;
@@ -178,26 +215,36 @@ async function prompt(q) {
 
   const rows = [];
   // helper: try multiple date parsing strategies and allow user to pick
-  function tryParseDate(s) {
+  // parse date strings robustly; supports dd/mm/yyyy hh:mm:ss with double spaces
+  function tryParseDate(s, preferDayFirst) {
     if (!s || !s.trim()) return NaN;
+    const raw = s.trim();
     // 1) ISO direct
-    let d = Date.parse(s);
+    let d = Date.parse(raw);
     if (!isNaN(d)) return d;
-    // 2) replace common separators and try day-first dd/mm/yyyy
-    const m = s.match(/(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2,4})/);
+    // normalize spaces
+    const norm = raw.replace(/\s+/g, ' ');
+    // pattern: DD/MM/YYYY HH:MM:SS or MM/DD/YYYY HH:MM:SS
+    const m = norm.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2,4})(?:[ T](\d{1,2}:\d{2}(?::\d{2})?))?$/);
     if (m) {
       const a = Number(m[1]), b = Number(m[2]), y = Number(m[3]);
-      // try day-first
-      const dayFirst = new Date(`${y.toString().padStart(4,'0')}-${String(b).padStart(2,'0')}-${String(a).padStart(2,'0')}T00:00:00`);
-      if (!isNaN(dayFirst.getTime())) return dayFirst.getTime();
+      const timePart = m[4] || '00:00:00';
+      if (preferDayFirst) {
+        const iso = `${y.toString().padStart(4,'0')}-${String(b).padStart(2,'0')}-${String(a).padStart(2,'0')}T${timePart}`;
+        const dt = Date.parse(iso);
+        if (!isNaN(dt)) return dt;
+      }
       // try month-first
-      const monthFirst = new Date(`${y.toString().padStart(4,'0')}-${String(a).padStart(2,'0')}-${String(b).padStart(2,'0')}T00:00:00`);
-      if (!isNaN(monthFirst.getTime())) return monthFirst.getTime();
+      const iso2 = `${y.toString().padStart(4,'0')}-${String(a).padStart(2,'0')}-${String(b).padStart(2,'0')}T${timePart}`;
+      const dt2 = Date.parse(iso2);
+      if (!isNaN(dt2)) return dt2;
     }
-    // 3) try replacing double spaces
-    const s2 = s.replace(/\s+/g,' ');
-    d = Date.parse(s2);
-    if (!isNaN(d)) return d;
+    // try epoch seconds or ms
+    const onlyDigits = raw.replace(/[^0-9]/g, '');
+    if (onlyDigits.length >= 10) {
+      const n = Number(raw);
+      if (!isNaN(n)) return n;
+    }
     return NaN;
   }
 
@@ -213,22 +260,29 @@ async function prompt(q) {
     const m = sd && sd.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2,4})/);
     if (m) { const a = Number(m[1]); if (a > 12) { dayFirstLikely = true; break; } }
   }
-  if (dayFirstLikely) {
-    const pick = await prompt('Date samples look like DD/MM/YYYY. Parse as day-first? (Y/n): ');
-    if ((pick || '').toLowerCase().startsWith('n')) dayFirstLikely = false; else dayFirstLikely = true;
-  } else {
-    const pick = await prompt('Date format uncertain. Force day-first parsing? (y/N): ');
-    if ((pick || '').toLowerCase().startsWith('y')) dayFirstLikely = true;
+  if (ASSUME_DAY_FIRST) dayFirstLikely = true;
+  if (!AUTO) {
+    if (dayFirstLikely) {
+      const pick = await prompt('Date samples look like DD/MM/YYYY. Parse as day-first? (Y/n): ');
+      if ((pick || '').toLowerCase().startsWith('n')) dayFirstLikely = false; else dayFirstLikely = true;
+    } else {
+      const pick = await prompt('Date format uncertain. Force day-first parsing? (y/N): ');
+      if ((pick || '').toLowerCase().startsWith('y')) dayFirstLikely = true;
+    }
   }
 
   // timezone handling: let user choose local or UTC
-  const tzAns = await prompt('Treat parsed datetimes as (1) local time or (2) UTC? [1]: ');
-  const treatAsUTC = (tzAns || '1').trim() === '2';
+  let treatAsUTC = false;
+  if (AUTO) treatAsUTC = FORCE_UTC;
+  else {
+    const tzAns = await prompt('Treat parsed datetimes as (1) local time or (2) UTC? [1]: ');
+    treatAsUTC = (tzAns || '1').trim() === '2';
+  }
 
   for (let i = 1; i < lines.length; i++) {
     const cols = csvSplitLine(lines[i]);
     const timeRaw = cols[timeCol], tempRaw = cols[tempCol], rhRaw = cols[rhCol];
-    let tms = tryParseDate(timeRaw);
+    let tms = tryParseDate(timeRaw, dayFirstLikely);
     if (isNaN(tms) && timeRaw && timeRaw.trim().match(/^(\d+)$/)) {
       // maybe epoch seconds
       const n = Number(timeRaw.trim());
@@ -246,7 +300,7 @@ async function prompt(q) {
     }
     if (isNaN(tms)) continue;
     if (treatAsUTC) {
-      // if parsed as local, adjust to UTC by using Date.UTC components
+      // convert parsed time to milliseconds UTC (if parsed as local)
       const dt = new Date(tms);
       tms = Date.UTC(dt.getFullYear(), dt.getMonth(), dt.getDate(), dt.getHours(), dt.getMinutes(), dt.getSeconds(), dt.getMilliseconds());
     }
@@ -303,14 +357,72 @@ async function prompt(q) {
 
   // prepare summary in chosen format
   let outContent = '';
+  // detected period / title for summary
+  const startTs = rows.length ? rows[0].ts : null;
+  const endTs = rows.length ? rows[rows.length-1].ts : null;
+  let periodTitle = '';
+  if (startTs && endTs) {
+    const sd = new Date(startTs);
+    const ed = new Date(endTs);
+    if (useMonthly) {
+      periodTitle = `${String(sd.getUTCMonth()+1).padStart(2,'0')}-${sd.getUTCFullYear()}`;
+    } else {
+      // if same day
+      const sISO = `${sd.getUTCFullYear()}-${String(sd.getUTCMonth()+1).padStart(2,'0')}-${String(sd.getUTCDate()).padStart(2,'0')}`;
+      const eISO = `${ed.getUTCFullYear()}-${String(ed.getUTCMonth()+1).padStart(2,'0')}-${String(ed.getUTCDate()).padStart(2,'0')}`;
+      if (sISO === eISO) periodTitle = sISO;
+      else periodTitle = `${sISO} to ${eISO}`;
+    }
+  }
+
+  // global summary
   if (outFormat === 'md') {
+    outContent += `## Summary table for ${periodTitle || 'all data'}\n\n`;
     outContent += `| Zone | Hours | % of time |\n| --- | ---: | ---: |\n`;
     for (const s of summary) outContent += `| ${s.zone} | ${s.hours} | ${s.percent} % |\n`;
   } else if (outFormat === 'csv') {
+    outContent += `# Summary table for ${periodTitle || 'all data'}\n`;
     outContent += 'zone,hours,percent\n';
     for (const s of summary) outContent += `${s.zone},${s.hours},${s.percent}\n`;
   } else {
+    outContent += `Summary table for ${periodTitle || 'all data'}:\n`;
     for (const s of summary) outContent += `${s.zone}: ${s.hours} h (${s.percent}%)\n`;
+  }
+
+  // timeline breakdown (per-month or per-day depending on range)
+  const bucketKeys = Object.keys(perBucket).sort();
+  if (bucketKeys.length > 0) {
+    if (outFormat === 'md') outContent += `\n## Timeline breakdown (${useMonthly ? 'per-month' : 'per-day'})\n\n`;
+    else if (outFormat === 'csv') outContent += '\nperiod,zone,hours,percent\n';
+    else outContent += `\nTimeline breakdown (${useMonthly ? 'per-month' : 'per-day'}):\n`;
+
+    for (const bk of bucketKeys) {
+      const bucketTotal = Object.values(perBucket[bk]).reduce((s,v)=>s+v,0) || 1;
+      const rowsList = Object.keys(perBucket[bk]).map(z => ({ zone: z, ms: perBucket[bk][z] } )).sort((a,b)=>b.ms-a.ms);
+      if (outFormat === 'md') {
+        outContent += `### ${bk}\n\n| Zone | Hours | % of time |\n| --- | ---: | ---: |\n`;
+        for (const r of rowsList) {
+          const h = Number((r.ms/(1000*60*60)).toFixed(3));
+          const p = Number((r.ms*100/bucketTotal).toFixed(2));
+          outContent += `| ${r.zone} | ${h} | ${p} % |\n`;
+        }
+        outContent += '\n';
+      } else if (outFormat === 'csv') {
+        for (const r of rowsList) {
+          const h = Number((r.ms/(1000*60*60)).toFixed(3));
+          const p = Number((r.ms*100/bucketTotal).toFixed(2));
+          outContent += `${bk},${r.zone},${h},${p}\n`;
+        }
+      } else {
+        outContent += `-- ${bk} --\n`;
+        for (const r of rowsList) {
+          const h = Number((r.ms/(1000*60*60)).toFixed(3));
+          const p = Number((r.ms*100/bucketTotal).toFixed(2));
+          outContent += `  ${r.zone}: ${h} h (${p}%)\n`;
+        }
+        outContent += '\n';
+      }
+    }
   }
 
   // also print markdown table to console
