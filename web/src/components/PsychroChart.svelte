@@ -1,17 +1,15 @@
 <script>
   import { onMount, onDestroy, tick } from 'svelte';
-  import { get } from 'svelte/store';
   import { results } from '../stores/uiStore.js';
   import ZoneHours from './ZoneHours.svelte';
+
+  let { summaryData = null } = $props();
   
-  export let summaryData = null;
-  
-  let canvasElement;
+  let canvasElement = $state();
   let renderer = null;
   let resizeObserver = null;
-  let isLoading = true;
-  let error = null;
-  let resultsSubscription = null;
+  let isLoading = $state(true);
+  let error = $state(null);
   let __origConsole = null; // Store original console methods for restoration later
   
   onMount(async () => {
@@ -68,7 +66,6 @@
           renderer.renderBackground();
           
           // Re-render data points if available
-          const $results = get(results);
           if ($results && $results.psychrometricData) {
             renderer.renderDataPoints($results.psychrometricData);
           }
@@ -76,16 +73,16 @@
       });
       
       resizeObserver.observe(canvasElement.parentElement);
-      
-      // Subscribe to results store and re-render when results change
-      resultsSubscription = results.subscribe($results => {
-        if (renderer && $results && $results.psychrometricData) {
-          renderer.renderDataPoints($results.psychrometricData);
-        }
-      });
     } catch (err) {
       console.error('Failed to initialize PsychroChart:', err);
       error = 'Failed to load psychrometric chart renderer';
+    }
+  });
+
+  // Use $effect to react to results changes instead of manual subscription
+  $effect(() => {
+    if (renderer && $results && $results.psychrometricData) {
+      renderer.renderDataPoints($results.psychrometricData);
     }
   });
   
@@ -103,10 +100,6 @@
     // Clean up resources
     if (resizeObserver) {
       resizeObserver.disconnect();
-    }
-    
-    if (resultsSubscription) {
-      resultsSubscription();
     }
     
     if (renderer) {
@@ -132,7 +125,7 @@
 {#if (summaryData && summaryData.summary) || ($results && $results.data && $results.data.summary)}
   <div class="zone-hours-container" role="list" aria-label="Zone hours list">
     {#each (summaryData ? summaryData.summary : $results.data.summary) as zoneData (zoneData.zone)}
-      <ZoneHours zone={zoneData} />
+      <ZoneHours {zoneData} />
     {/each}
   </div>
 {/if}

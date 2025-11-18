@@ -2,17 +2,17 @@
   import { rawData, mapping, results, setResults, isMappingComplete } from '../stores/uiStore.js';
   import { processData } from '../utils/dataProcessor.js';
   import { W_from_RH_T } from '../../../scripts/psychro/math.js';
-       
-  // Reactive variables from stores
-  $: rawDataValue = $rawData;
-  $: mappingValue = $mapping;
-  $: isMappingCompleteValue = $isMappingComplete;
-  
-  // Local state variables
-  let isProcessing = false;
-  let processingError = null;
-  let processedData = null;
-  
+
+  // Local state variables using $state
+  let isProcessing = $state(false);
+  let processingError = $state(null);
+  let processedData = $state(null);
+
+  // Derived values from stores using $derived
+  const rawDataValue = $derived($rawData);
+  const mappingValue = $derived($mapping);
+  const isMappingCompleteValue = $derived($isMappingComplete);
+   
   // Function to handle data processing
   async function handleProcessData() {
     if (!rawDataValue || rawDataValue.length === 0) {
@@ -68,7 +68,7 @@
     <div class="control-body">
       <button 
         class="btn btn-primary" 
-        on:click={handleProcessData}
+        onclick={handleProcessData}
         disabled={isProcessing}
       >
         {#if isProcessing}

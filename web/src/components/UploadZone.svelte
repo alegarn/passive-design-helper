@@ -1,10 +1,9 @@
 <script>
-  import { createEventDispatcher } from 'svelte';
   import { setRawData } from '../stores/uiStore.js';
-  
-  const dispatch = createEventDispatcher();
-  let statusText = '';
-  let parsedRowCount = 0;
+
+  let { onFileParsed = null } = $props();
+  let statusText = $state('');
+  let parsedRowCount = $state(0);
   
   /**
    * Fallback minimal CSV parser that splits by lines and commas
@@ -99,8 +98,10 @@
       // Update the store with parsed data
       setRawData(parsed);
       
-      // Dispatch event with parsed data
-      dispatch('fileParsed', { data: parsed });
+      // Call callback prop with parsed data
+      if (typeof onFileParsed === 'function') {
+        onFileParsed({ data: parsed });
+      }
       
     } catch (error) {
       console.error('Error parsing CSV:', error);
@@ -113,7 +114,7 @@
   <input
     type="file"
     accept=".csv"
-    on:change={handleFileChange}
+    onchange={handleFileChange}
     id="file-input"
     class="file-input"
   />

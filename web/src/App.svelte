@@ -1,17 +1,11 @@
 <script>
-  import { onMount } from 'svelte';
   import UploadZone from './components/UploadZone.svelte';
   import ColumnMapper from './components/ColumnMapper.svelte';
   import ProcessControls from './components/ProcessControls.svelte';
   import PsychroChart from './components/PsychroChart.svelte';
   import { rawData, isMappingComplete, hasResults } from './stores/uiStore.js';
-  
-  let rowCount = 0;
-  const unsubscribe = rawData.subscribe(value => { rowCount = value?.length || 0; });
-  
-  onMount(() => {
-    return () => unsubscribe();
-  });
+
+  const rowCount = $derived($rawData?.length || 0);
 </script>
 
 <header>
