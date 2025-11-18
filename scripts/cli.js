@@ -270,12 +270,32 @@ async function run(options = null, promptFn = defaultPrompt) {
                                filename.includes('_07_') || filename.includes('_08_') || filename.includes('_09_') ||
                                filename.includes('_10_') || filename.includes('_11_') || filename.includes('_12_');
 
-      if (monthsSpan > 2) detectedTimeline = 'month';
-      else if (monthsSpan === 1 && medianDiff <= 3 * 3600 * 1000) detectedTimeline = 'day';
-      else if (totalRangeMs <= 2 * 24 * 3600 * 1000 && medianDiff <= 3 * 3600 * 1000) detectedTimeline = 'hour';
-      else if ((monthsSpan <= 2 || isSingleMonthFile) && medianDiff <= 3 * 3600 * 1000) detectedTimeline = 'day';
-      else if (monthsSpan === 1) detectedTimeline = 'day';
-      else detectedTimeline = 'month';
+      // Prefer filename hint when available: if filename contains a month marker (e.g. _04_ or -04-)
+      // treat as a single-month file and default to per-day summaries.
+      // If filename uses a YYYY_MM_ prefix, prefer per-day; if filename starts with YYYY_ but not YYYY_MM_,
+      // treat as a yearly file and prefer per-month.
+      const yearPrefix = /^\d{4}_/;
+      const yearMonthPrefix = /^\d{4}_[0-9]{2}_/;
+      const hasYearPrefix = yearPrefix.test(filename);
+      const hasYearMonthPrefix = yearMonthPrefix.test(filename);
+
+      if (isSingleMonthFile || hasYearMonthPrefix) {
+        detectedTimeline = 'day';
+      } else if (hasYearPrefix && !hasYearMonthPrefix) {
+        detectedTimeline = 'month';
+      } else if (monthsSpan > 2) {
+        detectedTimeline = 'month';
+      } else if (monthsSpan === 1 && medianDiff <= 3 * 3600 * 1000) {
+        detectedTimeline = 'day';
+      } else if (totalRangeMs <= 2 * 24 * 3600 * 1000 && medianDiff <= 3 * 3600 * 1000) {
+        detectedTimeline = 'hour';
+      } else if ((monthsSpan <= 2) && medianDiff <= 3 * 3600 * 1000) {
+        detectedTimeline = 'day';
+      } else if (monthsSpan === 1) {
+        detectedTimeline = 'day';
+      } else {
+        detectedTimeline = 'month';
+      }
     } else {
       if (totalRangeMs <= 24 * 3600 * 1000) {
         detectedTimeline = 'day';
@@ -338,6 +358,29 @@ async function run(options = null, promptFn = defaultPrompt) {
     // If user requested only json and provided --out, treat --out as the json output path
     if ((opts.only || '').toLowerCase() === 'json' && outPath) {
       jsonPath = outPath;
+    }
+    // Decide which outputs to write BEFORE streaming so streaming logic can use `writeTS`.
+    let writeTS = true;
+    let writeSummary = true;
+    let writeJSON = Boolean(jsonPath);
+
+    if (opts.only) {
+      writeTS = false;
+      writeSummary = false;
+      writeJSON = false;
+      const of = (opts.only || '').toLowerCase();
+      if (of === 'csv') writeTS = true;
+      else if (of === 'md' || of === 'txt' || of === 'csv') writeSummary = true;
+      else if (of === 'json') writeJSON = true;
+    }
+    if (opts.noTs) writeTS = false;
+
+    // Ensure JSON output when explicitly requested via --only json
+    if ((opts.only || '').toLowerCase() === 'json') {
+      writeJSON = true;
+      if (!jsonPath) {
+        jsonPath = path.join(process.cwd(), 'tactics_summary.json');
+      }
     }
 
     // Stream processing of the entire file
@@ -406,29 +449,7 @@ async function run(options = null, promptFn = defaultPrompt) {
     firstTs = ft;
     lastTs = lt;
 
-    // Determine which outputs to write
-    let writeTS = true;
-    let writeSummary = true;
-    let writeJSON = Boolean(jsonPath);
-
-    if (opts.only) {
-      writeTS = false;
-      writeSummary = false;
-      writeJSON = false;
-      const of = (opts.only || '').toLowerCase();
-      if (of === 'csv') writeTS = true;
-      else if (of === 'md' || of === 'txt' || of === 'csv') writeSummary = true;
-      else if (of === 'json') writeJSON = true;
-    }
-    if (opts.noTs) writeTS = false;
-
-    // Ensure JSON output when explicitly requested via --only json
-    if ((opts.only || '').toLowerCase() === 'json') {
-      writeJSON = true;
-      if (!jsonPath) {
-        jsonPath = path.join(process.cwd(), 'tactics_summary.json');
-      }
-    }
+    
 
     // Interactive confirmation for timeseries (before we actually write it)
     if (!opts.auto && writeTS) {
