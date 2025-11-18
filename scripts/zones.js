@@ -84,24 +84,41 @@ const ZONES = [
       p(31.3,0) 
     ]
   },
-  { 
-    id: 'Air Conditioning + Dehumidifier', 
+  {
+    id: 'Mass Cooling & Night Ventilation (or Air Conditioning)',
+    color: '#5e81ac',
+    poly: [
+      p(39.6, 7),
+      p(39.6,30),
+      p(35.9,42),
+      p(43.0,27),
+      p(47.8,20),
+      p(47.8, 5)
+    ]
+  },
+  {
+    id: 'Air Conditioning + Dehumidifier',
     color: '#bf616a', 
-    poly: [ 
-      p('34.7+',45), 
-      p('34.7+',50), 
-      p('29.8+',100) 
+    poly: [
+      p(34.7, 45),
+      p(34.7, 50),
+      p(29.8,100),
+      p(34.3,100),
+      p(50.0,100),
+      p(50.0,16)
     ]
   },
   { 
     id: 'Air Conditioning', 
     color: '#d08770', 
-    poly: [ 
-      p('43.7+',0), 
-      p('43.7+',6), 
-      p('47.3+',6), 
-      p('47.3+',20), 
-      p('44+',27) 
+    poly: [
+      p(43.7,  0),
+      p(43.7,  6),
+      p(47.3,  6),
+      p(47.3, 20),
+      p(44.0, 27),
+      p(50.0, 17),
+      p(50.0,  0)
     ]
   }
 ];
