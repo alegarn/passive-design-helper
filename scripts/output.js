@@ -1,5 +1,5 @@
 // Refactor derived from logic.js
-const { ZONES } = require('./zones');
+const { ZONES, zonesContainingPoint, preferredZoneForPoint } = require('./zones');
 const { datePartsFactory } = require('./utils');
 
 /**
@@ -50,6 +50,8 @@ function buildTimeseriesLine(row) {
  * @returns {string} Formatted summary content
  */
 function formatSummary(summary, perBucket, timelineUnit, outFormat, totalMs, treatAsUTC, startTs, endTs) {
+  // New optional last parameter `options` is supported but kept backward-compatible
+  const opts = arguments.length > 8 && typeof arguments[8] === 'object' ? arguments[8] : {};
   const dateParts = datePartsFactory(treatAsUTC);
   let content = '';
   
@@ -147,7 +149,58 @@ function formatSummary(summary, perBucket, timelineUnit, outFormat, totalMs, tre
     }
   }
   
-  return content;
+    // Optionally append multichoice table if caller requested it via options.rowsWithDur
+    if (opts && opts.showOptions) {
+      content += buildMultichoiceSection(opts.rowsWithDur || [], outFormat);
+    }
+
+    return content;
+}
+
+/* Append multichoice table content based on rowsWithDur (array of {ts,temp,rh,dur})
+   and return string content suitable for MD/TXT/CSV formats.
+*/
+function buildMultichoiceSection(rowsWithDur, outFormat) {
+  if (!Array.isArray(rowsWithDur) || rowsWithDur.length === 0) return '';
+
+  const comboMs = Object.create(null);
+  const totalMs = rowsWithDur.reduce((s, r) => s + (r.dur || 0), 0) || 0;
+
+  for (const r of rowsWithDur) {
+    const matches = zonesContainingPoint(r.temp, r.rh).map(z => z.id).sort();
+    const key = matches.length ? matches.join(' & ') : 'Unclassified';
+    comboMs[key] = (comboMs[key] || 0) + (r.dur || 0);
+  }
+
+  const rows = Object.keys(comboMs).map(k => ({ key: k, ms: comboMs[k], hours: comboMs[k] / (1000 * 60 * 60) }));
+  rows.sort((a, b) => b.ms - a.ms);
+
+  if (outFormat === 'md') {
+    let md = '\n## Multichoice options (all matching zones per datapoint)\n\n';
+    md += '| Options | Hours | % of time |\n| --- | ---: | ---: |\n';
+    for (const r of rows) {
+      const pct = totalMs ? Number((r.ms * 100 / totalMs).toFixed(2)) : 0;
+      md += `| ${r.key} | ${r.hours.toFixed(3)} | ${pct} % |\n`;
+    }
+    return md;
+  }
+
+  if (outFormat === 'csv') {
+    let csv = '\n# Multichoice options (options,hours,percent)\noptions,hours,percent\n';
+    for (const r of rows) {
+      const pct = totalMs ? Number((r.ms * 100 / totalMs).toFixed(2)) : 0;
+      csv += `${r.key},${r.hours.toFixed(3)},${pct}\n`;
+    }
+    return csv;
+  }
+
+  // plain text
+  let txt = '\nMultichoice options (all matching zones per datapoint):\n';
+  for (const r of rows) {
+    const pct = totalMs ? Number((r.ms * 100 / totalMs).toFixed(2)) : 0;
+    txt += `${r.key} -> ${r.hours.toFixed(3)} h (${pct}%)\n`;
+  }
+  return txt;
 }
 
 /**

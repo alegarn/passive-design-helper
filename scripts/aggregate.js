@@ -224,6 +224,7 @@ function createAggregator(options = {}) {
       firstTs,
       lastTs,
       medianDelta: deltas.length > 0 ? [...deltas].sort((a, b) => a - b)[Math.floor(deltas.length / 2)] : 0
+      ,rowsWithDur
     };
   }
   

@@ -19,7 +19,8 @@ function parseArgs(argv) {
     choose: false,
     select: null,
     inputPath: null,
-    help: false
+    help: false,
+    showOptions: false
   };
 
   // Helper function to get argument value
@@ -41,6 +42,7 @@ function parseArgs(argv) {
   result.utc = argv.includes('--utc');
   result.noTs = argv.includes('--no-ts');
   result.choose = argv.includes('--choose') || argv.includes('--auto-choose');
+  result.showOptions = argv.includes('--show-options');
 
   // Parse values
   result.only = argVal('--only');

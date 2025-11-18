@@ -39,6 +39,7 @@ function printHelp() {
   console.log('  --json, -j [path]          Write JSON summary (optional path, default tactics_summary.json)');
   console.log('  --only <csv|md|txt|json>    Produce only one output type and skip others');
   console.log('  --no-ts                    Do not write the timeseries CSV');
+  console.log('  --show-options             Append multichoice options table to summary output');
   console.log('  --choose                   In auto mode, allow simple choice of input file when multiple exist');
   console.log('  --select <N>               In auto mode select the N-th CSV (1-based) deterministically');
   console.log('\nExamples:');
@@ -269,12 +270,32 @@ async function run(options = null, promptFn = defaultPrompt) {
                                filename.includes('_07_') || filename.includes('_08_') || filename.includes('_09_') ||
                                filename.includes('_10_') || filename.includes('_11_') || filename.includes('_12_');
 
-      if (monthsSpan > 2) detectedTimeline = 'month';
-      else if (monthsSpan === 1 && medianDiff <= 3 * 3600 * 1000) detectedTimeline = 'day';
-      else if (totalRangeMs <= 2 * 24 * 3600 * 1000 && medianDiff <= 3 * 3600 * 1000) detectedTimeline = 'hour';
-      else if ((monthsSpan <= 2 || isSingleMonthFile) && medianDiff <= 3 * 3600 * 1000) detectedTimeline = 'day';
-      else if (monthsSpan === 1) detectedTimeline = 'day';
-      else detectedTimeline = 'month';
+      // Prefer filename hint when available: if filename contains a month marker (e.g. _04_ or -04-)
+      // treat as a single-month file and default to per-day summaries.
+      // If filename uses a YYYY_MM_ prefix, prefer per-day; if filename starts with YYYY_ but not YYYY_MM_,
+      // treat as a yearly file and prefer per-month.
+      const yearPrefix = /^\d{4}_/;
+      const yearMonthPrefix = /^\d{4}_[0-9]{2}_/;
+      const hasYearPrefix = yearPrefix.test(filename);
+      const hasYearMonthPrefix = yearMonthPrefix.test(filename);
+
+      if (isSingleMonthFile || hasYearMonthPrefix) {
+        detectedTimeline = 'day';
+      } else if (hasYearPrefix && !hasYearMonthPrefix) {
+        detectedTimeline = 'month';
+      } else if (monthsSpan > 2) {
+        detectedTimeline = 'month';
+      } else if (monthsSpan === 1 && medianDiff <= 3 * 3600 * 1000) {
+        detectedTimeline = 'day';
+      } else if (totalRangeMs <= 2 * 24 * 3600 * 1000 && medianDiff <= 3 * 3600 * 1000) {
+        detectedTimeline = 'hour';
+      } else if ((monthsSpan <= 2) && medianDiff <= 3 * 3600 * 1000) {
+        detectedTimeline = 'day';
+      } else if (monthsSpan === 1) {
+        detectedTimeline = 'day';
+      } else {
+        detectedTimeline = 'month';
+      }
     } else {
       if (totalRangeMs <= 24 * 3600 * 1000) {
         detectedTimeline = 'day';
@@ -338,6 +359,29 @@ async function run(options = null, promptFn = defaultPrompt) {
     if ((opts.only || '').toLowerCase() === 'json' && outPath) {
       jsonPath = outPath;
     }
+    // Decide which outputs to write BEFORE streaming so streaming logic can use `writeTS`.
+    let writeTS = true;
+    let writeSummary = true;
+    let writeJSON = Boolean(jsonPath);
+
+    if (opts.only) {
+      writeTS = false;
+      writeSummary = false;
+      writeJSON = false;
+      const of = (opts.only || '').toLowerCase();
+      if (of === 'csv') writeTS = true;
+      else if (of === 'md' || of === 'txt' || of === 'csv') writeSummary = true;
+      else if (of === 'json') writeJSON = true;
+    }
+    if (opts.noTs) writeTS = false;
+
+    // Ensure JSON output when explicitly requested via --only json
+    if ((opts.only || '').toLowerCase() === 'json') {
+      writeJSON = true;
+      if (!jsonPath) {
+        jsonPath = path.join(process.cwd(), 'tactics_summary.json');
+      }
+    }
 
     // Stream processing of the entire file
     aggregator.setTimelineUnit(timelineUnit);
@@ -399,35 +443,13 @@ async function run(options = null, promptFn = defaultPrompt) {
     
     // Get final aggregation results
     const result = aggregator.finish();
-    const { agg, perBucket, summary, totalMs, firstTs: ft, lastTs: lt } = result;
+    const { agg, perBucket, summary, totalMs, firstTs: ft, lastTs: lt, rowsWithDur } = result;
     
     // Update first and last timestamps
     firstTs = ft;
     lastTs = lt;
 
-    // Determine which outputs to write
-    let writeTS = true;
-    let writeSummary = true;
-    let writeJSON = Boolean(jsonPath);
-
-    if (opts.only) {
-      writeTS = false;
-      writeSummary = false;
-      writeJSON = false;
-      const of = (opts.only || '').toLowerCase();
-      if (of === 'csv') writeTS = true;
-      else if (of === 'md' || of === 'txt' || of === 'csv') writeSummary = true;
-      else if (of === 'json') writeJSON = true;
-    }
-    if (opts.noTs) writeTS = false;
-
-    // Ensure JSON output when explicitly requested via --only json
-    if ((opts.only || '').toLowerCase() === 'json') {
-      writeJSON = true;
-      if (!jsonPath) {
-        jsonPath = path.join(process.cwd(), 'tactics_summary.json');
-      }
-    }
+    
 
     // Interactive confirmation for timeseries (before we actually write it)
     if (!opts.auto && writeTS) {
@@ -461,7 +483,7 @@ async function run(options = null, promptFn = defaultPrompt) {
 
     // Write summary
     if (writeSummary) {
-      const summaryContent = formatSummary(summary, perBucket, timelineUnit, outFormat, totalMs, treatAsUTC, firstTs, lastTs);
+      const summaryContent = formatSummary(summary, perBucket, timelineUnit, outFormat, totalMs, treatAsUTC, firstTs, lastTs, { showOptions: opts.showOptions, rowsWithDur });
       writeFileAtomic(outPath, summaryContent);
       console.log('Summary written to', outPath);
       outputResult.summaryPath = outPath;
