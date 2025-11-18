@@ -558,7 +558,7 @@ class TacticsApp {
       
       switch (normalizedFormat) {
         case 'csv':
-          content = buildTimeseriesLines(this.state.results.rows).join('\n');
+          content = buildTimeseriesLines(this.state.results.rowsWithDur || []).join('\n');
           filename = `tactics-timeseries-${new Date().toISOString().split('T')[0]}.csv`;
           mimeType = 'text/csv';
           break;
