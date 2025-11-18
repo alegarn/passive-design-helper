@@ -9,13 +9,15 @@ let psychrolib = null;
 // Use a computed module specifier to avoid bundlers (vite) trying to statically resolve the import.
 (async () => {
   try {
-    const pkg = 'psych' + 'rolib';
-    const mod = await import(pkg);
+    const spec = 'psychrolib';
+    console.debug('psychro:math attempting dynamic import with specifier ->', spec);
+    // Use a static specifier so Vite can remap/bundle the dependency correctly.
+    const mod = await import('psychrolib');
     psychrolib = mod.default || mod;
     if (psychrolib && typeof psychrolib.SetUnitSystem === 'function' && psychrolib.SI) {
       try { psychrolib.SetUnitSystem(psychrolib.SI); } catch (e) { /* ignore */ }
     }
-    console.debug('psychro:math loaded psychrolib', !!psychrolib);
+    console.debug('psychro:math loaded psychrolib successfully', !!psychrolib);
   } catch (e) {
     psychrolib = null;
     console.debug('psychro:math psychrolib not available, using fallbacks', e);
