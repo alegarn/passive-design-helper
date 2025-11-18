@@ -548,9 +548,17 @@ class TacticsApp {
     try {
       let content, filename, mimeType;
       
-      switch (format) {
+      // Handle missing/undefined/null/empty format values by using a safe default
+      if (format === undefined || format === null || format === '' || format === 'undefined' || format === 'null') {
+        format = 'csv';
+      }
+      
+      // Normalize and validate the format
+      const normalizedFormat = this.normalizeExportFormat(format);
+      
+      switch (normalizedFormat) {
         case 'csv':
-          content = buildTimeseriesLines(this.state.results.rows).join('\n');
+          content = buildTimeseriesLines(this.state.results.rowsWithDur || []).join('\n');
           filename = `tactics-timeseries-${new Date().toISOString().split('T')[0]}.csv`;
           mimeType = 'text/csv';
           break;
@@ -577,7 +585,8 @@ class TacticsApp {
           break;
           
         default:
-          throw new Error('Unsupported export format');
+          const supportedFormats = ['csv', 'json', 'md'];
+          throw new Error(`Unsupported export format: "${format}". Supported formats are: ${supportedFormats.join(', ')}`);
       }
       
       this.downloadBlob(content, filename, mimeType);
@@ -586,6 +595,36 @@ class TacticsApp {
       this.showError(`Export failed: ${error.message}`);
       console.error('Export error:', error);
     }
+  }
+
+  normalizeExportFormat(format) {
+    if (!format || typeof format !== 'string') {
+      return format;
+    }
+    
+    // Convert to lowercase and remove leading dots
+    const normalized = format.toLowerCase().replace(/^\./, '');
+    
+    // Handle MIME types
+    const mimeToFormat = {
+      'text/csv': 'csv',
+      'application/json': 'json',
+      'text/markdown': 'md'
+    };
+    
+    if (mimeToFormat[normalized]) {
+      return mimeToFormat[normalized];
+    }
+    
+    // Handle common variations
+    const variations = {
+      'markdown': 'md',
+      'text': 'md', // Common mistake
+      'csv': 'csv',
+      'json': 'json'
+    };
+    
+    return variations[normalized] || normalized;
   }
 
   downloadBlob(content, filename, mimeType) {
