@@ -1,0 +1,34 @@
+@import '../../styles/main.css';
+
+/**
+ * Global styles for the Svelte application
+ * 
+ * Import strategy:
+ * - We import the repository's main.css here as the single source of truth for all global styles
+ * - This ensures consistency across the entire application and avoids duplication
+ * 
+ * Additional imports:
+ * - For component-specific CSS, add imports here (e.g., @import '../../styles/components/buttons.css')
+ * - Keep imports organized by category (base, components, layout, utilities)
+ * 
+ * Asset paths note:
+ * - If styles reference absolute paths beginning with '/', they may need adjustment for the built app's base
+ * - Fix these when validating the built output to ensure proper asset loading
+ */
+
+/* Scoped reset for app defaults when embedded */
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  padding: 0;
+}
+
+/* Minimal app container styling */
+#app {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
