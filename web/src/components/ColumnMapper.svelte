@@ -15,14 +15,9 @@
   $effect(() => {
     if (availableColumns.length > 0 && Object.keys(tempMapping).length === 0) {
       tempMapping = { ...currentMapping };
-      console.log('ColumnMapper: initialized tempMapping once', tempMapping, { availableColumns });
     }
   });
 
-  // Log reactive values for diagnostics
-  $effect(() => {
-    console.log('ColumnMapper reactive', { availableColumns, currentMapping });
-  });
   
   // Apply the mapping to the store
   function applyMapping() {
@@ -37,7 +32,6 @@
       ...tempMapping,
       [field]: value
     };
-    console.log('ColumnMapper: field change', { field, value, tempMapping });
   }
 </script>
 

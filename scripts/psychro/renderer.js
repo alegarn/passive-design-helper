@@ -7,6 +7,11 @@ import { e_s_Pa, W_from_RH_T, dewPoint_C_from_e, enthalpy_kJkg, wetBulbSolver } 
 import { CurveCache } from './curveCache.js';
 import { ZONES } from '../zones.js';
 
+// Silence verbose renderer debug logs (non-destructive)
+try {
+  console.debug = console.trace = () => {};
+} catch (e) { /* ignore if console is read-only */ }
+
 /**
  * Create a psychrometric chart renderer
  * @param {HTMLElement} containerEl - Container element for the chart

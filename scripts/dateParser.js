@@ -222,13 +222,20 @@ function parseTimestampOrThrow(raw, preferDayFirst, filenameHint = '') {
   }
   
   // Record mapping for debugging (browser or Node). Keep only first 10 mappings to avoid noisy logs.
+  // Use a runtime guard: set `window._dateParseDebug = true` to enable console output.
   const _globalContext = (typeof window !== 'undefined') ? window : (typeof global !== 'undefined' ? global : {});
   try {
     _globalContext._dateParseMappings = _globalContext._dateParseMappings || [];
     if (_globalContext._dateParseMappings.length < 10) {
       _globalContext._dateParseMappings.push({ raw: String(raw), iso: new Date(tms).toISOString() });
-      // Also emit a console.debug for immediate visibility
-      console.debug(`DateParse: "${raw}" -> ${new Date(tms).toISOString()}`);
+      // Emit console output only when explicitly enabled by the runtime guard
+      try {
+        if (_globalContext._dateParseDebug) {
+          console.debug && console.debug(`DateParse: "${raw}" -> ${new Date(tms).toISOString()}`);
+        }
+      } catch (e) {
+        // ignore logging errors
+      }
     }
   } catch (e) {
     // Ignore any debugging errors

@@ -16,20 +16,6 @@
   let aggregationResult = $state(null);
   let detailedDataSpan = $state(null);
   
-  // Defensive logging to help debug missing headerFields / dataSpan payloads
-  $effect(() => {
-    console.log('ProcessControls mounted/updated - headerFields:', headerFields);
-    console.log('ProcessControls mounted/updated - sampleRows count:', sampleRows ? sampleRows.length : 0);
-    console.log('ProcessControls mounted/updated - dayFirst:', dayFirst);
-    console.log('ProcessControls mounted/updated - dataSpanInfo:', dataSpanInfo);
-    
-    // Log when headerFields are available
-    if (headerFields && headerFields.length > 0) {
-      console.log('ProcessControls: Header fields are available, dropdowns should be populated:', headerFields);
-    } else {
-      console.log('ProcessControls: Header fields are NOT available, dropdowns will be empty');
-    }
-  });
   
   // Column mapping state
   let timeColumn = $state('');
@@ -45,8 +31,6 @@
   // Auto-select columns based on header names
   $effect(() => {
     if (headerFields && headerFields.length > 0) {
-      console.log('ProcessControls: Auto-selecting columns from header fields:', headerFields);
-      
       // Auto-select time column
       const timeCol = headerFields.find(h =>
         h.toLowerCase().includes('time') ||
@@ -55,7 +39,6 @@
       );
       if (timeCol) {
         timeColumn = timeCol;
-        console.log('ProcessControls: Auto-selected time column:', timeCol);
       }
       
       // Auto-select temperature column
@@ -65,7 +48,6 @@
       );
       if (tempCol) {
         tempColumn = tempCol;
-        console.log('ProcessControls: Auto-selected temperature column:', tempCol);
       }
       
       // Auto-select humidity column
@@ -75,9 +57,9 @@
       );
       if (rhCol) {
         rhColumn = rhCol;
-        console.log('ProcessControls: Auto-selected humidity column:', rhCol);
       }
     } else {
+      // no header fields for auto-selection
       console.log('ProcessControls: No header fields available for auto-selection');
     }
   });
@@ -152,19 +134,15 @@
         color: getZoneColor(row.zone)
       }));
       
-      // Add development-only console log for verification
-      console.log('Generated psychrometric data points:', psychrometricData.length, psychrometricData.slice(0,5));
-      
       aggregationResult = { ...result, psychrometricData };
       
       // Dispatch event to notify parent component
-      console.log('Dispatched dataprocessed, points:', aggregationResult.psychrometricData?.length || 0);
       dispatch('dataprocessed', { result: aggregationResult });
       
-      // Add lightweight console logging for first 5 processed rows
+      // Lightweight internal sample (no console output)
       if (result && result.rowsWithDur && result.rowsWithDur.length > 0) {
         const sample = result.rowsWithDur.slice(0, 5);
-        console.log('Sample classifications:', sample.map(r => ({t: r.temp, rh: r.rh, zone: r.zone})));
+        // sample computed for internal use
       }
       
     } catch (error) {

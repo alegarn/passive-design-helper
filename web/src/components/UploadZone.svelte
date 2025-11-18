@@ -59,15 +59,6 @@
       };
       
       // Emit custom event with parsed data
-      console.log('UploadZone: Dispatching fileparsed event with:', {
-        file: file.name,
-        headerFieldsCount: headerFields.length,
-        sampleRowsCount: sampleRows.length,
-        dayFirst: detectedDayFirst,
-        dataSpanInfo
-      });
-      
-      // Try both dispatch methods for compatibility
       try {
         dispatch('fileparsed', {
           file,
@@ -76,9 +67,19 @@
           dayFirst: detectedDayFirst,
           dataSpanInfo
         });
-        console.log('UploadZone: Event dispatched successfully');
       } catch (error) {
         console.error('UploadZone: Error dispatching event:', error);
+      }
+      
+      // Call callback prop with parsed data (for backward compatibility)
+      if (typeof onFileParsed === 'function') {
+        onFileParsed({
+          file,
+          headerFields,
+          sampleRows,
+          dayFirst: detectedDayFirst,
+          dataSpanInfo
+        });
       }
       
       // Call callback prop with parsed data (for backward compatibility)

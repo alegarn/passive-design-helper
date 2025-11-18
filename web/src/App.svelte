@@ -14,14 +14,6 @@
   
   // Handle fileparsed event from UploadZone
   function handleFileParsed(event) {
-    console.log('App.svelte: Received fileparsed event:', {
-      file: event.detail.file?.name,
-      headerFieldsCount: event.detail.headerFields?.length || 0,
-      sampleRowsCount: event.detail.sampleRows?.length || 0,
-      dayFirst: event.detail.dayFirst,
-      dataSpanInfo: event.detail.dataSpanInfo
-    });
-    
     fileData = {
       file: event.detail.file,
       headerFields: event.detail.headerFields,
@@ -29,37 +21,13 @@
       dayFirst: event.detail.dayFirst,
       dataSpanInfo: event.detail.dataSpanInfo
     };
-    
-    console.log('App.svelte: Updated fileData state:', {
-      hasFile: !!fileData.file,
-      headerFieldsCount: fileData.headerFields?.length || 0,
-      sampleRowsCount: fileData.sampleRows?.length || 0,
-      dayFirst: fileData.dayFirst,
-      hasDataSpanInfo: !!fileData.dataSpanInfo
-    });
   }
   
   // Handle dataprocessed event from ProcessControls
   function handleDataProcessed(event) {
-    console.log('App.svelte: Received dataprocessed event:', {
-      pointsCount: event.detail.result?.psychrometricData?.length || 0
-    });
-    
     fileData = { ...fileData, aggregationResult: event.detail.result };
   }
   
-  // Debug effect to track fileData changes
-  $effect(() => {
-    console.log('App.svelte: fileData changed:', {
-      hasFile: !!fileData.file,
-      fileName: fileData.file?.name,
-      headerFieldsCount: fileData.headerFields?.length || 0,
-      sampleRowsCount: fileData.sampleRows?.length || 0,
-      dayFirst: fileData.dayFirst,
-      hasDataSpanInfo: !!fileData.dataSpanInfo,
-      hasAggregationResult: !!fileData.aggregationResult
-    });
-  });
 </script>
 
 <header>
