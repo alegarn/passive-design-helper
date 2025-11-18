@@ -14,6 +14,7 @@ class TacticsApp {
       timelineUnit: 'auto',
       results: null
     };
+    this.psychroChart = null;
     this.initEventListeners();
     this.tooltip = null;
   }
@@ -329,6 +330,17 @@ class TacticsApp {
   }
 
   renderChart() {
+    // Try to use psychrometric chart if available, fallback to simple chart
+    const chartContainer = document.querySelector('.chart-container');
+    
+    if (chartContainer && this.psychroChart) {
+      this.renderPsychroChart();
+    } else {
+      this.renderSimpleChart();
+    }
+  }
+
+  renderSimpleChart() {
     const canvas = document.querySelector('.psychrometric-chart');
     const ctx = canvas.getContext('2d');
     const legendEl = document.querySelector('.chart-legend');
@@ -434,6 +446,23 @@ class TacticsApp {
       `;
       legendEl.appendChild(item);
     });
+  }
+
+  renderPsychroChart() {
+    if (!this.psychroChart || !this.state.results || !this.state.results.rows) {
+      return;
+    }
+
+    // Prepare data points for psychrometric chart
+    const dataPoints = this.state.results.rows.map(row => ({
+      temp: row.temp,
+      rh: row.rh,
+      zone: row.zone,
+      timestamp: row.ts
+    }));
+
+    // Update chart with data
+    this.psychroChart.updateData(dataPoints);
   }
 
   renderStatistics() {
@@ -689,7 +718,97 @@ class TacticsApp {
   }
 }
 
+/**
+ * Initialize psychrometric chart integration
+ */
+function initPsychroIntegration() {
+  // Guard behind feature flag
+  if (!window.DEV_PSYCHRO_CHART) {
+    return;
+  }
+
+  try {
+    // Import psychrometric chart module
+    import('./psychro/index.js').then(({ initPsychroChart, createSampleDataPoints }) => {
+      // Find or create container element
+      let container = document.querySelector('.psychro-chart-container');
+      
+      if (!container) {
+        // Create container inside existing chart area
+        const chartArea = document.querySelector('.chart-container');
+        if (chartArea) {
+          container = document.createElement('div');
+          container.className = 'psychro-chart-container';
+          chartArea.appendChild(container);
+        } else {
+          console.error('Chart container not found');
+          return;
+        }
+      }
+
+      // Initialize psychrometric chart
+      const renderer = initPsychroChart('.psychro-chart-container', {
+        Tmin: 0,
+        Tmax: 50,
+        Wmax: 0.03,
+        p: 101325,
+        samplingN: 200
+      });
+
+      // Hook window resize to renderer.resize
+      const resizeHandler = () => {
+        const rect = container.getBoundingClientRect();
+        if (rect.width > 0 && rect.height > 0) {
+          renderer.resize(rect.width, rect.height);
+        }
+      };
+      
+      window.addEventListener('resize', resizeHandler);
+      
+      // Hook dataset-change to renderer.renderDataPoints
+      const datasetChangeHandler = () => {
+        // Convert existing data to psychrometric format
+        if (app.state.results && app.state.results.rows) {
+          const points = app.state.results.rows.map(row => ({
+            T: row.temp,
+            W: (row.rh / 100) * 0.622 * (2338 / (101325 - (row.rh / 100) * 2338)) // Approximate W from RH
+          }));
+          renderer.renderDataPoints(points);
+        }
+      };
+
+      // Listen for custom dataset change events
+      document.addEventListener('dataset-change', datasetChangeHandler);
+
+      // Load sample data after 1 second for testing
+      setTimeout(() => {
+        const samplePoints = createSampleDataPoints(20);
+        renderer.renderDataPoints(samplePoints);
+        console.log('Loaded sample psychrometric data points');
+      }, 1000);
+
+      // Store cleanup function
+      window._psychroCleanup = () => {
+        window.removeEventListener('resize', resizeHandler);
+        document.removeEventListener('dataset-change', datasetChangeHandler);
+        renderer.destroy();
+      };
+
+    }).catch(error => {
+      console.error('Failed to load psychrometric chart module:', error);
+    });
+
+  } catch (error) {
+    console.error('Failed to initialize psychrometric integration:', error);
+  }
+}
+
 // Initialize app when DOM is ready
 document.addEventListener('DOMContentLoaded', () => {
-  new TacticsApp();
+  window.app = new TacticsApp();
+  
+  // Initialize psychrometric chart integration when feature flag is enabled
+  if (window.DEV_PSYCHRO_CHART === true) {
+    initPsychroIntegration();
+  }
 });

@@ -504,7 +504,674 @@ function buildJsonSummary(summary, totalMs, inputPath) {
   };
 }
 
+// === psychro/math.js ===
+/**
+ * Saturation vapor pressure using Magnus-Tetens formula
+ * @param {number} T_C - Temperature in Celsius
+ * @returns {number} Saturation vapor pressure in Pascals
+ */
+function e_s_Pa(T_C) {
+  // Magnus-Tetens formula for saturation vapor pressure
+  // Valid for 0°C to 50°C
+  const a = 6.112; // hPa
+  const b = 17.62;
+  const c = 243.12; // °C
+  
+  // Convert hPa to Pa (1 hPa = 100 Pa)
+  return a * 100 * Math.exp((b * T_C) / (c + T_C));
+}
+
+/**
+ * Humidity ratio from vapor pressure
+ * @param {number} e - Vapor pressure in Pascals
+ * @param {number} p - Atmospheric pressure in Pascals (default 101325 Pa)
+ * @returns {number} Humidity ratio (kg water/kg dry air)
+ */
+function W_from_e(e, p = 101325) {
+  return 0.622 * e / (p - e);
+}
+
+/**
+ * Humidity ratio from relative humidity and temperature
+ * @param {number} RH - Relative humidity (0-1, not percentage)
+ * @param {number} T_C - Temperature in Celsius
+ * @param {number} p - Atmospheric pressure in Pascals (default 101325 Pa)
+ * @returns {number} Humidity ratio (kg water/kg dry air)
+ */
+function W_from_RH_T(RH, T_C, p = 101325) {
+  const e_sat = e_s_Pa(T_C);
+  const e = RH * e_sat;
+  return W_from_e(e, p);
+}
+
+/**
+ * Dew point temperature from vapor pressure (inverse Magnus)
+ * @param {number} e - Vapor pressure in Pascals
+ * @returns {number} Dew point temperature in Celsius
+ */
+function dewPoint_C_from_e(e) {
+  // Convert Pa to hPa for the formula
+  const e_hPa = e / 100;
+  
+  // Inverse Magnus formula
+  const a = 6.112; // hPa
+  const b = 17.62;
+  const c = 243.12; // °C
+  
+  // Only valid if e_hPa > 0
+  if (e_hPa <= 0) return -273.15; // Absolute zero as fallback
+  
+  return (c * Math.log(e_hPa / a)) / (b - Math.log(e_hPa / a));
+}
+
+/**
+ * Specific enthalpy of moist air
+ * @param {number} T_C - Dry bulb temperature in Celsius
+ * @param {number} W - Humidity ratio (kg water/kg dry air)
+ * @returns {number} Specific enthalpy in kJ/kg dry air
+ */
+function enthalpy_kJkg(T_C, W) {
+  // h = 1.006*T + W*(2501 + 1.86*T)
+  return 1.006 * T_C + W * (2501 + 1.86 * T_C);
+}
+
+/**
+ * Wet bulb temperature solver using bisection method
+ * @param {number} T_C - Dry bulb temperature in Celsius
+ * @param {number} RH - Relative humidity (0-1)
+ * @param {number} p - Atmospheric pressure in Pascals (default 101325 Pa)
+ * @param {number} tolerance - Convergence tolerance (default 0.001°C)
+ * @param {number} maxIterations - Maximum iterations (default 100)
+ * @returns {number} Wet bulb temperature in Celsius
+ */
+function wetBulbSolver(T_C, RH, p = 101325, tolerance = 0.001, maxIterations = 100) {
+  // Initial bounds for wet bulb temperature
+  let T_wb_min = -20; // °C
+  let T_wb_max = Math.max(T_C, 50); // Can't be higher than dry bulb or 50°C
+  
+  // Target humidity ratio
+  const W_target = W_from_RH_T(RH, T_C, p);
+  
+  // Bisection method
+  for (let i = 0; i < maxIterations; i++) {
+    const T_wb_mid = (T_wb_min + T_wb_max) / 2;
+    
+    // Calculate humidity ratio at wet bulb conditions (100% RH)
+    const W_wb = W_from_RH_T(1.0, T_wb_mid, p);
+    
+    // Calculate enthalpy at wet bulb conditions
+    const h_wb = enthalpy_kJkg(T_wb_mid, W_wb);
+    
+    // Calculate enthalpy at actual conditions
+    const h_actual = enthalpy_kJkg(T_C, W_target);
+    
+    // Check convergence
+    if (Math.abs(h_wb - h_actual) < tolerance) {
+      return T_wb_mid;
+    }
+    
+    // Adjust bounds
+    if (h_wb > h_actual) {
+      T_wb_max = T_wb_mid;
+    } else {
+      T_wb_min = T_wb_mid;
+    }
+    
+    // Check if bounds are too close
+    if (T_wb_max - T_wb_min < tolerance) {
+      return (T_wb_min + T_wb_max) / 2;
+    }
+  }
+  
+  // Return best estimate if convergence not achieved
+  return (T_wb_min + T_wb_max) / 2;
+}
+
+// === psychro/curveCache.js ===
+/**
+ * Simple LRU (Least Recently Used) cache for curve data
+ */
+class CurveCache {
+  /**
+   * Create a new curve cache
+   * @param {number} maxSize - Maximum number of entries to cache (default 20)
+   */
+  constructor(maxSize = 20) {
+    this.maxSize = maxSize;
+    this.cache = new Map();
+  }
+
+  /**
+   * Get cached value or compute and cache it
+   * @param {string|Object} key - Cache key (will be JSON.stringify'd if object)
+   * @param {Function} computeFn - Function to compute value if not in cache
+   * @returns {*} Cached or computed value
+   */
+  getOrCompute(key, computeFn) {
+    const stringKey = typeof key === 'string' ? key : JSON.stringify(key);
+    
+    if (this.cache.has(stringKey)) {
+      // Move to end (mark as recently used)
+      const value = this.cache.get(stringKey);
+      this.cache.delete(stringKey);
+      this.cache.set(stringKey, value);
+      return value;
+    }
+    
+    // Compute new value
+    const value = computeFn();
+    
+    // Add to cache
+    this.cache.set(stringKey, value);
+    
+    // Enforce size limit
+    if (this.cache.size > this.maxSize) {
+      // Remove oldest entry (first in Map)
+      const firstKey = this.cache.keys().next().value;
+      this.cache.delete(firstKey);
+    }
+    
+    return value;
+  }
+
+  /**
+   * Invalidate a specific cache entry
+   * @param {string|Object} key - Cache key to invalidate
+   * @returns {boolean} True if entry was found and removed
+   */
+  invalidate(key) {
+    const stringKey = typeof key === 'string' ? key : JSON.stringify(key);
+    return this.cache.delete(stringKey);
+  }
+
+  /**
+   * Clear all cache entries
+   */
+  clear() {
+    this.cache.clear();
+  }
+
+  /**
+   * Get current cache size
+   * @returns {number} Number of entries in cache
+   */
+  size() {
+    return this.cache.size;
+  }
+
+  /**
+   * Check if cache contains key
+   * @param {string|Object} key - Cache key to check
+   * @returns {boolean} True if key exists in cache
+   */
+  has(key) {
+    const stringKey = typeof key === 'string' ? key : JSON.stringify(key);
+    return this.cache.has(stringKey);
+  }
+
+  /**
+   * Get all cache keys (for debugging)
+   * @returns {Array<string>} Array of cache keys
+   */
+  keys() {
+    return Array.from(this.cache.keys());
+  }
+}
+
+// === psychro/renderer.js ===
+/**
+ * Create a psychrometric chart renderer
+ * @param {HTMLElement} containerEl - Container element for the chart
+ * @param {Object} options - Configuration options
+ * @returns {Object} Renderer instance with methods
+ */
+function createPsychroRenderer(containerEl, options = {}) {
+  // Default options
+  const opts = {
+    Tmin: 0,
+    Tmax: 50,
+    Wmax: 0.03,
+    p: 101325,
+    samplingN: 200,
+    dprCap: 2.0,
+    rafThrottleThreshold: 500,
+    resizeDebounceMs: 150,
+    ...options
+  };
+
+  // Validate samplingN range
+  opts.samplingN = Math.max(100, Math.min(400, opts.samplingN));
+  
+  // Store options for later access
+  const rendererOptions = { ...opts };
+
+  // State
+  let canvas, offscreenCanvas, ctx, offscreenCtx;
+  let width, height;
+  let curveCache = new CurveCache();
+  let resizeTimeout;
+  let rafId;
+  let lastFrameTime = 0;
+  let dataPoints = [];
+
+  /**
+   * Initialize renderer and create canvases
+   */
+  function init() {
+    // Clear any existing canvases first
+    containerEl.innerHTML = '';
+    
+    // Create main canvas
+    canvas = document.createElement('canvas');
+    canvas.className = 'psychro-canvas';
+    containerEl.appendChild(canvas);
+
+    // Get DPR (device pixel ratio) with cap
+    const dpr = Math.min(window.devicePixelRatio || 1, opts.dprCap);
+
+    // Set initial size
+    resize();
+
+    // Get contexts
+    ctx = canvas.getContext('2d');
+
+    // Create offscreen canvas (not appended to DOM)
+    if (typeof OffscreenCanvas !== 'undefined') {
+      offscreenCanvas = new OffscreenCanvas(width * dpr, height * dpr);
+      offscreenCtx = offscreenCanvas.getContext('2d');
+    } else {
+      // Fallback to in-memory canvas (not appended to DOM)
+      offscreenCanvas = document.createElement('canvas');
+      offscreenCanvas.width = width * dpr;
+      offscreenCanvas.height = height * dpr;
+      offscreenCtx = offscreenCanvas.getContext('2d');
+    }
+
+    // Handle resize with debounce
+    window.addEventListener('resize', handleResize);
+
+    // Initial render
+    renderBackground();
+  }
+
+  /**
+   * Handle window resize with debouncing
+   */
+  function handleResize() {
+    clearTimeout(resizeTimeout);
+    resizeTimeout = setTimeout(() => {
+      resize();
+      renderBackground();
+      renderDataPoints(dataPoints);
+    }, opts.resizeDebounceMs);
+  }
+
+  /**
+   * Resize canvases to container dimensions
+   */
+  function resize(w, h) {
+    if (w !== undefined && h !== undefined) {
+      width = w;
+      height = h;
+    } else {
+      const rect = containerEl.getBoundingClientRect();
+      width = rect.width;
+      height = rect.height;
+    }
+
+    const dpr = Math.min(window.devicePixelRatio || 1, opts.dprCap);
+
+    // Update main canvas
+    canvas.width = width * dpr;
+    canvas.height = height * dpr;
+    canvas.style.width = `${width}px`;
+    canvas.style.height = `${height}px`;
+
+    // Update contexts
+    if (ctx) {
+      ctx.scale(dpr, dpr);
+    }
+
+    // Update offscreen canvas
+    if (offscreenCanvas) {
+      offscreenCanvas.width = width * dpr;
+      offscreenCanvas.height = height * dpr;
+    }
+    if (offscreenCtx) {
+      offscreenCtx.scale(dpr, dpr);
+    }
+
+    // Invalidate curve cache on resize
+    curveCache.clear();
+  }
+
+  /**
+   * Convert psychrometric coordinates to canvas coordinates
+   * @param {number} T - Temperature in Celsius
+   * @param {number} W - Humidity ratio
+   * @returns {Object} Canvas coordinates {x, y}
+   */
+  function psychroToCanvas(T, W) {
+    const x = ((T - opts.Tmin) / (opts.Tmax - opts.Tmin)) * width;
+    const y = height - (W / opts.Wmax) * height;
+    return { x, y };
+  }
+
+  /**
+   * Generate constant temperature curve (vertical lines)
+   * @param {number} T - Temperature in Celsius
+   * @returns {Path2D} Path object for the curve
+   */
+  function generateConstantTempCurve(T) {
+    const path = new Path2D();
+    const start = psychroToCanvas(T, 0);
+    path.moveTo(start.x, start.y);
+    const end = psychroToCanvas(T, opts.Wmax);
+    path.lineTo(end.x, end.y);
+    return path;
+  }
+
+  /**
+   * Generate constant humidity ratio curve (horizontal lines)
+   * @param {number} W - Humidity ratio
+   * @returns {Path2D} Path object for the curve
+   */
+  function generateConstantWHumidCurve(W) {
+    const path = new Path2D();
+    const start = psychroToCanvas(opts.Tmin, W);
+    path.moveTo(start.x, start.y);
+    const end = psychroToCanvas(opts.Tmax, W);
+    path.lineTo(end.x, end.y);
+    return path;
+  }
+
+  /**
+   * Generate constant relative humidity curve
+   * @param {number} RH - Relative humidity (0-1)
+   * @returns {Path2D} Path object for the curve
+   */
+  function generateConstantRHCureve(RH) {
+    const path = new Path2D();
+    let firstPoint = true;
+
+    for (let i = 0; i <= opts.samplingN; i++) {
+      const T = opts.Tmin + (opts.Tmax - opts.Tmin) * (i / opts.samplingN);
+      const W = W_from_RH_T(RH, T, opts.p);
+      
+      if (W <= opts.Wmax) {
+        const point = psychroToCanvas(T, W);
+        if (firstPoint) {
+          path.moveTo(point.x, point.y);
+          firstPoint = false;
+        } else {
+          path.lineTo(point.x, point.y);
+        }
+      }
+    }
+    return path;
+  }
+
+  /**
+   * Generate constant enthalpy curve
+   * @param {number} h - Enthalpy in kJ/kg
+   * @returns {Path2D} Path object for the curve
+   */
+  function generateConstantEnthalpyCurve(h) {
+    const path = new Path2D();
+    let firstPoint = true;
+
+    for (let i = 0; i <= opts.samplingN; i++) {
+      const T = opts.Tmin + (opts.Tmax - opts.Tmin) * (i / opts.samplingN);
+      
+      // Solve for W from enthalpy equation: h = 1.006*T + W*(2501 + 1.86*T)
+      const W = (h - 1.006 * T) / (2501 + 1.86 * T);
+      
+      if (W > 0 && W <= opts.Wmax) {
+        const point = psychroToCanvas(T, W);
+        if (firstPoint) {
+          path.moveTo(point.x, point.y);
+          firstPoint = false;
+        } else {
+          path.lineTo(point.x, point.y);
+        }
+      }
+    }
+    return path;
+  }
+
+  /**
+   * Render background grid and curves
+   */
+  function renderBackground() {
+    if (!offscreenCtx) return;
+
+    // Clear canvas
+    offscreenCtx.clearRect(0, 0, width, height);
+
+    // Set styles
+    offscreenCtx.strokeStyle = '#e0e0e0';
+    offscreenCtx.lineWidth = 1;
+
+    // Draw temperature lines (vertical)
+    for (let T = Math.ceil(opts.Tmin); T <= opts.Tmax; T += 5) {
+      const curveKey = `temp_${T}`;
+      const path = curveCache.getOrCompute(curveKey, () => generateConstantTempCurve(T));
+      offscreenCtx.stroke(path);
+    }
+
+    // Draw humidity ratio lines (horizontal)
+    for (let W = 0.005; W <= opts.Wmax; W += 0.005) {
+      const curveKey = `w_${W.toFixed(3)}`;
+      const path = curveCache.getOrCompute(curveKey, () => generateConstantWHumidCurve(W));
+      offscreenCtx.stroke(path);
+    }
+
+    // Draw relative humidity curves
+    offscreenCtx.strokeStyle = '#a0a0a0';
+    for (let RH = 0.1; RH <= 1.0; RH += 0.1) {
+      const curveKey = `rh_${RH.toFixed(1)}`;
+      const path = curveCache.getOrCompute(curveKey, () => generateConstantRHCureve(RH));
+      offscreenCtx.stroke(path);
+    }
+
+    // Draw enthalpy lines
+    offscreenCtx.strokeStyle = '#808080';
+    offscreenCtx.setLineDash([5, 5]);
+    for (let h = 20; h <= 100; h += 10) {
+      const curveKey = `h_${h}`;
+      const path = curveCache.getOrCompute(curveKey, () => generateConstantEnthalpyCurve(h));
+      offscreenCtx.stroke(path);
+    }
+    offscreenCtx.setLineDash([]);
+
+    // Draw border
+    offscreenCtx.strokeStyle = '#333';
+    offscreenCtx.lineWidth = 2;
+    offscreenCtx.strokeRect(0, 0, width, height);
+
+    // Copy to main canvas
+    ctx.clearRect(0, 0, width, height);
+    ctx.drawImage(offscreenCanvas, 0, 0, width, height);
+  }
+
+  /**
+   * Render zones on the chart
+   */
+  function renderZones() {
+    if (!ctx || !window.TacticsBundle || !window.TacticsBundle.ZONES) return;
+
+    // Create coordinate mapping functions
+    const mapTempToX = (T) => ((T - opts.Tmin) / (opts.Tmax - opts.Tmin)) * width;
+    const mapWToY = (W) => height - (W / opts.Wmax) * height;
+
+    // Draw each zone
+    window.TacticsBundle.ZONES.forEach(zone => {
+      if (zone.poly && zone.poly.length > 0) {
+        ctx.fillStyle = zone.color + '40'; // Add transparency
+        ctx.strokeStyle = zone.color;
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+
+        zone.poly.forEach((pt, i) => {
+          // Convert RH to W (humidity ratio) if needed
+          const W = window.TacticsBundle.W_from_RH_T(pt[1]/100, pt[0]);
+          const x = mapTempToX(pt[0]);
+          const y = mapWToY(W);
+
+          if (i === 0) {
+            ctx.moveTo(x, y);
+          } else {
+            ctx.lineTo(x, y);
+          }
+        });
+
+        ctx.closePath();
+        ctx.fill();
+        ctx.stroke();
+      }
+    });
+  }
+
+  /**
+   * Render data points with RAF throttling
+   * @param {Array} points - Array of data points with T, W properties
+   */
+  function renderDataPoints(points) {
+    dataPoints = points || [];
+
+    // Throttle based on point count
+    const useThrottle = dataPoints.length > opts.rafThrottleThreshold;
+    const targetFPS = useThrottle ? 30 : 60;
+    const frameInterval = 1000 / targetFPS;
+
+    const render = (timestamp) => {
+      if (timestamp - lastFrameTime >= frameInterval) {
+        // Redraw background
+        ctx.clearRect(0, 0, width, height);
+        ctx.drawImage(offscreenCanvas, 0, 0, width, height);
+
+        // Draw zones
+        renderZones();
+
+        // Draw points
+        ctx.fillStyle = '#ff4444';
+        dataPoints.forEach(point => {
+          const canvasPoint = psychroToCanvas(point.T, point.W);
+          ctx.beginPath();
+          ctx.arc(canvasPoint.x, canvasPoint.y, 4, 0, 2 * Math.PI);
+          ctx.fill();
+        });
+
+        lastFrameTime = timestamp;
+      }
+
+      if (useThrottle) {
+        rafId = requestAnimationFrame(render);
+      }
+    };
+
+    // Cancel any existing animation
+    if (rafId) {
+      cancelAnimationFrame(rafId);
+    }
+
+    if (useThrottle) {
+      rafId = requestAnimationFrame(render);
+    } else {
+      render(0);
+    }
+  }
+
+  /**
+   * Clean up resources
+   */
+  function destroy() {
+    if (rafId) {
+      cancelAnimationFrame(rafId);
+    }
+    window.removeEventListener('resize', handleResize);
+    clearTimeout(resizeTimeout);
+    if (canvas && canvas.parentNode) {
+      canvas.parentNode.removeChild(canvas);
+    }
+    // Clear all canvases in the container to prevent duplicates
+    if (containerEl) {
+      containerEl.innerHTML = '';
+    }
+    curveCache.clear();
+  }
+
+  // Return public API
+  return {
+    init,
+    renderBackground,
+    renderDataPoints,
+    renderZones,
+    resize,
+    destroy,
+    getCanvas: () => canvas,
+    getContext: () => ctx,
+    getOptions: () => rendererOptions
+  };
+}
+
+// === psychro/index.js ===
+/**
+ * Initialize a psychrometric chart in the specified container
+ * @param {string} containerSelector - CSS selector for the container element
+ * @param {Object} options - Configuration options for the chart
+ * @returns {Object} Renderer instance with methods
+ */
+function initPsychroChart(containerSelector, options = {}) {
+  // Find container element
+  const containerEl = document.querySelector(containerSelector);
+  if (!containerEl) {
+    throw new Error(`Container element not found: ${containerSelector}`);
+  }
+
+  // Create renderer with default options
+  const defaultOptions = {
+    Tmin: 0,
+    Tmax: 50,
+    Wmax: 0.03,
+    p: 101325,
+    samplingN: 200,
+    dprCap: 2.0,
+    rafThrottleThreshold: 500,
+    resizeDebounceMs: 150
+  };
+
+  const mergedOptions = { ...defaultOptions, ...options };
+
+  // Create and initialize renderer
+  const renderer = createPsychroRenderer(containerEl, mergedOptions);
+  renderer.init();
+
+  return renderer;
+}
+
+/**
+ * Create sample data points for testing
+ * @param {number} count - Number of sample points to generate
+ * @returns {Array} Array of sample points with T and W properties
+ */
+function createSampleDataPoints(count = 10) {
+  const points = [];
+  for (let i = 0; i < count; i++) {
+    points.push({
+      T: Math.random() * 50, // 0-50°C
+      W: Math.random() * 0.03, // 0-0.03 kg/kg
+      id: i
+    });
+  }
+  return points;
+}
+
+// Enable psychrometric chart feature flag
+window.DEV_PSYCHRO_CHART = true;
+
 // Export all functions for use in app.js
+// Added psychro modules to support psychrometric chart functionality in production bundle
 window.TacticsBundle = {
   ZONES,
   INF_T,
@@ -518,5 +1185,16 @@ window.TacticsBundle = {
   createAggregator,
   buildTimeseriesLines,
   formatSummary,
-  buildJsonSummary
+  buildJsonSummary,
+  // Psychrometric chart functions
+  e_s_Pa,
+  W_from_e,
+  W_from_RH_T,
+  dewPoint_C_from_e,
+  enthalpy_kJkg,
+  wetBulbSolver,
+  CurveCache,
+  createPsychroRenderer,
+  initPsychroChart,
+  createSampleDataPoints
 };
