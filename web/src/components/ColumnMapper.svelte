@@ -1,26 +1,28 @@
 <script>
   import { rawData, mapping, setMapping } from '../stores/uiStore.js';
-  
   // Define the required fields that need mapping
   const requiredFields = ['timestamp', 'temperature', 'humidity'];
-  
-  // Reactive variables
-  $: availableColumns = $rawData.length > 0 ? Object.keys($rawData[0]) : [];
-  $: currentMapping = { ...$mapping };
-  
+
+  // Local state variables using $state
+  let tempMapping = $state({});
+
+  // Derived values using $derived
+  const availableColumns = $derived($rawData && $rawData.length > 0 ? Object.keys($rawData[0]) : []);
+  const currentMapping = $derived($mapping || {});
+  const isMappingComplete = $derived(requiredFields.every(field => !!tempMapping[field]));
+
+  // Initialize tempMapping when availableColumns first appear
+  $effect(() => {
+    if (availableColumns.length > 0 && Object.keys(tempMapping).length === 0) {
+      tempMapping = { ...currentMapping };
+      console.log('ColumnMapper: initialized tempMapping once', tempMapping, { availableColumns });
+    }
+  });
+
   // Log reactive values for diagnostics
-  $: console.log('ColumnMapper reactive', { availableColumns, currentMapping });
-  // Temporary mapping state for form inputs
-  let tempMapping = {};
-  
-  // Initialize tempMapping only once when availableColumns first appear
-  $: if (availableColumns.length > 0 && Object.keys(tempMapping).length === 0) {
-    tempMapping = { ...currentMapping };
-    console.log('ColumnMapper: initialized tempMapping once', tempMapping, { availableColumns });
-  }
-  
-  // Check if all required fields are mapped
-  $: isMappingComplete = requiredFields.every(field => tempMapping[field]);
+  $effect(() => {
+    console.log('ColumnMapper reactive', { availableColumns, currentMapping });
+  });
   
   // Apply the mapping to the store
   function applyMapping() {
@@ -52,8 +54,8 @@
           <select 
             id="{field}" 
             class="form-field__select"
-            bind:value={tempMapping[field]}
-            on:change={() => handleFieldChange(field, tempMapping[field])}
+            value={tempMapping[field]}
+            onchange={(e) => handleFieldChange(field, e.target.value)}
           >
             <option value="">Select a column...</option>
             {#each availableColumns as column}
@@ -74,7 +76,7 @@
     
     <button 
       class="btn btn--primary" 
-      on:click={applyMapping}
+      onclick={applyMapping}
       disabled={!isMappingComplete}
     >
       Apply Mapping

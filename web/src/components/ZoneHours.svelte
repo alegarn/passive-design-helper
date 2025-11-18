@@ -1,5 +1,5 @@
 <script>
-  let { zone } = $props();
+  let { zoneData: zone } = $props();
 </script>
 
 <div class="stat-card" role="listitem">
