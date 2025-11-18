@@ -39,6 +39,7 @@ function printHelp() {
   console.log('  --json, -j [path]          Write JSON summary (optional path, default tactics_summary.json)');
   console.log('  --only <csv|md|txt|json>    Produce only one output type and skip others');
   console.log('  --no-ts                    Do not write the timeseries CSV');
+  console.log('  --show-options             Append multichoice options table to summary output');
   console.log('  --choose                   In auto mode, allow simple choice of input file when multiple exist');
   console.log('  --select <N>               In auto mode select the N-th CSV (1-based) deterministically');
   console.log('\nExamples:');
@@ -399,7 +400,7 @@ async function run(options = null, promptFn = defaultPrompt) {
     
     // Get final aggregation results
     const result = aggregator.finish();
-    const { agg, perBucket, summary, totalMs, firstTs: ft, lastTs: lt } = result;
+    const { agg, perBucket, summary, totalMs, firstTs: ft, lastTs: lt, rowsWithDur } = result;
     
     // Update first and last timestamps
     firstTs = ft;
@@ -461,7 +462,7 @@ async function run(options = null, promptFn = defaultPrompt) {
 
     // Write summary
     if (writeSummary) {
-      const summaryContent = formatSummary(summary, perBucket, timelineUnit, outFormat, totalMs, treatAsUTC, firstTs, lastTs);
+      const summaryContent = formatSummary(summary, perBucket, timelineUnit, outFormat, totalMs, treatAsUTC, firstTs, lastTs, { showOptions: opts.showOptions, rowsWithDur });
       writeFileAtomic(outPath, summaryContent);
       console.log('Summary written to', outPath);
       outputResult.summaryPath = outPath;
