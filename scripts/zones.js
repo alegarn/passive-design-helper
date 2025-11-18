@@ -324,14 +324,14 @@ function formatSimplifiedView(summary, options = {}) {
   return lines.join('\n');
 }
 
-module.exports = {
+export {
   ZONES,
   INF_T,
   pointInPoly,
   zonesContainingPoint,
   preferredZoneForPoint,
   summarizeTimeSeries,
-  mergeConsecutive
-  ,formatMultichoiceTable
-  ,formatSimplifiedView
+  mergeConsecutive,
+  formatMultichoiceTable,
+  formatSimplifiedView
 };

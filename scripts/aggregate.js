@@ -1,6 +1,6 @@
 // Refactor derived from logic.js
-const { datePartsFactory } = require('./utils');
-const { classifyPoint } = require('./classify');
+import { datePartsFactory } from './utils.js';
+import { classifyPoint } from './classify.js';
 
 /**
  * Compute duration for each row using median rule and ensure non-negative duration
@@ -235,10 +235,4 @@ function createAggregator(options = {}) {
   };
 }
 
-module.exports = {
-  computeDurations,
-  detectSampling,
-  buildBuckets,
-  bucketKey,
-  createAggregator
-};
+export { computeDurations, detectSampling, buildBuckets, bucketKey, createAggregator };

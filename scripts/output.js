@@ -1,6 +1,6 @@
 // Refactor derived from logic.js
-const { ZONES, zonesContainingPoint, preferredZoneForPoint } = require('./zones');
-const { datePartsFactory } = require('./utils');
+import { ZONES, zonesContainingPoint, preferredZoneForPoint } from './zones.js';
+import { datePartsFactory } from './utils.js';
 
 /**
  * Build timeseries CSV lines from processed rows
@@ -219,10 +219,4 @@ function buildJsonSummary(summary, totalMs, inputPath) {
   };
 }
 
-module.exports = {
-  buildTimeseriesLines,
-  buildTimeseriesHeaderLine,
-  buildTimeseriesLine,
-  formatSummary,
-  buildJsonSummary
-};
+export { buildTimeseriesLines, buildTimeseriesHeaderLine, buildTimeseriesLine, formatSummary, buildJsonSummary };

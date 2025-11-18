@@ -60,8 +60,4 @@ function findBestColumn(headers, candidates) {
   return -1;
 }
 
-module.exports = {
-  csvSplitLine,
-  parseHeader,
-  findBestColumn
-};
+export { csvSplitLine, parseHeader, findBestColumn };

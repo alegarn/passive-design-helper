@@ -54,8 +54,4 @@ function humanizePeriod(unit) {
   }
 }
 
-module.exports = {
-  parseNumberSafe,
-  datePartsFactory,
-  humanizePeriod
-};
+export { parseNumberSafe, datePartsFactory, humanizePeriod };

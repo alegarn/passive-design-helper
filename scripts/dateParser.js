@@ -1,5 +1,5 @@
 // Refactor derived from logic.js
-const path = require('path');
+// const path = require('path'); // Not needed in browser
 
 /**
  * Try to parse a date string using multiple strategies
@@ -163,9 +163,4 @@ function parseTimestampOrThrow(raw, preferDayFirst) {
   return tms;
 }
 
-module.exports = {
-  tryParseDate,
-  detectDayFirstFromSamples,
-  normalizeToUTC,
-  parseTimestampOrThrow
-};
+export { tryParseDate, detectDayFirstFromSamples, normalizeToUTC, parseTimestampOrThrow };

@@ -1,5 +1,5 @@
 // Refactor derived from logic.js
-const { ZONES } = require('./zones');
+import { ZONES } from './zones.js';
 
 /**
  * Check if a point lies on a line segment
@@ -70,8 +70,4 @@ function classifyPoint(temp, rh) {
   return matches[0];
 }
 
-module.exports = {
-  pointOnSegment,
-  pointInPoly,
-  classifyPoint
-};
+export { pointOnSegment, pointInPoly, classifyPoint };
