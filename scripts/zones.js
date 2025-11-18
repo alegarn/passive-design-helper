@@ -22,16 +22,18 @@ function p(t, rh) {
  * Zone definitions for passive design tactics
  * Each zone has id, color, polygon points, and optional note
  */
+import { ZONE_COLORS } from './theme.js';
+
 const ZONES = [
   { 
     id: 'Cold', 
-    color: '#88c0d0', 
+    color: ZONE_COLORS['Cold'], 
     poly: null, 
     note: 'T < 23°C' 
   },
   { 
     id: 'Comfort', 
-    color: '#a3be8c', 
+    color: ZONE_COLORS['Comfort'], 
     poly: [ 
       p(23,20), 
       p(23,80), 
@@ -43,7 +45,7 @@ const ZONES = [
   },
   { 
     id: 'Ventilation', 
-    color: '#ebcb8b', 
+    color: ZONE_COLORS['Ventilation'], 
     poly: [ 
       p(23,80), 
       p(23,100), 
@@ -58,7 +60,7 @@ const ZONES = [
   },
   { 
     id: 'Mass Cooling', 
-    color: '#5e81ac', 
+    color: ZONE_COLORS['Mass Cooling'], 
     poly: [ 
       p(23,20), 
       p(29.5,20), 
@@ -71,7 +73,7 @@ const ZONES = [
   },
   { 
     id: 'Evaporative Cooling', 
-    color: '#88c0d0', 
+    color: ZONE_COLORS['Evaporative Cooling'], 
     poly: [ 
       p(23,20), 
       p(29.5,20), 
@@ -86,7 +88,7 @@ const ZONES = [
   },
   {
     id: 'Mass Cooling & Night Ventilation (or Air Conditioning)',
-    color: '#5e81ac',
+    color: ZONE_COLORS['Mass Cooling & Night Ventilation (or Air Conditioning)'],
     poly: [
       p(39.6, 7),
       p(39.6,30),
@@ -98,7 +100,7 @@ const ZONES = [
   },
   {
     id: 'Air Conditioning + Dehumidifier',
-    color: '#bf616a', 
+    color: ZONE_COLORS['Air Conditioning + Dehumidifier'], 
     poly: [
       p(34.7, 45),
       p(34.7, 50),
@@ -110,7 +112,7 @@ const ZONES = [
   },
   { 
     id: 'Air Conditioning', 
-    color: '#d08770', 
+    color: ZONE_COLORS['Air Conditioning'], 
     poly: [
       p(43.7,  0),
       p(43.7,  6),

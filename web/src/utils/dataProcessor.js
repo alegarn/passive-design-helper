@@ -6,8 +6,9 @@
  */
 
 import { parseTimestampOrThrow, detectDayFirstFromSamples, normalizeToUTC } from '../../../scripts/dateParser.js';
-import { createAggregator } from '../../../scripts/aggregate.js';
+import { createAggregator, detectSampling } from '../../../scripts/aggregate.js';
 import { classifyPoint } from '../../../scripts/classify.js';
+import { ZONE_COLORS } from '../../../scripts/theme.js';
 
 /**
  * Process raw CSV data with column mapping configuration
@@ -32,8 +33,10 @@ export async function processData(rawData, mapping, options = {}) {
   
   const {
     treatAsUTC = false,
-    timelineUnit = 'day'
+    timelineUnit = null // Will be determined from sampling if not provided
   } = options;
+  // Allow caller to pass source filename to help disambiguate date formats (e.g., single-month files)
+  const sourceFilename = options.sourceFilename || options.filename || '';
   
   try {
     // Step 1: Transform raw data using column mapping
@@ -45,22 +48,73 @@ export async function processData(rawData, mapping, options = {}) {
       .map(row => row.dateStr)
       .filter(Boolean);
     
-    const preferDayFirst = detectDayFirstFromSamples(dateSamples, '');
+    // Pass sourceFilename to detection so single-month files (e.g. _04_) are recognized
+    let preferDayFirst = detectDayFirstFromSamples(dateSamples, sourceFilename);
+    
+    // Extra, conservative heuristic: if samples show a single constant second component
+    // across most rows (likely the month in DD/MM/YYYY) then prefer day-first parsing.
+    // This handles exports like "01/04/2024 ..." where month=04 is constant.
+    if (!preferDayFirst && dateSamples.length > 0) {
+      const comps = dateSamples.map(s => {
+        const m = s && s.trim().match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2,4})/);
+        return m ? { day: Number(m[1]), month: Number(m[2]) } : null;
+      }).filter(Boolean);
+      if (comps.length > 0) {
+        const uniqueMonths = [...new Set(comps.map(c => c.month))];
+        // If second component is constant (single-month export) prefer day-first
+        if (uniqueMonths.length === 1) {
+          preferDayFirst = true;
+        }
+      }
+    }
     
     // Step 3: Parse dates and prepare data for aggregation
-    const parsedData = parseDates(transformedData, preferDayFirst, treatAsUTC);
+    const parsedData = parseDates(transformedData, preferDayFirst, treatAsUTC, sourceFilename);
     
-    // Step 4: Aggregate and classify the data
+    // Step 4: Detect sampling to determine appropriate timeline unit if not provided
+    let finalTimelineUnit = timelineUnit;
+    if (!finalTimelineUnit && parsedData.length > 1) {
+      // Calculate time differences between consecutive rows
+      const diffs = [];
+      for (let i = 0; i < parsedData.length - 1; i++) {
+        diffs.push(parsedData[i + 1].ts - parsedData[i].ts);
+      }
+      
+      // Get median difference for sampling detection
+      const medianDiff = diffs.length ? diffs.sort((a, b) => a - b)[Math.floor(diffs.length / 2)] : 0;
+      const { samplingUnit } = detectSampling(medianDiff);
+      
+      // prefer detected sampling unit to avoid coarse bucket defaults
+      if (samplingUnit === 'hour') {
+        finalTimelineUnit = 'hour'; // prefer detected sampling unit to avoid coarse bucket defaults
+      } else if (samplingUnit === 'day') {
+        finalTimelineUnit = 'day';
+      } else {
+        finalTimelineUnit = 'day'; // Default fallback
+      }
+    } else if (!finalTimelineUnit) {
+      finalTimelineUnit = 'day'; // Default fallback
+    }
+    
+    // Step 5: Aggregate and classify the data
     const aggregator = createAggregator({ treatAsUTC });
-    aggregator.setTimelineUnit(timelineUnit);
+    aggregator.setTimelineUnit(finalTimelineUnit);
     
     // Process each row
     for (const row of parsedData) {
       aggregator.pushRow(row);
     }
     
-    // Step 5: Get final results
+    // Step 6: Get final results
     const results = aggregator.finish();
+
+    // Attach color information to each summary item so UI components can render color bars
+    if (results && Array.isArray(results.summary)) {
+      results.summary = results.summary.map(s => ({
+        ...s,
+        color: ZONE_COLORS[s.zone] || '#999999'
+      }));
+    }
     
     // Step 6: Return structured result object
     return {
@@ -81,7 +135,7 @@ export async function processData(rawData, mapping, options = {}) {
       metadata: {
         preferDayFirst,
         treatAsUTC,
-        timelineUnit,
+        timelineUnit: finalTimelineUnit,
         mapping
       }
     };
@@ -125,11 +179,11 @@ function transformData(rawData, mapping) {
  * @param {boolean} treatAsUTC - Whether to treat dates as UTC
  * @returns {Array} Data with parsed timestamps
  */
-function parseDates(transformedData, preferDayFirst, treatAsUTC) {
+function parseDates(transformedData, preferDayFirst, treatAsUTC, sourceFilename = '') {
   return transformedData.map((row, index) => {
     try {
-      // Parse timestamp
-      let ts = parseTimestampOrThrow(row.dateStr, preferDayFirst);
+      // Parse timestamp (use sourceFilename hint to disambiguate day/month ordering)
+      let ts = parseTimestampOrThrow(row.dateStr, preferDayFirst, sourceFilename || '');
       
       // Normalize to UTC if requested
       ts = normalizeToUTC(ts, treatAsUTC);
