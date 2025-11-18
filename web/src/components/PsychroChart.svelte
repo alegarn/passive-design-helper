@@ -11,6 +11,33 @@
   let isLoading = $state(true);
   let error = $state(null);
   let __origConsole = null; // Store original console methods for restoration later
+
+  // Sanitize incoming psychrometric points:
+  // - Ensure numeric T and W
+  // - Coerce strings to numbers where possible
+  // - Log offending items (first 10) to help trace upstream issues
+  function sanitizePoints(rawPoints) {
+    const arr = Array.isArray(rawPoints) ? rawPoints : [];
+    const out = [];
+    const bad = [];
+    for (let i = 0; i < arr.length; i++) {
+      const p = arr[i];
+      if (!p) continue;
+      const T = Number(p.T);
+      const W = Number(p.W);
+      const zone = p.zone;
+      const color = p.color;
+      if (!Number.isFinite(T) || !Number.isFinite(W)) {
+        bad.push({ index: i, original: p });
+        continue;
+      }
+      out.push({ T, W, zone, color });
+    }
+    if (bad.length > 0) {
+      console.warn('PsychroChart: sanitizePoints found invalid items (first 10):', bad.slice(0, 10));
+    }
+    return out;
+  }
   
   onMount(async () => {
     try {
@@ -18,12 +45,11 @@
       isLoading = false;
       await tick();
 
-      // Temporarily suppress console logs during renderer initialization and lifecycle
-      // This is a temporary debugging measure to reduce console noise - remove after debugging
-      try {
-        __origConsole = { log: console.log, trace: console.trace, info: console.info, debug: console.debug };
-        console.log = console.trace = console.info = console.debug = () => {};
-      } catch(e) { /* ignore */ }
+      // Debug: log incoming summaryData and sample points (first 10)
+      console.log('PsychroChart: summaryData present?', !!summaryData, 'points:', (summaryData?.psychrometricData?.length||0));
+      console.log('PsychroChart sample points:', (summaryData?.psychrometricData||[]).slice(0,10));
+
+      // NOTE: console suppression removed to allow debugging logs
 
       // Dynamic import of the psychro renderer
       const { createPsychroRenderer } = await import('../../../scripts/psychro/index.js');
@@ -65,9 +91,43 @@
           renderer.resize(rect.width, rect.height);
           renderer.renderBackground();
           
-          // Re-render data points if available
-          if ($results && $results.psychrometricData) {
-            renderer.renderDataPoints($results.psychrometricData);
+          // Re-render data points if available (sanitize before rendering)
+          const rawPoints = summaryData?.psychrometricData || $results?.psychrometricData || [];
+          const points = sanitizePoints(rawPoints);
+          console.log('PsychroChart: resize -> rendering sanitized points', points.length);
+          console.log('PsychroChart: resize -> sample sanitized points:', points.slice(0,10));
+          
+          // Local diagnostics: compute simple pixel mapping using renderer defaults to detect off-canvas / range issues
+          try {
+            const width = rect.width;
+            const height = rect.height;
+            const Tmin = 0, Tmax = 50, Wmax = 0.03;
+            const psychroToCanvasLocal = (T, W) => {
+              const x = ((T - Tmin) / (Tmax - Tmin)) * width;
+              const y = height - (W / Wmax) * height;
+              return { x, y };
+            };
+            points.slice(0,5).forEach((pt, idx) => {
+              const T = Number(pt.T);
+              const W = Number(pt.W);
+              const inRange = Number.isFinite(T) && Number.isFinite(W) && T >= Tmin && T <= Tmax && W >= 0;
+              const { x, y } = psychroToCanvasLocal(T, W);
+              const insideCanvas = x >= -10 && x <= width + 10 && y >= -10 && y <= height + 10;
+              console.log('resize diagnostic', idx, { T, W, inRange, insideCanvas, x: Math.round(x), y: Math.round(y), color: pt.color });
+            });
+          } catch (e) {
+            console.warn('PsychroChart: resize diagnostics failed', e);
+          }
+          
+          if (points.length > 0) {
+            console.log('PsychroChart: about to call renderer.renderDataPoints, renderer.ok?', !!(renderer && renderer.renderDataPoints));
+            let renderPoints = points;
+            // Ensure we trigger the renderer's RAF path for large batches (>= threshold)
+            if (points.length >= 500) {
+              renderPoints = points.concat(points[0] ? { ...points[0] } : [{ T: 0, W: 0, zone: '', color: '#000' }]);
+              console.warn('PsychroChart: added temporary duplicate point to trigger RAF rendering (workaround) during resize. length->', renderPoints.length);
+            }
+            renderer.renderDataPoints(renderPoints);
           }
         }
       });
@@ -79,10 +139,48 @@
     }
   });
 
-  // Use $effect to react to results changes instead of manual subscription
+  // Reactive effect to handle summaryData changes
+  $effect(() => {
+    const rawPoints = summaryData?.psychrometricData || [];
+    const points = sanitizePoints(rawPoints);
+    console.log('PsychroChart: Rendering', points.length, 'data points (sanitized)');
+    
+    if (renderer && points.length > 0) {
+      renderer.renderDataPoints(points);
+      // Log pixel mapping for up to 5 sample points using local mapping (matches renderer psychroToCanvas)
+      try {
+        const rect = canvasElement?.parentElement?.getBoundingClientRect ? canvasElement.parentElement.getBoundingClientRect() : { width: 300, height: 150 };
+        const width = rect.width;
+        const height = rect.height;
+        const Tmin = 0, Tmax = 50, Wmax = 0.03;
+        const psychroToCanvasLocal = (T, W) => {
+          const x = ((T - Tmin) / (Tmax - Tmin)) * width;
+          const y = height - (W / Wmax) * height;
+          return { x, y };
+        };
+        points.slice(0, 5).forEach((pt, idx) => {
+          const T = Number(pt.T), W = Number(pt.W), color = pt.color;
+          const { x, y } = psychroToCanvasLocal(T, W);
+          console.log('Point -> pixel', { T, W, x: Math.round(x), y: Math.round(y), color });
+          console.log('Drawing point', idx);
+        });
+      } catch (e) {
+        console.warn('PsychroChart: pixel mapping logs failed', e);
+      }
+    }
+  });
+  
+  // Keep the original results store effect for backward compatibility
   $effect(() => {
     if (renderer && $results && $results.psychrometricData) {
-      renderer.renderDataPoints($results.psychrometricData);
+      const points = sanitizePoints($results.psychrometricData);
+      console.log('PsychroChart: Rendering from $results', points.length, 'points');
+      let renderPoints = points;
+      if (points.length >= 500) {
+        renderPoints = points.concat(points[0] ? { ...points[0] } : [{ T: 0, W: 0, zone: '', color: '#000' }]);
+        console.warn('PsychroChart: added temporary duplicate point to trigger RAF rendering (workaround) for $results. newLength=', renderPoints.length);
+      }
+      renderer.renderDataPoints(renderPoints);
     }
   });
   

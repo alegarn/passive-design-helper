@@ -1,106 +1,95 @@
 <script>
-  import { setRawData } from '../stores/uiStore.js';
+  import { parseCsvStream } from '../utils/dataProcessor.js';
+  import { createEventDispatcher } from 'svelte';
 
   let { onFileParsed = null } = $props();
+  const dispatch = createEventDispatcher();
+  
   let statusText = $state('');
   let parsedRowCount = $state(0);
+  let dayFirst = $state(null);
+  let dragActive = $state(false);
   
   /**
-   * Fallback minimal CSV parser that splits by lines and commas
-   * Used when the main CSV parser is unavailable or fails
-   * @param {string} text - CSV text content
-   * @returns {Array<Object>} Parsed data as array of objects
-   */
-  function fallbackCSVParser(text) {
-    const lines = text.split('\n').filter(line => line.trim());
-    if (lines.length < 2) return [];
-    
-    // Parse header row
-    const headers = lines[0].split(',').map(h => h.trim().replace(/^"|"$/g, ''));
-    
-    // Parse data rows
-    const data = [];
-    for (let i = 1; i < lines.length; i++) {
-      const values = lines[i].split(',').map(v => v.trim().replace(/^"|"$/g, ''));
-      if (values.length === headers.length) {
-        const row = {};
-        headers.forEach((header, index) => {
-          row[header] = values[index];
-        });
-        data.push(row);
-      }
-    }
-    
-    return data;
-  }
-  
-  /**
-   * Handle file input change and parse CSV
+   * Handle file input change and parse CSV using streaming API
    */
   async function handleFileChange(event) {
     const file = event.target.files[0];
     if (!file) return;
-    
+    await processFile(file);
+  }
+  
+  /**
+   * Process file using streaming API
+   */
+  async function processFile(file) {
     statusText = `Reading ${file.name}...`;
     parsedRowCount = 0;
+    dayFirst = null;
     
     try {
-      // Read file as text
-      const text = await new Promise((resolve, reject) => {
-        const reader = new FileReader();
-        reader.onload = e => resolve(e.target.result);
-        reader.onerror = reject;
-        reader.readAsText(file);
+      // Use the streaming parser to get header fields and sample rows
+      statusText = 'Parsing CSV header and samples...';
+      
+      const {
+        headerFields,
+        sampleRows,
+        dayFirst: detectedDayFirst,
+        samplesUsed,
+        minDate,
+        maxDate,
+        estimatedSpanDays,
+        samplesPerDay
+      } = await parseCsvStream(file, {
+        sampleRows: 50,
+        headerRowIndex: 0
       });
       
-      statusText = 'Parsing CSV...';
+      parsedRowCount = samplesUsed;
+      dayFirst = detectedDayFirst;
       
-      let parsed = [];
+      statusText = `Parsed ${samplesUsed} sample rows; detected day-first: ${detectedDayFirst}`;
       
+      // Create data span information object
+      const dataSpanInfo = {
+        minDate,
+        maxDate,
+        estimatedSpanDays,
+        samplesPerDay
+      };
+      
+      // Emit custom event with parsed data
+      console.log('UploadZone: Dispatching fileparsed event with:', {
+        file: file.name,
+        headerFieldsCount: headerFields.length,
+        sampleRowsCount: sampleRows.length,
+        dayFirst: detectedDayFirst,
+        dataSpanInfo
+      });
+      
+      // Try both dispatch methods for compatibility
       try {
-        // Try to use the main CSV parser from scripts/csv.js
-        // Note: The API provides csvSplitLine, parseHeader, and findBestColumn functions
-        const { csvSplitLine, parseHeader } = await import('../../../scripts/csv.js');
-        
-        // Split text into lines and filter out empty ones
-        const lines = text.split('\n').filter(line => line.trim());
-        if (lines.length < 2) {
-          throw new Error('CSV must have header + data rows');
-        }
-        
-        // Parse header using the imported function
-        const headers = parseHeader(lines);
-        
-        // Parse data rows using csvSplitLine
-        const data = [];
-        for (let i = 1; i < lines.length; i++) {
-          const values = csvSplitLine(lines[i]);
-          if (values.length === headers.length) {
-            const row = {};
-            headers.forEach((header, index) => {
-              row[header] = values[index];
-            });
-            data.push(row);
-          }
-        }
-        
-        parsed = data;
-      } catch (importError) {
-        console.warn('Could not use main CSV parser, falling back to minimal parser:', importError.message);
-        // Fallback to minimal parser
-        parsed = fallbackCSVParser(text);
+        dispatch('fileparsed', {
+          file,
+          headerFields,
+          sampleRows,
+          dayFirst: detectedDayFirst,
+          dataSpanInfo
+        });
+        console.log('UploadZone: Event dispatched successfully');
+      } catch (error) {
+        console.error('UploadZone: Error dispatching event:', error);
       }
       
-      // Update the parsed row count
-      parsedRowCount = parsed.length;
-      statusText = `Parsed ${parsedRowCount} rows`;
-      
-      // Update the store with parsed data
-      setRawData(parsed);
-      
-      // Call callback prop with parsed data
+      // Call callback prop with parsed data (for backward compatibility)
       if (typeof onFileParsed === 'function') {
-        onFileParsed({ data: parsed });
+        onFileParsed({
+          file,
+          headerFields,
+          sampleRows,
+          dayFirst: detectedDayFirst,
+          dataSpanInfo
+        });
       }
       
     } catch (error) {
@@ -108,9 +97,34 @@
       statusText = `Error: ${error.message}`;
     }
   }
+  
+  /**
+   * Handle drag events
+   */
+  function handleDragOver(event) {
+    event.preventDefault();
+    dragActive = true;
+  }
+  
+  function handleDragLeave(event) {
+    event.preventDefault();
+    dragActive = false;
+  }
+  
+  function handleDrop(event) {
+    event.preventDefault();
+    dragActive = false;
+    
+    const file = event.dataTransfer.files[0];
+    if (file && file.name.endsWith('.csv')) {
+      processFile(file);
+    } else {
+      statusText = 'Error: Please upload a CSV file';
+    }
+  }
 </script>
 
-<div class="upload-zone">
+<div class="upload-zone" class:active={dragActive}>
   <input
     type="file"
     accept=".csv"
@@ -118,7 +132,13 @@
     id="file-input"
     class="file-input"
   />
-  <label for="file-input" class="file-label">
+  <label
+    for="file-input"
+    class="file-label"
+    ondragover={handleDragOver}
+    ondragleave={handleDragLeave}
+    ondrop={handleDrop}
+  >
     <div class="upload-icon">📁</div>
     <p>Click to upload a CSV file or drag and drop</p>
     <p class="upload-hint">CSV files only</p>
@@ -145,7 +165,7 @@
     transition: all 0.3s ease;
   }
   
-  .upload-zone:hover {
+  .upload-zone:hover, .upload-zone.active {
     border-color: #007bff;
     background-color: #f0f8ff;
   }
@@ -163,6 +183,8 @@
     flex-direction: column;
     align-items: center;
     cursor: pointer;
+    width: 100%;
+    height: 100%;
   }
   
   .upload-icon {
