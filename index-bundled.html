@@ -85,7 +85,10 @@
       <section class="panel panel--results">
         <div class="chart-container">
           <h2 class="chart-container__title">Psychrometric Chart</h2>
-          <canvas class="psychrometric-chart" width="800" height="600" role="img" aria-label="Psychrometric chart showing temperature and humidity zones"></canvas>
+          <div style="position: relative;">
+            <canvas class="psychrometric-chart" width="800" height="600" role="img" aria-label="Psychrometric chart showing temperature and humidity zones"></canvas>
+            <canvas id="label-overlay" style="position: absolute; top: 0; left: 0; pointer-events: none; width: 800px; height: 600px;"></canvas>
+          </div>
           <div class="chart-legend" role="list"></div>
         </div>
 
@@ -141,6 +144,8 @@
 
   <script src="scripts/bundle.js"></script>
   <script>
+    // Enable psychrometric chart feature flag
+    window.DEV_PSYCHRO_CHART = true;
     console.log('Starting bundled app...');
     
     class TacticsApp {
@@ -471,105 +476,60 @@
       }
 
       renderChart() {
-        const canvas = document.querySelector('.psychrometric-chart');
-        const ctx = canvas.getContext('2d');
-        const legendEl = document.querySelector('.chart-legend');
-        
-        // Clear canvas
-        ctx.clearRect(0, 0, canvas.width, canvas.height);
-        
-        // Set up coordinate system
-        const padding = 40;
-        const chartWidth = canvas.width - 2 * padding;
-        const chartHeight = canvas.height - 2 * padding;
-        
-        // Temperature range: 10-40°C
-        // RH range: 0-100%
-        const tempRange = { min: 10, max: 40 };
-        const rhRange = { min: 0, max: 100 };
-        
-        const mapTempToX = (temp) => {
-          return padding + ((temp - tempRange.min) / (tempRange.max - tempRange.min)) * chartWidth;
-        };
-        
-        const mapRHToY = (rh) => {
-          return padding + chartHeight - ((rh - rhRange.min) / (rhRange.max - rhRange.min)) * chartHeight;
-        };
-        
-        // Draw axes
-        ctx.strokeStyle = '#ccc';
-        ctx.lineWidth = 1;
-        ctx.beginPath();
-        ctx.moveTo(padding, padding);
-        ctx.lineTo(padding, canvas.height - padding);
-        ctx.lineTo(canvas.width - padding, canvas.height - padding);
-        ctx.stroke();
-        
-        // Draw axis labels
-        ctx.fillStyle = '#666';
-        ctx.font = '12px sans-serif';
-        ctx.textAlign = 'center';
-        
-        // Temperature labels
-        for (let temp = tempRange.min; temp <= tempRange.max; temp += 5) {
-          const x = mapTempToX(temp);
-          ctx.fillText(`${temp}°C`, x, canvas.height - padding + 20);
-        }
-        
-        // RH labels
-        ctx.textAlign = 'right';
-        for (let rh = 0; rh <= 100; rh += 20) {
-          const y = mapRHToY(rh);
-          ctx.fillText(`${rh}%`, padding - 10, y + 4);
-        }
-        
-        // Draw zones
-        window.TacticsBundle.ZONES.forEach(zone => {
-          if (zone.poly && zone.poly.length > 0) {
-            ctx.fillStyle = zone.color + '40'; // 25% opacity
-            ctx.strokeStyle = zone.color;
-            ctx.lineWidth = 2;
-            ctx.beginPath();
+        // defer to psychro renderer
+        try {
+          if (!this._psychroRenderer) {
+            // Hide the legacy canvas
+            const legacyCanvas = document.querySelector('.psychrometric-chart');
+            if (legacyCanvas) legacyCanvas.style.display = 'none';
             
-            zone.poly.forEach((pt, i) => {
-              const x = mapTempToX(pt[0]);
-              const y = mapRHToY(pt[1]);
-              if (i === 0) {
-                ctx.moveTo(x, y);
-              } else {
-                ctx.lineTo(x, y);
+            // Check if container already exists and reuse it
+            let container = document.querySelector('.psychro-chart-container');
+            const chartContainer = document.querySelector('.chart-container');
+            
+            if (!container) {
+              container = document.createElement('div');
+              container.className = 'psychro-chart-container';
+              container.style.width = '100%';
+              container.style.height = '400px';
+              chartContainer.insertBefore(container, chartContainer.querySelector('.chart-legend'));
+            } else {
+              // Clear any existing content in the container
+              container.innerHTML = '';
+            }
+            
+            if (window.TacticsBundle && typeof window.TacticsBundle.initPsychroChart === 'function') {
+              this._psychroRenderer = window.TacticsBundle.initPsychroChart('.psychro-chart-container', {
+                Tmin:0, Tmax:50, Wmax:0.03, p:101325, samplingN:200
+              });
+              if (this._psychroRenderer && typeof this._psychroRenderer.init === 'function') {
+                this._psychroRenderer.init();
               }
-            });
-            
-            ctx.closePath();
-            ctx.fill();
-            ctx.stroke();
+            } else {
+              console.warn('Psychro renderer not available');
+              if (legacyCanvas) legacyCanvas.style.display = '';
+              return;
+            }
           }
-        });
-        
-        // Draw data points
-        if (this.state.results && this.state.results.rowsWithDur) {
-          this.state.results.rowsWithDur.forEach(row => {
-            const x = mapTempToX(row.temp);
-            const y = mapRHToY(row.rh);
-            const zone = window.TacticsBundle.ZONES.find(z => z.id === row.zone);
-            
-            ctx.fillStyle = zone ? zone.color : '#999';
-            ctx.beginPath();
-            ctx.arc(x, y, 3, 0, 2 * Math.PI);
-            ctx.fill();
-          });
+          const points = (this.state.results && this.state.results.rowsWithDur)
+            ? this.state.results.rowsWithDur.map(r => {
+                // Convert RH to W (humidity ratio) using the psychrometric formula
+                const RH = r.rh / 100; // Convert percentage to decimal
+                const W = window.TacticsBundle.W_from_RH_T(RH, r.temp);
+                return {T: r.temp, W: W};
+              })
+            : [];
+          this._psychroRenderer.renderDataPoints(points);
+        } catch (err) {
+          console.error('Psychro render error', err);
         }
-        
-        // Render legend
+        // Update legend as before (unchanged)
+        const legendEl = document.querySelector('.chart-legend');
         legendEl.innerHTML = '';
         window.TacticsBundle.ZONES.forEach(zone => {
           const item = document.createElement('div');
           item.className = 'chart-legend__item';
-          item.innerHTML = `
-            <div class="chart-legend__color" style="background-color: ${zone.color}"></div>
-            <span>${zone.id}</span>
-          `;
+          item.innerHTML = `<div class="chart-legend__color" style="background-color: ${zone.color}"></div><span>${zone.id}</span>`;
           legendEl.appendChild(item);
         });
       }
@@ -734,8 +694,27 @@
         // Reset timeline unit
         document.getElementById('timeline-unit').value = 'auto';
         
+        // Handle psychro renderer cleanup
+        if (this._psychroRenderer) {
+          this._psychroRenderer.destroy();
+          this._psychroRenderer = null;
+        }
+        
+        // Remove psychro container if it exists
+        const container = document.querySelector('.psychro-chart-container');
+        if (container) {
+          container.remove();
+        }
+        
+        // Restore the legacy canvas visibility
+        const legacyCanvas = document.querySelector('.psychrometric-chart');
+        if (legacyCanvas) {
+          legacyCanvas.style.display = '';
+          const ctx = legacyCanvas.getContext('2d');
+          ctx.clearRect(0, 0, 800, 600);
+        }
+        
         // Clear results
-        document.querySelector('.psychrometric-chart').getContext('2d').clearRect(0, 0, 800, 600);
         document.querySelector('.chart-legend').innerHTML = '';
         document.querySelector('.zone-stats__grid').innerHTML = '';
         document.querySelector('.timeline-breakdown__content').innerHTML = '';
@@ -766,3 +745,265 @@
   </script>
 </body>
 </html>
+<script>
+(function(){
+  try {
+    // Runtime label injection for bundled app (non-destructive)
+    function drawLabelsGlobal() {
+      try {
+        const canvas = document.querySelector('.psychro-canvas') || document.querySelector('.psychrometric-chart');
+        if (!canvas) return;
+        const dpr = window.devicePixelRatio || 1;
+        const ctx = canvas.getContext('2d');
+        if (!ctx) return;
+
+        const cw = (canvas.width / dpr) || (canvas.clientWidth || 600);
+        const ch = (canvas.height / dpr) || (canvas.clientHeight || 400);
+
+        // Fallback renderer bounds (match renderer defaults)
+        const Tmin = 0;
+        const Tmax = 50;
+        const Wmax = 0.03;
+
+        function map(T, W) {
+          const x = ((T - Tmin) / (Tmax - Tmin)) * cw;
+          const y = ch - (W / Wmax) * ch;
+          return { x, y };
+        }
+
+        ctx.save();
+        // Draw with visible font sizes (CSS px) — scaled for legibility
+        ctx.fillStyle = 'rgba(0,0,0,0.9)';
+        ctx.strokeStyle = 'white';
+        ctx.lineWidth = Math.max(1, Math.round(2 * dpr));
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+
+        // Temperature ticks (every 5°C)
+        ctx.font = `${14}px sans-serif`;
+        for (let T = Math.ceil(Tmin / 5) * 5; T <= Tmax; T += 5) {
+          const sampleW = Math.min(Wmax, Math.max(1e-6, Wmax * 0.02));
+          const p = map(T, sampleW);
+          const labelY = Math.max(12, ch - 12);
+          ctx.lineWidth = Math.max(1, Math.round(2 * dpr));
+          ctx.strokeText(`${T}°C`, p.x, labelY);
+          ctx.fillText(`${T}°C`, p.x, labelY);
+        }
+        // X axis title
+        ctx.font = `${14}px sans-serif`;
+        ctx.strokeText('Temperature (°C)', cw / 2, ch - 30);
+        ctx.fillText('Temperature (°C)', cw / 2, ch - 30);
+
+        // Humidity-ratio ticks (left)
+        ctx.font = `${12}px sans-serif`;
+        ctx.textAlign = 'right';
+        for (let i = 0; i <= 4; i++) {
+          const W = (Wmax / 4) * i;
+          const p = map(Tmin + (Tmax - Tmin) * 0.02, W);
+          const gx = Math.max(6, p.x - 6);
+          const label = `${(W * 1000).toFixed(1)} g/kg`;
+          ctx.strokeText(label, gx, p.y);
+          ctx.fillText(label, gx, p.y);
+        }
+        // Y axis title (simple vertical placement)
+        ctx.save();
+        ctx.font = `${14}px sans-serif`;
+        ctx.translate(16, ch / 2);
+        ctx.rotate(-Math.PI / 2);
+        ctx.textAlign = 'center';
+        ctx.strokeText('Humidity ratio (g/kg)', 0, 0);
+        ctx.fillText('Humidity ratio (g/kg)', 0, 0);
+        ctx.restore();
+
+        // RH labels on right side if conversion function exists
+        ctx.font = `${11}px sans-serif`;
+        ctx.textAlign = 'left';
+        if (window.TacticsBundle && typeof window.TacticsBundle.W_from_RH_T === 'function') {
+          for (let rh = 0.1; rh < 1.0 + 1e-12; rh += 0.1) {
+            const sampleT = Math.max(Tmin, Tmax - 2);
+            const sampleW = window.TacticsBundle.W_from_RH_T(rh, sampleT);
+            if (!Number.isFinite(sampleW)) continue;
+            const p = map(sampleT, sampleW);
+            const ox = Math.min(cw - 6, p.x + 6);
+            const label = `${Math.round(rh * 100)}%`;
+            ctx.lineWidth = Math.max(1, Math.round(2 * dpr));
+            ctx.strokeText(label, ox, p.y);
+            ctx.fillText(label, ox, p.y);
+          }
+        }
+
+        ctx.restore();
+
+        console.debug && console.debug('psychro:drawLabelsGlobal drawn', { cw, ch, dpr });
+      } catch (e) {
+        console.warn && console.warn('psychro:drawLabelsGlobal error', e);
+      }
+    }
+
+    // Trigger when page ready and after analysis actions
+    document.addEventListener('DOMContentLoaded', () => {
+      // Initial attempt (if canvas already present)
+      setTimeout(drawLabelsGlobal, 300);
+
+      // Re-run after Analyze button is clicked (allow time for renderer to create canvas)
+      const analyzeBtn = document.querySelector('.btn--analyze');
+      if (analyzeBtn) {
+        analyzeBtn.addEventListener('click', () => {
+          setTimeout(drawLabelsGlobal, 600);
+          setTimeout(drawLabelsGlobal, 1400);
+        });
+      }
+
+      // Watch for DOM changes (canvas insertion) and redraw labels
+      const mo = new MutationObserver(() => {
+        drawLabelsGlobal();
+      });
+      mo.observe(document.body, { childList: true, subtree: true });
+
+      // Expose for manual calls
+      window.drawLabelsGlobal = drawLabelsGlobal;
+      console.debug && console.debug('psychro:label injector ready');
+    });
+  } catch (e) {
+    console.warn && console.warn('psychro:inject bootstrap error', e);
+  }
+})();
+</script>
+<script>
+(function(){
+  try {
+    // Runtime label injection for bundled app (non-destructive)
+    function drawLabelsGlobal() {
+      try {
+        const canvas = document.querySelector('.psychro-canvas') || document.querySelector('.psychrometric-chart');
+        if (!canvas) return;
+        const dpr = window.devicePixelRatio || 1;
+        const ctx = canvas.getContext('2d');
+        if (!ctx) return;
+
+        const cw = (canvas.width / dpr) || (canvas.clientWidth || 600);
+        const ch = (canvas.height / dpr) || (canvas.clientHeight || 400);
+
+        // Fallback renderer bounds (match renderer defaults)
+        const Tmin = 0;
+        const Tmax = 50;
+        const Wmax = 0.03;
+
+        function map(T, W) {
+          const x = ((T - Tmin) / (Tmax - Tmin)) * cw;
+          const y = ch - (W / Wmax) * ch;
+          return { x, y };
+        }
+
+        ctx.save();
+        // Draw with visible font sizes (CSS px) — scaled for legibility
+        ctx.fillStyle = 'rgba(0,0,0,0.9)';
+        ctx.strokeStyle = 'white';
+        ctx.lineWidth = Math.max(1, Math.round(2 * dpr));
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+
+        // Temperature ticks (every 5°C)
+        ctx.font = `${14}px sans-serif`;
+        for (let T = Math.ceil(Tmin / 5) * 5; T <= Tmax; T += 5) {
+          const sampleW = Math.min(Wmax, Math.max(1e-6, Wmax * 0.02));
+          const p = map(T, sampleW);
+          const labelY = Math.max(12, ch - 12);
+          ctx.lineWidth = Math.max(1, Math.round(2 * dpr));
+          ctx.strokeText(`${T}°C`, p.x, labelY);
+          ctx.fillText(`${T}°C`, p.x, labelY);
+        }
+        // X axis title
+        ctx.font = `${14}px sans-serif`;
+        ctx.strokeText('Temperature (°C)', cw / 2, ch - 30);
+        ctx.fillText('Temperature (°C)', cw / 2, ch - 30);
+
+        // Humidity-ratio ticks (left)
+        ctx.font = `${12}px sans-serif`;
+        ctx.textAlign = 'right';
+        for (let i = 0; i <= 4; i++) {
+          const W = (Wmax / 4) * i;
+          const p = map(Tmin + (Tmax - Tmin) * 0.02, W);
+          const gx = Math.max(6, p.x - 6);
+          const label = `${(W * 1000).toFixed(1)} g/kg`;
+          ctx.strokeText(label, gx, p.y);
+          ctx.fillText(label, gx, p.y);
+        }
+        // Y axis title (simple vertical placement)
+        ctx.save();
+        ctx.font = `${14}px sans-serif`;
+        ctx.translate(16, ch / 2);
+        ctx.rotate(-Math.PI / 2);
+        ctx.textAlign = 'center';
+        ctx.strokeText('Humidity ratio (g/kg)', 0, 0);
+        ctx.fillText('Humidity ratio (g/kg)', 0, 0);
+        ctx.restore();
+
+        // RH labels on right side if conversion function exists
+        ctx.font = `${11}px sans-serif`;
+        ctx.textAlign = 'left';
+        if (window.TacticsBundle && typeof window.TacticsBundle.W_from_RH_T === 'function') {
+          for (let rh = 0.1; rh < 1.0 + 1e-12; rh += 0.1) {
+            const sampleT = Math.max(Tmin, Tmax - 2);
+            const sampleW = window.TacticsBundle.W_from_RH_T(rh, sampleT);
+            if (!Number.isFinite(sampleW)) continue;
+            const p = map(sampleT, sampleW);
+            const ox = Math.min(cw - 6, p.x + 6);
+            const label = `${Math.round(rh * 100)}%`;
+            ctx.lineWidth = Math.max(1, Math.round(2 * dpr));
+            ctx.strokeText(label, ox, p.y);
+            ctx.fillText(label, ox, p.y);
+          }
+        }
+
+        ctx.restore();
+
+        console.debug && console.debug('psychro:drawLabelsGlobal drawn', { cw, ch, dpr });
+      } catch (e) {
+        console.warn && console.warn('psychro:drawLabelsGlobal error', e);
+      }
+    }
+
+    // Redraw labels continuously to prevent overwrites by renderer
+    function scheduleLabels() {
+      // Immediate draw
+      drawLabelsGlobal();
+      // Redraw after each frame for a short period to survive renderer clears
+      let count = 0;
+      const interval = setInterval(() => {
+        drawLabelsGlobal();
+        count++;
+        if (count > 4) clearInterval(interval);
+      }, 100);
+    }
+
+    // Trigger when page ready and after analysis actions
+    document.addEventListener('DOMContentLoaded', () => {
+      // Initial attempt (if canvas already present)
+      setTimeout(drawLabelsGlobal, 300);
+
+      // Re-run after Analyze button is clicked (allow time for renderer to create canvas)
+      const analyzeBtn = document.querySelector('.btn--analyze');
+      if (analyzeBtn) {
+        analyzeBtn.addEventListener('click', () => {
+          setTimeout(scheduleLabels, 600);
+          setTimeout(scheduleLabels, 1400);
+        });
+      }
+
+      // Watch for DOM changes (canvas insertion) and redraw labels
+      const mo = new MutationObserver(() => {
+        drawLabelsGlobal();
+      });
+      mo.observe(document.body, { childList: true, subtree: true });
+
+      // Expose for manual calls
+      window.drawLabelsGlobal = drawLabelsGlobal;
+      window.scheduleLabels = scheduleLabels;
+      console.debug && console.debug('psychro:label injector ready');
+    });
+  } catch (e) {
+    console.warn && console.warn('psychro:inject bootstrap error', e);
+  }
+})();
+</script>
