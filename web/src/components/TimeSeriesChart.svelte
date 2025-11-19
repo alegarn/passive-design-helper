@@ -330,130 +330,202 @@
       
       datasets.push(rhDataset);
     } else {
-      // For other periods, group data by zone
-      const zoneGroups = {};
-
-      // Group data by zone
-      aggregatedData.forEach(point => {
-        const zone = point.zone || 'Unclassified';
-        if (!zoneGroups[zone]) {
-          zoneGroups[zone] = [];
-        }
-        zoneGroups[zone].push(point);
-      });
-
-      // Create a dataset for each zone
-      Object.entries(zoneGroups).forEach(([zone, points]) => {
-        const zoneColor = ZONE_COLORS[zone] || ZONE_COLORS['Unclassified'];
+      // Weekly/Monthly: unified two-series rendering (temp + rh) with per-segment zone coloring
+      if (currentPeriod === 'weekly' || currentPeriod === 'monthly') {
+        // Build pointMap for efficient lookup keyed by timestamp in milliseconds
+        const pointMap = new Map(aggregatedData.map(p => [new Date(p.timestamp).getTime(), p]));
         
-        // Temperature dataset for this zone
+        // Temperature dataset (single time-series)
         const tempDataset = {
-          label: `${zone} (Temperature)`,
-          data: points.map(point => {
-            // Ensure timestamp is a Date object for Chart.js time scale
-            let timestamp = point.timestamp;
-            if (typeof timestamp === 'string') {
-              // If it's a string, convert to Date
-              timestamp = new Date(timestamp);
-            } else if (typeof timestamp === 'number') {
-              // If it's a number, check if it's in seconds (epoch-like) or milliseconds
-              // If it's a large number less than 10^12, it's likely in seconds
-              if (timestamp < 1000000000000) {
-                timestamp = new Date(timestamp * 1000); // Convert seconds to milliseconds
-              } else {
-                timestamp = new Date(timestamp); // Already in milliseconds
-              }
-            }
-            
-            return {
-              x: timestamp,
-              y: point.temp
-            };
-          }),
-          borderColor: zoneColor,
-          backgroundColor: zoneColor,
+          label: "Temperature (°C)",
+          data: aggregatedData.map(p => ({ x: new Date(p.timestamp), y: p.temp })),
+          yAxisID: 'y',
           borderWidth: 2,
-          fill: false,
           tension: 0.1,
           pointRadius: 3,
-          pointHoverRadius: 5
+          pointHoverRadius: 5,
+          borderColor: ZONE_COLORS['Unclassified'] || '#999999',
+          backgroundColor: ZONE_COLORS['Unclassified'] || '#999999',
+          fill: false
         };
         
-        // Add segment styling based on Passive Design Zones (T° & RH)
+        // Add segment styling with per-segment zone coloring
         tempDataset.segment = {
           borderColor: ctx => {
-            // Get temperature and humidity values for this segment
-            const temp1 = ctx.p0.parsed.y;
-            const temp2 = ctx.p1.parsed.y;
+            // Get timestamps for segment endpoints
+            const t1 = ctx.p0.parsed.x;
+            const t2 = ctx.p1.parsed.x;
             
-            // Find corresponding RH values from the points data
-            const timestamp1 = ctx.p0.parsed.x;
-            const timestamp2 = ctx.p1.parsed.x;
+            // Lookup points using exact timestamp match
+            let p1 = pointMap.get(t1);
+            let p2 = pointMap.get(t2);
             
-            const point1 = points.find(p => {
-              const pointTime = new Date(p.timestamp).getTime();
-              return Math.abs(pointTime - timestamp1) < 3600000; // Within 1 hour
-            });
-            const point2 = points.find(p => {
-              const pointTime = new Date(p.timestamp).getTime();
-              return Math.abs(pointTime - timestamp2) < 3600000; // Within 1 hour
-            });
-            
-            const rh1 = point1?.rh || 50;
-            const rh2 = point2?.rh || 50;
-            
-            // Get zone colors based on both T° and RH
-            const color1 = getPassiveDesignZoneColor(temp1, rh1);
-            const color2 = getPassiveDesignZoneColor(temp2, rh2);
-            
-            // If colors are the same, return the solid color
-            if (color1 === color2) {
-              return color1;
+            // Fallback to nearest-index lookup if exact match fails
+            if (!p1) {
+              const index1 = ctx.p0.index;
+              p1 = index1 !== undefined && index1 >= 0 && index1 < aggregatedData.length
+                ? aggregatedData[index1]
+                : null;
+            }
+            if (!p2) {
+              const index2 = ctx.p1.index;
+              p2 = index2 !== undefined && index2 >= 0 && index2 < aggregatedData.length
+                ? aggregatedData[index2]
+                : null;
             }
             
-            // Create gradient between colors
-            return createGradient(ctx, color1, color2);
+            // Use average values between endpoints for zone coloring
+            const avgTemp = (p1?.temp && p2?.temp) ? (p1.temp + p2.temp) / 2 : (p1?.temp || p2?.temp);
+            const avgRh = (p1?.rh && p2?.rh) ? (p1.rh + p2.rh) / 2 : (p1?.rh || p2?.rh);
+            
+            // Get zone color for the averaged values
+            return getPassiveDesignZoneColor(avgTemp, avgRh);
           }
         };
         
         datasets.push(tempDataset);
         
-        // RH dataset for this zone (light blue, thin line)
+        // Relative Humidity dataset (single time-series)
         const rhDataset = {
-          label: `${zone} (Humidity)`,
-          data: points.map(point => {
-            // Ensure timestamp is a Date object for Chart.js time scale
-            let timestamp = point.timestamp;
-            if (typeof timestamp === 'string') {
-              // If it's a string, convert to Date
-              timestamp = new Date(timestamp);
-            } else if (typeof timestamp === 'number') {
-              // If it's a number, check if it's in seconds (epoch-like) or milliseconds
-              // If it's a large number less than 10^12, it's likely in seconds
-              if (timestamp < 1000000000000) {
-                timestamp = new Date(timestamp * 1000); // Convert seconds to milliseconds
-              } else {
-                timestamp = new Date(timestamp); // Already in milliseconds
-              }
-            }
-            
-            return {
-              x: timestamp,
-              y: point.rh
-            };
-          }),
+          label: "Relative Humidity (%)",
+          data: aggregatedData.map(p => ({ x: new Date(p.timestamp), y: p.rh })),
+          yAxisID: 'y1',
           borderColor: 'rgba(135, 206, 250, 0.7)', // Light blue with transparency
           backgroundColor: 'rgba(135, 206, 250, 0.1)',
           borderWidth: 1,
-          fill: false,
           tension: 0.1,
           pointRadius: 2,
           pointHoverRadius: 4,
-          yAxisID: 'y1' // Use secondary y-axis for RH
+          fill: false
         };
         
         datasets.push(rhDataset);
-      });
+      } else {
+        // For other periods (daily), group data by zone (preserve existing behavior)
+        const zoneGroups = {};
+
+        // Group data by zone
+        aggregatedData.forEach(point => {
+          const zone = point.zone || 'Unclassified';
+          if (!zoneGroups[zone]) {
+            zoneGroups[zone] = [];
+          }
+          zoneGroups[zone].push(point);
+        });
+
+        // Create a dataset for each zone
+        Object.entries(zoneGroups).forEach(([zone, points]) => {
+          const zoneColor = ZONE_COLORS[zone] || ZONE_COLORS['Unclassified'];
+          
+          // Temperature dataset for this zone
+          const tempDataset = {
+            label: `${zone} (Temperature)`,
+            data: points.map(point => {
+              // Ensure timestamp is a Date object for Chart.js time scale
+              let timestamp = point.timestamp;
+              if (typeof timestamp === 'string') {
+                // If it's a string, convert to Date
+                timestamp = new Date(timestamp);
+              } else if (typeof timestamp === 'number') {
+                // If it's a number, check if it's in seconds (epoch-like) or milliseconds
+                // If it's a large number less than 10^12, it's likely in seconds
+                if (timestamp < 1000000000000) {
+                  timestamp = new Date(timestamp * 1000); // Convert seconds to milliseconds
+                } else {
+                  timestamp = new Date(timestamp); // Already in milliseconds
+                }
+              }
+              
+              return {
+                x: timestamp,
+                y: point.temp
+              };
+            }),
+            borderColor: zoneColor,
+            backgroundColor: zoneColor,
+            borderWidth: 2,
+            fill: false,
+            tension: 0.1,
+            pointRadius: 3,
+            pointHoverRadius: 5
+          };
+          
+          // Add segment styling based on Passive Design Zones (T° & RH)
+          tempDataset.segment = {
+            borderColor: ctx => {
+              // Get temperature and humidity values for this segment
+              const temp1 = ctx.p0.parsed.y;
+              const temp2 = ctx.p1.parsed.y;
+              
+              // Find corresponding RH values from the points data
+              const timestamp1 = ctx.p0.parsed.x;
+              const timestamp2 = ctx.p1.parsed.x;
+              
+              const point1 = points.find(p => {
+                const pointTime = new Date(p.timestamp).getTime();
+                return Math.abs(pointTime - timestamp1) < 3600000; // Within 1 hour
+              });
+              const point2 = points.find(p => {
+                const pointTime = new Date(p.timestamp).getTime();
+                return Math.abs(pointTime - timestamp2) < 3600000; // Within 1 hour
+              });
+              
+              const rh1 = point1?.rh || 50;
+              const rh2 = point2?.rh || 50;
+              
+              // Get zone colors based on both T° and RH
+              const color1 = getPassiveDesignZoneColor(temp1, rh1);
+              const color2 = getPassiveDesignZoneColor(temp2, rh2);
+              
+              // If colors are the same, return the solid color
+              if (color1 === color2) {
+                return color1;
+              }
+              
+              // Create gradient between colors
+              return createGradient(ctx, color1, color2);
+            }
+          };
+          
+          datasets.push(tempDataset);
+          
+          // RH dataset for this zone (light blue, thin line)
+          const rhDataset = {
+            label: `${zone} (Humidity)`,
+            data: points.map(point => {
+              // Ensure timestamp is a Date object for Chart.js time scale
+              let timestamp = point.timestamp;
+              if (typeof timestamp === 'string') {
+                // If it's a string, convert to Date
+                timestamp = new Date(timestamp);
+              } else if (typeof timestamp === 'number') {
+                // If it's a number, check if it's in seconds (epoch-like) or milliseconds
+                // If it's a large number less than 10^12, it's likely in seconds
+                if (timestamp < 1000000000000) {
+                  timestamp = new Date(timestamp * 1000); // Convert seconds to milliseconds
+                } else {
+                  timestamp = new Date(timestamp); // Already in milliseconds
+                }
+              }
+              
+              return {
+                x: timestamp,
+                y: point.rh
+              };
+            }),
+            borderColor: 'rgba(135, 206, 250, 0.7)', // Light blue with transparency
+            backgroundColor: 'rgba(135, 206, 250, 0.1)',
+            borderWidth: 1,
+            fill: false,
+            tension: 0.1,
+            pointRadius: 2,
+            pointHoverRadius: 4,
+            yAxisID: 'y1' // Use secondary y-axis for RH
+          };
+          
+          datasets.push(rhDataset);
+        });
+      }
     }
 
     // Chart configuration
