@@ -110,27 +110,27 @@ const ZONES = [
     id: 'Evaporative Cooling', 
     color: ZONE_COLORS['Evaporative Cooling'], 
     poly: [ 
-      p(23,20), 
-      p(29.5,20), 
-      p(29.5,50), 
-      p(28,67), 
-      p(39,30), 
-      p(42.7,20), 
-      p(43.7,10), 
-      p(43.7,0), 
-      p(31.3,0) 
+      p(31.3,0), 
+      p(22.8,20), 
+      p(29.8,20), 
+      p(29.8,50), 
+      p(27.8,67), 
+      p(38.7,30), 
+      p(41.7,20), 
+      p(43.8,10), 
+      p(43.8,0), 
     ]
   },
   {
     id: 'Mass Cooling & Night Ventilation (or Air Conditioning)',
     color: ZONE_COLORS['Mass Cooling & Night Ventilation (or Air Conditioning)'],
     poly: [
-      p(39.6, 7),
-      p(39.6,30),
-      p(35.9,42),
+      p(39.8, 7.25),
+      p(39.8,30),
+      p(36,41),
       p(43.0,27),
-      p(47.8,20),
-      p(47.8, 5)
+      p(46.8,20),
+      p(46.8, 5)
     ]
   },
   {
@@ -139,10 +139,12 @@ const ZONES = [
     // Refined: apply when relative humidity is high (>= ~40%) — ventilation alone insufficient
     // Approx DBT 29.5-50 °C combined with RH 40-100%
     poly: [
-      p(29.5, 40),
-      p(29.5,100),
-      p(50.0,100),
-      p(50.0,40)
+      p(34.8, 44.28),
+      p(34.8, 50),
+      p(29.8,100),
+      p(34.3,100),
+      p(50.0,40.56),
+      p(50,18.5),
     ],
     note: 'Air conditioning with dehumidifier — refined to RH >= 40% (ventilation insufficient)'
   },
@@ -150,12 +152,12 @@ const ZONES = [
     id: 'Air Conditioning', 
     color: ZONE_COLORS['Air Conditioning'], 
     poly: [
-      p(43.7,  0),
-      p(43.7,  6),
-      p(47.3,  6),
-      p(47.3, 20),
-      p(44.0, 27),
-      p(50.0, 17),
+      p(43.8, 0),
+      p(43.8, 5.76),
+      p(46.8, 4.86),
+      p(46.8, 20),
+      p(42.8, 27.89),
+      p(50.0, 18.54),
       p(50.0,  0)
     ]
   }
