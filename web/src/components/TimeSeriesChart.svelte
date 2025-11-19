@@ -3,7 +3,7 @@
   import { Line } from 'svelte5-chartjs';
   import { onMount, onDestroy } from 'svelte';
   import { ZONE_COLORS } from '../../../scripts/theme.js';
-  import { ZONES } from '../../../scripts/zones.js';
+  import { ZONES, preferredZoneForPoint } from '../../../scripts/zones.js';
   import {
     aggregateByHour,
     aggregateByDay,
@@ -144,6 +144,15 @@
     
     return defaultColor;
   }
+  
+  // Helper function to get zone color based on both temperature and humidity
+  function getPassiveDesignZoneColor(temp, rh) {
+    const zone = preferredZoneForPoint(temp, rh);
+    if (zone && zone.color) {
+      return zone.color;
+    }
+    return ZONE_COLORS['Unclassified'] || '#999999';
+  }
 
   // Create a gradient between two colors for Chart.js segment styling
   function createGradient(ctx, color1, color2) {
@@ -245,24 +254,33 @@
         yAxisID: 'y'
       };
       
-      // Add segment styling if zones is provided
-      if (zones || colorSegments) {
-        tempDataset.segment = {
-          borderColor: ctx => {
-            const value = ctx.p1.parsed.y;
-            const color1 = getZoneColor(ctx.p0.parsed.y, defaultColor);
-            const color2 = getZoneColor(value, defaultColor);
-            
-            // If colors are the same, return the solid color
-            if (color1 === color2) {
-              return color1;
-            }
-            
-            // Create gradient between colors
-            return createGradient(ctx, color1, color2);
+      // Add segment styling based on Passive Design Zones (T° & RH)
+      tempDataset.segment = {
+        borderColor: ctx => {
+          // Get temperature and humidity values for this segment
+          const temp1 = ctx.p0.parsed.y;
+          const temp2 = ctx.p1.parsed.y;
+          
+          // Find corresponding RH values from the aggregated data
+          const x1 = ctx.p0.parsed.x;
+          const x2 = ctx.p1.parsed.x;
+          
+          const rh1 = aggregatedData.find(point => point.hour === x1)?.rh || 50;
+          const rh2 = aggregatedData.find(point => point.hour === x2)?.rh || 50;
+          
+          // Get zone colors based on both T° and RH
+          const color1 = getPassiveDesignZoneColor(temp1, rh1);
+          const color2 = getPassiveDesignZoneColor(temp2, rh2);
+          
+          // If colors are the same, return the solid color
+          if (color1 === color2) {
+            return color1;
           }
-        };
-      }
+          
+          // Create gradient between colors
+          return createGradient(ctx, color1, color2);
+        }
+      };
       
       datasets.push(tempDataset);
       
@@ -334,24 +352,42 @@
           pointHoverRadius: 5
         };
         
-        // Add segment styling if zones is provided
-        if (zones || colorSegments) {
-          tempDataset.segment = {
-            borderColor: ctx => {
-              const value = ctx.p1.parsed.y;
-              const color1 = getZoneColor(ctx.p0.parsed.y, zoneColor);
-              const color2 = getZoneColor(value, zoneColor);
-              
-              // If colors are the same, return the solid color
-              if (color1 === color2) {
-                return color1;
-              }
-              
-              // Create gradient between colors
-              return createGradient(ctx, color1, color2);
+        // Add segment styling based on Passive Design Zones (T° & RH)
+        tempDataset.segment = {
+          borderColor: ctx => {
+            // Get temperature and humidity values for this segment
+            const temp1 = ctx.p0.parsed.y;
+            const temp2 = ctx.p1.parsed.y;
+            
+            // Find corresponding RH values from the points data
+            const timestamp1 = ctx.p0.parsed.x;
+            const timestamp2 = ctx.p1.parsed.x;
+            
+            const point1 = points.find(p => {
+              const pointTime = new Date(p.timestamp).getTime();
+              return Math.abs(pointTime - timestamp1) < 3600000; // Within 1 hour
+            });
+            const point2 = points.find(p => {
+              const pointTime = new Date(p.timestamp).getTime();
+              return Math.abs(pointTime - timestamp2) < 3600000; // Within 1 hour
+            });
+            
+            const rh1 = point1?.rh || 50;
+            const rh2 = point2?.rh || 50;
+            
+            // Get zone colors based on both T° and RH
+            const color1 = getPassiveDesignZoneColor(temp1, rh1);
+            const color2 = getPassiveDesignZoneColor(temp2, rh2);
+            
+            // If colors are the same, return the solid color
+            if (color1 === color2) {
+              return color1;
             }
-          };
-        }
+            
+            // Create gradient between colors
+            return createGradient(ctx, color1, color2);
+          }
+        };
         
         datasets.push(tempDataset);
         
