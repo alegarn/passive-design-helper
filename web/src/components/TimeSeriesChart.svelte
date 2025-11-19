@@ -95,6 +95,9 @@
   });
   
   // Calculate zone totals for passive design zones - reactive to aggregatedData/timeSeriesData and currentPeriod
+  // For hourly (average-day) view we scale each hourly-average point by number of days
+  // in source range so cards reflect total hours across selected period (consistent
+  // with daily/weekly behavior) instead of listing every single sample hour.
   let zoneTotals = $state([]);
   $effect(() => {
     const agg = aggregatedData;
@@ -103,21 +106,39 @@
     const totals = {};
     ZONES.forEach(z => (totals[z.id] = 0));
   
-    if (period === 'hourly' && raw && raw.length) {
-      raw.forEach(r => {
-        const t = r.temp, h = r.rh;
-        if (t == null || h == null) return;
-        const zone = preferredZoneForPoint(t, h);
-        if (!zone) return;
-        const hours = r.dur ? r.dur / 3600000 : 1;
-        totals[zone.id] = (totals[zone.id] || 0) + hours;
-      });
+    if (period === 'hourly') {
+      if (agg && agg.length) {
+        // For hourly average-day chart, each of the 24 points represents exactly 1 hour of the day,
+        // not the total hours across the source range. So we count each hourly point as 1 hour.
+        agg.forEach(point => {
+          const t = point.temp, h = point.rh;
+          if (t == null || h == null) return;
+          const zone = preferredZoneForPoint(t, h);
+          if (!zone) return;
+          totals[zone.id] = (totals[zone.id] || 0) + 1;
+        });
+      } else if (raw && raw.length) {
+        // Fallback: if no hourly averages available, sum raw durations (defensive)
+        raw.forEach(r => {
+          const t = r.temp, h = r.rh;
+          if (t == null || h == null) return;
+          const zone = preferredZoneForPoint(t, h);
+          if (!zone) return;
+          const hours = r.dur ? r.dur / 3600000 : 1;
+          totals[zone.id] = (totals[zone.id] || 0) + hours;
+        });
+      } else {
+        zoneTotals = [];
+        return;
+      }
     } else if (agg && agg.length) {
+      // For daily/weekly/monthly use aggregatedData points (prefer displayed data)
       agg.forEach(point => {
         const t = point.temp, h = point.rh;
         if (t == null || h == null) return;
         const zone = preferredZoneForPoint(t, h);
         if (!zone) return;
+        // prefer explicit duration in aggregated point (dur_hours), else estimate by period
         let hours = point.dur_hours || point.dur || 0;
         if (!hours) {
           if (period === 'daily') hours = 24;
