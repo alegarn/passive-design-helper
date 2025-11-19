@@ -155,6 +155,7 @@ const ZONES = [
       p(50,18.54),
       p(42.8, 27.89),
       p(35.8, 41.76),
+      p(34.8, 44.28),
     ],
     note: 'Air conditioning with dehumidifier — refined to RH >= 40% (ventilation insufficient)'
   },
