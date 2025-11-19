@@ -29,6 +29,7 @@ const ZONES = [
   { 
     id: 'Comfort', 
     color: ZONE_COLORS['Comfort'], 
+    type: 'passive',
     poly: [ 
       p(22.8,20), 
       p(22.8,80), 
@@ -41,6 +42,7 @@ const ZONES = [
   { 
     id: 'Ventilation', 
     color: ZONE_COLORS['Ventilation'], 
+    type: 'passive',
     poly: [ 
       p(22.8, 80),
       p(22.8, 100),
@@ -51,13 +53,13 @@ const ZONES = [
       p(29.8,50),
       p(27.8,67),
       p(25,80),
-      p(23,80)
     ]
   },
   // Additional zones deduced from the psychrometric chart image
   {
     id: 'Humidification',
     color: ZONE_COLORS['Humidification'],
+    type: 'mechanical',
     // Approx DBT 0-22 °C, RH 40-100% — area where humidification may be applied
     poly: [ 
       p(0,0), 
@@ -75,6 +77,7 @@ const ZONES = [
   {
     id: 'Heating',
     color: ZONE_COLORS['Heating'],
+    type: 'active',
     // Approx DBT 0-10 °C, RH 10-50%
     poly: [ p(0,0), p(0,100), p(6.8,100), p(6.8,0) ],
     note: 'Heating band (approx)'
@@ -82,6 +85,7 @@ const ZONES = [
   {
     id: 'Passive Solar Heating',
     color: ZONE_COLORS['Passive Solar Heating'],
+    type: 'passive',
     // Approx DBT 8-16 °C, RH 20-60%
     poly: [ p(10.8,0), p(10.8,100), p(22.8,100), p(22.8,0) ],
     note: 'Passive solar heating region (approx)'
@@ -89,19 +93,21 @@ const ZONES = [
   {
     id: 'Internal Gains',
     color: ZONE_COLORS['Internal Gains'],
+    type: 'passive',
     // Approx DBT 15-22 °C, RH 30-60%
-    poly: [ p(15.3,20), p(15.3,80), p(22,80), p(22,20) ],
+    poly: [ p(15.3,20), p(15.3,80), p(22.8,80), p(22.8,20) ],
     note: 'Internal gains influence (approx)'
   },
   { 
     id: 'Mass Cooling', 
     color: ZONE_COLORS['Mass Cooling'], 
+    type: 'passive',
     poly: [ 
       p(22.8,20), 
       p(29.8,20), 
       p(29.8,50), 
       p(27.8,67), 
-      p(36,41), 
+      p(35.8,41.76), 
       p(39.8,30), 
       p(39.8,7) 
     ]
@@ -109,6 +115,7 @@ const ZONES = [
   { 
     id: 'Evaporative Cooling', 
     color: ZONE_COLORS['Evaporative Cooling'], 
+    type: 'passive',
     poly: [ 
       p(31.3,0), 
       p(22.8,20), 
@@ -124,38 +131,43 @@ const ZONES = [
   {
     id: 'Mass Cooling & Night Ventilation (or Air Conditioning)',
     color: ZONE_COLORS['Mass Cooling & Night Ventilation (or Air Conditioning)'],
+    type: 'hybrid',
     poly: [
       p(39.8, 7.25),
       p(39.8,30),
-      p(36,41),
-      p(43.0,27),
-      p(46.8,20),
-      p(46.8, 5)
+      p(35.8,41.76),
+      p(42.8, 27.89),
+      p(46.86, 20),
+      p(46.86, 4.86),
     ]
   },
   {
     id: 'Air Conditioning + Dehumidifier',
     color: ZONE_COLORS['Air Conditioning + Dehumidifier'], 
+    type: 'active',
     // Refined: apply when relative humidity is high (>= ~40%) — ventilation alone insufficient
     // Approx DBT 29.5-50 °C combined with RH 40-100%
     poly: [
-      p(34.8, 44.28),
       p(34.8, 50),
       p(29.8,100),
       p(34.3,100),
       p(50.0,40.56),
-      p(50,18.5),
+      p(50,18.54),
+      p(42.8, 27.89),
+      p(35.8, 41.76),
+      p(34.8, 44.28),
     ],
     note: 'Air conditioning with dehumidifier — refined to RH >= 40% (ventilation insufficient)'
   },
   { 
     id: 'Air Conditioning', 
     color: ZONE_COLORS['Air Conditioning'], 
+    type: 'active',
     poly: [
       p(43.8, 0),
       p(43.8, 5.76),
-      p(46.8, 4.86),
-      p(46.8, 20),
+      p(46.86, 4.86),
+      p(46.86, 20),
       p(42.8, 27.89),
       p(50.0, 18.54),
       p(50.0,  0)
@@ -219,12 +231,19 @@ function zonesContainingPoint(temp, rh) {
 function preferredZoneForPoint(temp, rh) {
   const matches = zonesContainingPoint(temp, rh);
   if (matches.length === 0) return null;
+  // Prefer the least-energy option when multiple zones match.
+  // Energy ranking: passive (lowest) -> mechanical -> hybrid -> active (highest)
+  const rank = { passive: 0, mechanical: 1, hybrid: 2, active: 3 };
   matches.sort((a, b) => {
+    const ra = rank[a.type] ?? 99;
+    const rb = rank[b.type] ?? 99;
+    if (ra !== rb) return ra - rb;
+    // fall back to explicit numeric priority if present (lower preferred)
     const pa = a.priority ?? 99;
     const pb = b.priority ?? 99;
     if (pa !== pb) return pa - pb;
-    const rank = { passive: 0, hybrid: 1, active: 2 };
-    return (rank[a.type] ?? 3) - (rank[b.type] ?? 3);
+    // final tie-breaker: alphabetical id
+    return String(a.id).localeCompare(String(b.id));
   });
   return matches[0];
 }

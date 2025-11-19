@@ -1,5 +1,5 @@
 // Refactor derived from logic.js
-import { ZONES } from './zones.js';
+import { ZONES, preferredZoneForPoint } from './zones.js';
 
 /**
  * Check if a point lies on a line segment
@@ -49,25 +49,18 @@ const ENERGY_PRIORITY = ['Comfort', 'Ventilation', 'Mass Cooling', 'Evaporative 
  */
 function classifyPoint(temp, rh) {
   // Cold zone is simple temperature threshold
-  if (temp < 23) return 'Cold';
-  
-  // Find all zones that contain this point
-  const matches = [];
-  for (let zi = 1; zi < ZONES.length; zi++) {
-    const zone = ZONES[zi];
-    if (!zone.poly) continue;
-    if (pointInPoly(temp, rh, zone.poly)) matches.push(zone.id);
-  }
-  
-  if (matches.length === 0) {
-    // Fallback for very high temperatures
-    if (temp >= 43.7) return 'Air Conditioning';
-    return 'Unclassified';
-  }
-  
-  // Pick match with highest priority (earliest in ENERGY_PRIORITY)
-  matches.sort((a,b) => ENERGY_PRIORITY.indexOf(a) - ENERGY_PRIORITY.indexOf(b));
-  return matches[0];
+  if (Number(temp) < 23) return 'Cold';
+
+  // Use the shared preferredZoneForPoint logic from zones.js which
+  // applies the project's energy-priority tie-breaking and any
+  // explicit priority metadata on zones.
+  const pref = preferredZoneForPoint(temp, rh);
+  if (pref && pref.id) return pref.id;
+
+  // Fallback for very high temperatures
+  if (Number(temp) >= 43.7) return 'Air Conditioning';
+
+  return 'Unclassified';
 }
 
 export { pointOnSegment, pointInPoly, classifyPoint };
