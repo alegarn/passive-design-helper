@@ -9,19 +9,23 @@ Contents
 - Input CSV format & column detection
 - Zones & classification
 - Outputs
+- Web Application
 - Troubleshooting
 - Development & testing
 - License
 
 Overview
 --------
-This repository provides a small Node.js CLI that:
-- Parses timestamped temperature and relative-humidity CSVs
+This repository provides both a Node.js CLI and a modern web application that:
+- Parses timestamped temperature and relative-humidity CSVs using memory-efficient streaming
 - Classifies each datapoint into a "tactic" zone based on temperature and relative humidity polytopes
 - Aggregates duration per zone and per time bucket (month / day / hour)
 - Writes a timeseries CSV suitable for plotting and a human-readable summary (MD/TXT/CSV) and optional JSON output
+- Detects data span and granularity automatically for optimal analysis
 
-The typical workflow is command-line driven: point to a CSV (or let the tool pick one), verify detected columns and date format (interactive by default), then inspect the generated summary and timeseries files.
+The CLI workflow is command-line driven: point to a CSV (or let the tool pick one), verify detected columns and date format (interactive by default), then inspect the generated summary and timeseries files.
+
+The web application provides an intuitive browser-based interface with drag-and-drop upload, real-time processing feedback, and interactive data visualization.
 
 Features
 --------
@@ -29,8 +33,10 @@ Features
 - Heuristics for ambiguous date formats (day-first vs month-first)
 - Optional non-interactive `--auto` mode for scripting
 - Streaming processing to handle large files without high memory use
+- Data span detection with confidence scoring
 - Multiple summary formats: Markdown, plain text, CSV, and JSON
 - Default outputs: timeseries CSV for plotting and a summary report
+- Modern web interface with streaming processing capabilities
 
 Quick start
 -----------
@@ -144,6 +150,28 @@ Code structure (high level)
 - [`scripts/zones.js`](scripts/zones.js:1) & [`scripts/classify.js`](scripts/classify.js:1) — zone definitions and classification
 - [`logic.js`](logic.js:1) — original single-file CLI (kept for reference)
 - [`tactics-cli.js`](tactics-cli.js:1) — thin entrypoint invoking the refactor
+
+Web Application
+---------------
+
+A modern Svelte 5 based web application is available in the [`web/`](web/) directory, providing:
+
+- **Streaming CSV Processing**: Memory-efficient chunk-based processing for large files
+- **Interactive UI**: Drag-and-drop file upload with real-time feedback
+- **Data Span Detection**: Automatic detection of time range and data granularity
+- **Column Mapping**: Interactive column selection with auto-detection
+- **Export Options**: Generate CSV, JSON, and Markdown reports
+- **Visualization**: Psychrometric charts and zone analysis
+
+For detailed documentation on the web application, see [`web/README.md`](web/README.md).
+
+Quick start with the web app:
+```bash
+cd web
+npm install
+npm run dev
+```
+Then open your browser to the provided localhost URL.
 
 Contributing
 ------------
