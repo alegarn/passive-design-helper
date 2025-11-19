@@ -11,7 +11,8 @@
     aggregateByMonth,
     getAggregationFunction,
     getRecommendedAggregation,
-    calculateAverage
+    calculateAverage,
+    calculateDatasetAverages
   } from '../utils/timeSeriesAggregator.js';
   import { getSourceDateRange, buildDailyBuckets } from '../utils/dataProcessor.js';
   import StatCard from './StatCard.svelte';
@@ -82,16 +83,26 @@
       datasetAverages = [];
       return;
     }
-    datasetAverages = (chartData.datasets || []).map(dataset => {
-      // Extract numeric values from dataset.data array defensively
-      const values = (dataset.data || []).map(point => (point && point.y)).filter(val => typeof val === 'number' && !isNaN(val));
-      const average = calculateAverage(values, 1);
-      return {
-        label: dataset.label,
-        value: average,
-        color: dataset.borderColor
-      };
-    });
+    
+    // For Daily granularity, use collapsed averages (Temperature and Humidity only)
+    if (currentPeriod === 'daily') {
+      datasetAverages = calculateDatasetAverages(aggregatedData, {
+        collapseClassificationsFor: ['daily'],
+        granularity: currentPeriod
+      });
+    } else {
+      // For other granularities, use the original behavior based on chart datasets
+      datasetAverages = (chartData.datasets || []).map(dataset => {
+        // Extract numeric values from dataset.data array defensively
+        const values = (dataset.data || []).map(point => (point && point.y)).filter(val => typeof val === 'number' && !isNaN(val));
+        const average = calculateAverage(values, 1);
+        return {
+          label: dataset.label,
+          value: average,
+          color: dataset.borderColor
+        };
+      });
+    }
   });
   
   // Calculate zone totals for passive design zones - reactive to aggregatedData/timeSeriesData and currentPeriod
@@ -437,8 +448,9 @@
       
       datasets.push(rhDataset);
     } else {
-      // Weekly/Monthly: unified two-series rendering (temp + rh) with per-segment zone coloring
-      if (currentPeriod === 'weekly' || currentPeriod === 'monthly') {
+      // Weekly/Monthly/Daily: unified two-series rendering (temp + rh) with per-segment zone coloring
+      // Treat `daily` like weekly/monthly so temperature is a single line with per-segment zone colors
+      if (currentPeriod === 'weekly' || currentPeriod === 'monthly' || currentPeriod === 'daily') {
         // Build pointMap for efficient lookup keyed by timestamp in milliseconds
         const pointMap = new Map(aggregatedData.map(p => [new Date(p.timestamp).getTime(), p]));
         
@@ -1021,34 +1033,6 @@
     border-radius: 4px;
     color: #6c757d;
     text-align: center;
-  }
-
-  .zone-legend {
-    margin-top: 1rem;
-    padding: 0.5rem;
-    background: #f8f9fa;
-    border-radius: 4px;
-    font-size: 0.9rem;
-  }
-  
-  .zone-legend h4 {
-    margin: 0 0 0.5rem 0;
-    font-size: 0.9rem;
-    color: #495057;
-  }
-  
-  .legend-item {
-    display: flex;
-    align-items: center;
-    margin-bottom: 0.25rem;
-  }
-  
-  .legend-color {
-    width: 16px;
-    height: 16px;
-    border-radius: 2px;
-    margin-right: 0.5rem;
-    border: 1px solid #dee2e6;
   }
   
   .data-summary {

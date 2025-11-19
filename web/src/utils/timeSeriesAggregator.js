@@ -3,6 +3,9 @@
  * Functions to aggregate temperature and humidity data by different time periods
  */
 
+// Import ZONE_COLORS for use in dataset averages
+import { ZONE_COLORS } from '../../../scripts/theme.js';
+
 /**
  * Group data by a specified time period and calculate averages
  * @param {Array} data - Array of time series records
@@ -290,4 +293,132 @@ export function calculateAverage(values, decimals = 1) {
   // Round to specified decimal places
   const multiplier = Math.pow(10, decimals);
   return Math.round(average * multiplier) / multiplier;
+}
+
+/**
+ * Calculate dataset averages with optional classification collapsing
+ * @param {Array} data - Array of time series records
+ * @param {Object} options - Configuration options
+ * @param {Array} options.collapseClassificationsFor - Array of granularities to collapse classifications for
+ * @param {string} options.granularity - Current granularity ('hourly', 'daily', 'weekly', 'monthly')
+ * @returns {Array} Dataset averages with optional classification collapsing
+ */
+export function calculateDatasetAverages(data, options = {}) {
+  const { collapseClassificationsFor = [], granularity } = options;
+  
+  // Check if we should collapse classifications for this granularity
+  const shouldCollapse = collapseClassificationsFor.includes(granularity);
+  
+  if (!shouldCollapse) {
+    // Return standard per-classification averages
+    return calculateStandardDatasetAverages(data);
+  }
+  
+  // Return collapsed averages (only Temperature and Humidity)
+  return calculateCollapsedDatasetAverages(data);
+}
+
+/**
+ * Calculate standard dataset averages (per classification)
+ * @param {Array} data - Array of time series records
+ * @returns {Array} Standard dataset averages
+ */
+function calculateStandardDatasetAverages(data) {
+  if (!Array.isArray(data) || data.length === 0) {
+    return [];
+  }
+  
+  // Group data by classification (zone)
+  const classificationGroups = {};
+  
+  data.forEach(record => {
+    const zone = record.zone || 'Unclassified';
+    if (!classificationGroups[zone]) {
+      classificationGroups[zone] = {
+        temps: [],
+        rhs: []
+      };
+    }
+    
+    if (typeof record.temp === 'number' && !isNaN(record.temp)) {
+      classificationGroups[zone].temps.push(record.temp);
+    }
+    if (typeof record.rh === 'number' && !isNaN(record.rh)) {
+      classificationGroups[zone].rhs.push(record.rh);
+    }
+  });
+  
+  // Calculate averages for each classification
+  const averages = [];
+  
+  Object.entries(classificationGroups).forEach(([zone, values]) => {
+    const tempAvg = calculateAverage(values.temps, 1);
+    const rhAvg = calculateAverage(values.rhs, 1);
+    
+    if (tempAvg !== null) {
+      averages.push({
+        label: `${zone} (Temperature)`,
+        value: tempAvg,
+        color: ZONE_COLORS[zone] || ZONE_COLORS['Unclassified'] || '#999999'
+      });
+    }
+    
+    if (rhAvg !== null) {
+      averages.push({
+        label: `${zone} (Humidity)`,
+        value: rhAvg,
+        color: ZONE_COLORS[zone] || ZONE_COLORS['Unclassified'] || '#999999'
+      });
+    }
+  });
+  
+  return averages;
+}
+
+/**
+ * Calculate collapsed dataset averages (only Temperature and Humidity)
+ * @param {Array} data - Array of time series records
+ * @returns {Array} Collapsed dataset averages
+ */
+function calculateCollapsedDatasetAverages(data) {
+  if (!Array.isArray(data) || data.length === 0) {
+    return [];
+  }
+  
+  // Collect all temperature and humidity values regardless of classification
+  const allTemps = [];
+  const allRhs = [];
+  
+  data.forEach(record => {
+    if (typeof record.temp === 'number' && !isNaN(record.temp)) {
+      allTemps.push(record.temp);
+    }
+    if (typeof record.rh === 'number' && !isNaN(record.rh)) {
+      allRhs.push(record.rh);
+    }
+  });
+  
+  const averages = [];
+  
+  // Calculate overall temperature average
+  const tempAvg = calculateAverage(allTemps, 1);
+  if (tempAvg !== null) {
+    averages.push({
+      label: 'Temperature',
+      value: tempAvg,
+      color: '#ff6384' // Default temperature color
+    });
+  }
+  
+  // Calculate overall humidity average
+  const rhAvg = calculateAverage(allRhs, 1);
+  if (rhAvg !== null) {
+    averages.push({
+      label: 'Relative Humidity',
+      value: rhAvg,
+      color: 'rgba(135, 206, 250, 0.7)' // Default humidity color
+    });
+  }
+  
+  return averages;
 }

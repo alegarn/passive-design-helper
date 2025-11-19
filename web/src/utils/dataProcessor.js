@@ -682,7 +682,13 @@ export async function aggregateCsvStream(file, classifyRow, options = {}) {
             // Fallback to original method
             dataSpan = detectDataSpan(rowsWithDur.map(row => row.ts));
           }
-          
+
+          // Compute a final median delta from the reservoir to expose to the caller
+          const sortedDeltasFinal = [...deltaReservoir].sort((a, b) => a - b);
+          const medianDelta = sortedDeltasFinal.length
+            ? sortedDeltasFinal[Math.floor(sortedDeltasFinal.length / 2)]
+            : (finalTimelineUnit === 'hour' ? 3600000 : finalTimelineUnit === 'day' ? 86400000 : 30 * 86400000);
+
           resolve({
             perBucket,
             summary,
@@ -693,6 +699,7 @@ export async function aggregateCsvStream(file, classifyRow, options = {}) {
             timelineUnit: finalTimelineUnit,
             rowsCount: processedRows,
             totalRows, // Include total rows count for accurate processing
+            medianDelta,
             dataSpan
           });
           return;
