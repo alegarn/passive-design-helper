@@ -38,18 +38,6 @@
 <main>
   <UploadZone on:fileparsed={handleFileParsed} />
   
-  <!-- Debug output to track fileData state -->
-  {#if fileData.file}
-    <div style="background: #f0f0f0; padding: 10px; margin: 10px 0; border-radius: 4px;">
-      <h4>Debug: File Data State</h4>
-      <p>File: {fileData.file.name}</p>
-      <p>Header Fields Count: {fileData.headerFields.length}</p>
-      <p>Sample Rows Count: {fileData.sampleRows.length}</p>
-      <p>Day First: {fileData.dayFirst}</p>
-      <p>Data Span Info: {fileData.dataSpanInfo ? 'Available' : 'Not Available'}</p>
-    </div>
-  {/if}
-  
   {#if fileData.file && fileData.headerFields}
     <ProcessControls
       file={fileData.file}
@@ -66,16 +54,31 @@
     
     <!-- Time Series Chart -->
     {#if fileData.aggregationResult.rowsWithDur}
+      <!-- Example 1: Hourly average day with zones as threshold array -->
       <TimeSeriesChart
         timeSeriesData={fileData.aggregationResult.rowsWithDur}
-        selectedPeriod="daily"
-        colorSegments={[
+        selectedPeriod="hourly"
+        zones={[
           { threshold: 30, color: '#ff4444' },  // Hot: red
           { threshold: 25, color: '#ff8844' },  // Warm: orange
           { threshold: 20, color: '#ffcc44' },  // Mild: yellow
           { threshold: 15, color: '#44cc44' },  // Cool: light green
           { threshold: 10, color: '#4488ff' }   // Cold: blue
         ]}
+      />
+      
+      <!-- Example 2: Daily chart with zones as function -->
+      <TimeSeriesChart
+        timeSeriesData={fileData.aggregationResult.rowsWithDur}
+        selectedPeriod="daily"
+        zones={(value) => {
+          if (value > 28) return '#ff0000';  // Very hot
+          if (value > 24) return '#ff8800';  // Hot
+          if (value > 20) return '#ffcc00';  // Warm
+          if (value > 16) return '#88ff00';  // Mild
+          if (value > 12) return '#00ccff';  // Cool
+          return '#0088ff';  // Cold
+        }}
       />
     {/if}
   {/if}

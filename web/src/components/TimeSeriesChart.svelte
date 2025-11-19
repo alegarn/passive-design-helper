@@ -23,32 +23,44 @@
   let {
     timeSeriesData = [],
     selectedPeriod = 'daily',
-    colorSegments = null // Multi-color line configuration
+    colorSegments = null, // Multi-color line configuration (deprecated, use zones instead)
+    zones = null // Zone-based color gradient configuration
   } = $props();
   
   /*
-   * Multi-color line support:
+   * Zone-based color gradient support:
    *
-   * The colorSegments prop allows rendering a single line with multiple colors
+   * The zones prop allows rendering a single line with multiple colors
    * based on data values. It accepts two formats:
    *
    * 1. Array of threshold objects:
-   *    colorSegments = [
+   *    zones = [
    *      { threshold: 30, color: '#ff0000' },  // Values >= 30: red
    *      { threshold: 20, color: '#ffaa00' },  // Values >= 20: orange
    *      { threshold: 10, color: '#00aa00' }   // Values >= 10: green
    *    ]
    *
    * 2. Function that returns color based on value:
-   *    colorSegments = (value) => {
+   *    zones = (value) => {
    *      if (value > 25) return '#ff0000';
    *      if (value > 15) return '#ffaa00';
    *      return '#00aa00';
    *    }
    *
-   * When colorSegments is provided, each segment of the line between data points
+   * When zones is provided, each segment of the line between data points
    * will be colored according to the end point's value using Chart.js segment styling.
    * The default zone color is used as fallback when no segment color matches.
+   *
+   * Hourly chart behavior:
+   * - When selectedPeriod is 'hourly', the chart shows an "average day" line
+   * - This means exactly 24 points (hours 0-23) showing the average value for each hour
+   * across the entire selected period (e.g., a month)
+   * - Missing hours with no data are set to null to avoid drawing points
+   *
+   * Limitations:
+   * - Gradients are applied per-segment between consecutive points
+   * - Sparse data can make transitions look abrupt
+   * - Chart.js segment styling requires v3.0+ for proper gradient support
    */
 
   // Component state
@@ -56,6 +68,12 @@
   let currentPeriod = $state(selectedPeriod);
   let aggregatedData = $state([]);
   let chartData = $state(null);
+  let chartOptions = $state({});
+  
+  // Chart options (defined outside reactive context to avoid cloning issues)
+  const hourTickCallback = function(value) {
+    return value + ':00';
+  };
 
   // Available periods
   const periods = [
@@ -97,19 +115,22 @@
     }
   }
 
-  // Helper function to get color for a value based on colorSegments configuration
-  function getColorForValue(value, defaultColor) {
-    if (!colorSegments) {
+  // Helper function to get color for a value based on zones configuration
+  function getZoneColor(value, defaultColor) {
+    // Use zones if provided, otherwise fallback to colorSegments for backwards compatibility
+    const zoneConfig = zones || colorSegments;
+    
+    if (!zoneConfig) {
       return defaultColor;
     }
     
-    if (typeof colorSegments === 'function') {
-      return colorSegments(value);
+    if (typeof zoneConfig === 'function') {
+      return zoneConfig(value);
     }
     
-    if (Array.isArray(colorSegments)) {
+    if (Array.isArray(zoneConfig)) {
       // Find the first threshold that the value exceeds
-      for (const segment of colorSegments) {
+      for (const segment of zoneConfig) {
         if (value >= segment.threshold) {
           return segment.color;
         }
@@ -119,6 +140,25 @@
     }
     
     return defaultColor;
+  }
+
+  // Create a gradient between two colors for Chart.js segment styling
+  function createGradient(ctx, color1, color2) {
+    const chart = ctx.chart;
+    const {ctx: chartCtx, chartArea} = chart;
+    
+    if (!chartArea) {
+      return color1;
+    }
+    
+    const gradient = chartCtx.createLinearGradient(
+      ctx.p0.x, ctx.p0.y, ctx.p1.x, ctx.p1.y
+    );
+    
+    gradient.addColorStop(0, color1);
+    gradient.addColorStop(1, color2);
+    
+    return gradient;
   }
 
   // Process data for chart
@@ -158,42 +198,37 @@
       currentPeriod = getRecommendedAggregation(validData);
     }
 
-    // Aggregate data based on selected period
-    const aggregateFn = getAggregationFunction(currentPeriod);
-    try {
-      aggregatedData = aggregateFn(validData);
-    } catch (error) {
-      console.error('Error aggregating time series data:', error);
-      aggregatedData = [];
-      chartData = null;
-      return;
+    // Special handling for hourly view - create average day
+    if (currentPeriod === 'hourly') {
+      aggregatedData = createHourlyAverageData(validData);
+    } else {
+      // Aggregate data based on selected period
+      const aggregateFn = getAggregationFunction(currentPeriod);
+      try {
+        aggregatedData = aggregateFn(validData);
+      } catch (error) {
+        console.error('Error aggregating time series data:', error);
+        aggregatedData = [];
+        chartData = null;
+        return;
+      }
     }
 
     // Prepare datasets for Chart.js
     const datasets = [];
-    const zoneGroups = {};
-
-    // Group data by zone
-    aggregatedData.forEach(point => {
-      const zone = point.zone || 'Unclassified';
-      if (!zoneGroups[zone]) {
-        zoneGroups[zone] = [];
-      }
-      zoneGroups[zone].push(point);
-    });
-
-    // Create a dataset for each zone
-    Object.entries(zoneGroups).forEach(([zone, points]) => {
-      const zoneColor = ZONE_COLORS[zone] || ZONE_COLORS['Unclassified'];
+    
+    // For hourly average day, create a single dataset
+    if (currentPeriod === 'hourly') {
+      const defaultColor = ZONE_COLORS['Unclassified'] || '#999999';
       
       const dataset = {
-        label: zone,
-        data: points.map(point => ({
-          x: point.timestamp,
+        label: 'Average Day',
+        data: aggregatedData.map(point => ({
+          x: point.hour, // Use hour (0-23) as x value
           y: point.temp
         })),
-        borderColor: zoneColor,
-        backgroundColor: zoneColor,
+        borderColor: defaultColor,
+        backgroundColor: defaultColor,
         borderWidth: 2,
         fill: false,
         tension: 0.1,
@@ -201,23 +236,176 @@
         pointHoverRadius: 5
       };
       
-      // Add segment styling if colorSegments is provided
-      if (colorSegments) {
+      // Add segment styling if zones is provided
+      if (zones || colorSegments) {
         dataset.segment = {
           borderColor: ctx => {
             const value = ctx.p1.parsed.y;
-            return getColorForValue(value, zoneColor);
+            const color1 = getZoneColor(ctx.p0.parsed.y, defaultColor);
+            const color2 = getZoneColor(value, defaultColor);
+            
+            // If colors are the same, return the solid color
+            if (color1 === color2) {
+              return color1;
+            }
+            
+            // Create gradient between colors
+            return createGradient(ctx, color1, color2);
           }
         };
       }
       
       datasets.push(dataset);
-    });
+    } else {
+      // For other periods, group data by zone
+      const zoneGroups = {};
+
+      // Group data by zone
+      aggregatedData.forEach(point => {
+        const zone = point.zone || 'Unclassified';
+        if (!zoneGroups[zone]) {
+          zoneGroups[zone] = [];
+        }
+        zoneGroups[zone].push(point);
+      });
+
+      // Create a dataset for each zone
+      Object.entries(zoneGroups).forEach(([zone, points]) => {
+        const zoneColor = ZONE_COLORS[zone] || ZONE_COLORS['Unclassified'];
+        
+        const dataset = {
+          label: zone,
+          data: points.map(point => ({
+            x: point.timestamp,
+            y: point.temp
+          })),
+          borderColor: zoneColor,
+          backgroundColor: zoneColor,
+          borderWidth: 2,
+          fill: false,
+          tension: 0.1,
+          pointRadius: 3,
+          pointHoverRadius: 5
+        };
+        
+        // Add segment styling if zones is provided
+        if (zones || colorSegments) {
+          dataset.segment = {
+            borderColor: ctx => {
+              const value = ctx.p1.parsed.y;
+              const color1 = getZoneColor(ctx.p0.parsed.y, zoneColor);
+              const color2 = getZoneColor(value, zoneColor);
+              
+              // If colors are the same, return the solid color
+              if (color1 === color2) {
+                return color1;
+              }
+              
+              // Create gradient between colors
+              return createGradient(ctx, color1, color2);
+            }
+          };
+        }
+        
+        datasets.push(dataset);
+      });
+    }
 
     // Chart configuration
     chartData = {
       datasets: datasets
     };
+    
+    // Update chart options
+    chartOptions = {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        title: {
+          display: true,
+          text: `Temperature Time Series (${currentPeriod.charAt(0).toUpperCase() + currentPeriod.slice(1)})`,
+          font: {
+            size: 16
+          }
+        },
+        legend: {
+          display: true,
+          position: 'top'
+        },
+        tooltip: {
+          enabled: true,
+          mode: 'index',
+          intersect: false
+        }
+      },
+      scales: {
+        x: {
+          type: currentPeriod === 'hourly' ? 'linear' : 'time',
+          time: currentPeriod === 'hourly' ? undefined : {
+            unit: currentPeriod === 'daily' ? 'day' :
+                  currentPeriod === 'weekly' ? 'week' : 'month',
+            displayFormats: {
+              day: 'MMM dd',
+              week: 'MMM dd',
+              month: 'MMM yyyy'
+            }
+          },
+          title: {
+            display: true,
+            text: currentPeriod === 'hourly' ? 'Hour of Day' : 'Time'
+          },
+          min: currentPeriod === 'hourly' ? 0 : undefined,
+          max: currentPeriod === 'hourly' ? 23 : undefined,
+          ticks: currentPeriod === 'hourly' ? {
+            stepSize: 1,
+            callback: hourTickCallback
+          } : undefined
+        },
+        y: {
+          title: {
+            display: true,
+            text: 'Temperature (°C)'
+          },
+          beginAtZero: false
+        }
+      }
+    };
+  }
+
+  // Create hourly average day data (24 points for hours 0-23)
+  function createHourlyAverageData(validData) {
+    // Initialize hourly aggregates
+    const hourlyData = Array.from({ length: 24 }, (_, hour) => ({
+      hour,
+      tempValues: [],
+      rhValues: []
+    }));
+
+    // Aggregate values by hour of day
+    validData.forEach(record => {
+      const date = new Date(record.timestamp);
+      const hour = date.getHours();
+      
+      hourlyData[hour].tempValues.push(record.temp);
+      hourlyData[hour].rhValues.push(record.rh);
+    });
+
+    // Calculate averages for each hour
+    return hourlyData.map(({ hour, tempValues, rhValues }) => {
+      const tempAvg = tempValues.length > 0
+        ? tempValues.reduce((sum, val) => sum + val, 0) / tempValues.length
+        : null;
+      
+      const rhAvg = rhValues.length > 0
+        ? rhValues.reduce((sum, val) => sum + val, 0) / rhValues.length
+        : null;
+      
+      return {
+        hour,
+        temp: tempAvg,
+        rh: rhAvg
+      };
+    });
   }
 
   // Handle period change
@@ -274,55 +462,7 @@
         <div class="chart-wrapper">
           <Line
             data={chartData}
-            options={{
-              responsive: true,
-              maintainAspectRatio: false,
-              plugins: {
-                title: {
-                  display: true,
-                  text: `Temperature Time Series (${currentPeriod.charAt(0).toUpperCase() + currentPeriod.slice(1)})`,
-                  font: {
-                    size: 16
-                  }
-                },
-                legend: {
-                  display: true,
-                  position: 'top'
-                },
-                tooltip: {
-                  enabled: true,
-                  mode: 'index',
-                  intersect: false
-                }
-              },
-              scales: {
-                x: {
-                  type: 'time',
-                  time: {
-                    unit: currentPeriod === 'hourly' ? 'hour' :
-                          currentPeriod === 'daily' ? 'day' :
-                          currentPeriod === 'weekly' ? 'week' : 'month',
-                    displayFormats: {
-                      hour: 'MMM dd, HH:mm',
-                      day: 'MMM dd',
-                      week: 'MMM dd',
-                      month: 'MMM yyyy'
-                    }
-                  },
-                  title: {
-                    display: true,
-                    text: 'Time'
-                  }
-                },
-                y: {
-                  title: {
-                    display: true,
-                    text: 'Temperature (°C)'
-                  },
-                  beginAtZero: false
-                }
-              }
-            }}
+            options={chartOptions}
           />
         </div>
       {:else}
@@ -337,9 +477,13 @@
   {#if aggregatedData && aggregatedData.length > 0}
     <div class="data-summary">
       <p>
-        Showing {aggregatedData.length} {currentPeriod} data points 
-        from {formatDateForDisplay(aggregatedData[0].timestamp, currentPeriod)} 
-        to {formatDateForDisplay(aggregatedData[aggregatedData.length - 1].timestamp, currentPeriod)}
+        {#if currentPeriod === 'hourly'}
+          Showing average day with 24 hourly data points
+        {:else}
+          Showing {aggregatedData.length} {currentPeriod} data points
+          from {formatDateForDisplay(aggregatedData[0].timestamp, currentPeriod)}
+          to {formatDateForDisplay(aggregatedData[aggregatedData.length - 1].timestamp, currentPeriod)}
+        {/if}
       </p>
     </div>
   {/if}
