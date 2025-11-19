@@ -3,6 +3,7 @@
   import { Line } from 'svelte5-chartjs';
   import { onMount, onDestroy } from 'svelte';
   import { ZONE_COLORS } from '../../../scripts/theme.js';
+  import { ZONES } from '../../../scripts/zones.js';
   import {
     aggregateByHour,
     aggregateByDay,
@@ -11,6 +12,7 @@
     getAggregationFunction,
     getRecommendedAggregation
   } from '../utils/timeSeriesAggregator.js';
+  import { getSourceDateRange } from '../utils/dataProcessor.js';
   import 'chartjs-adapter-date-fns';
 
   // Register Chart.js components only once and check if already registered to avoid conflicts
@@ -69,6 +71,7 @@
   let aggregatedData = $state([]);
   let chartData = $state(null);
   let chartOptions = $state({});
+  let sourceDateRange = $state(null); // Store actual source date range
   
   // Chart options (defined outside reactive context to avoid cloning issues)
   const hourTickCallback = function(value) {
@@ -190,8 +193,12 @@
       console.warn('No valid time series data found after filtering');
       aggregatedData = [];
       chartData = null;
+      sourceDateRange = null;
       return;
     }
+    
+    // Calculate source date range for accurate summary
+    sourceDateRange = getSourceDateRange(validData);
 
     // Set recommended period if not specified
     if (!selectedPeriod) {
@@ -217,12 +224,13 @@
     // Prepare datasets for Chart.js
     const datasets = [];
     
-    // For hourly average day, create a single dataset
+    // For hourly average day, create temperature and RH datasets
     if (currentPeriod === 'hourly') {
       const defaultColor = ZONE_COLORS['Unclassified'] || '#999999';
       
-      const dataset = {
-        label: 'Average Day',
+      // Temperature dataset
+      const tempDataset = {
+        label: 'Temperature (°C)',
         data: aggregatedData.map(point => ({
           x: point.hour, // Use hour (0-23) as x value
           y: point.temp
@@ -233,12 +241,13 @@
         fill: false,
         tension: 0.1,
         pointRadius: 3,
-        pointHoverRadius: 5
+        pointHoverRadius: 5,
+        yAxisID: 'y'
       };
       
       // Add segment styling if zones is provided
       if (zones || colorSegments) {
-        dataset.segment = {
+        tempDataset.segment = {
           borderColor: ctx => {
             const value = ctx.p1.parsed.y;
             const color1 = getZoneColor(ctx.p0.parsed.y, defaultColor);
@@ -255,7 +264,26 @@
         };
       }
       
-      datasets.push(dataset);
+      datasets.push(tempDataset);
+      
+      // Relative Humidity dataset (light blue, thin line)
+      const rhDataset = {
+        label: 'Relative Humidity (%)',
+        data: aggregatedData.map(point => ({
+          x: point.hour, // Use hour (0-23) as x value
+          y: point.rh
+        })),
+        borderColor: 'rgba(135, 206, 250, 0.7)', // Light blue with transparency
+        backgroundColor: 'rgba(135, 206, 250, 0.1)',
+        borderWidth: 1,
+        fill: false,
+        tension: 0.1,
+        pointRadius: 2,
+        pointHoverRadius: 4,
+        yAxisID: 'y1' // Use secondary y-axis for RH
+      };
+      
+      datasets.push(rhDataset);
     } else {
       // For other periods, group data by zone
       const zoneGroups = {};
@@ -273,12 +301,30 @@
       Object.entries(zoneGroups).forEach(([zone, points]) => {
         const zoneColor = ZONE_COLORS[zone] || ZONE_COLORS['Unclassified'];
         
-        const dataset = {
-          label: zone,
-          data: points.map(point => ({
-            x: point.timestamp,
-            y: point.temp
-          })),
+        // Temperature dataset for this zone
+        const tempDataset = {
+          label: `${zone} (Temperature)`,
+          data: points.map(point => {
+            // Ensure timestamp is a Date object for Chart.js time scale
+            let timestamp = point.timestamp;
+            if (typeof timestamp === 'string') {
+              // If it's a string, convert to Date
+              timestamp = new Date(timestamp);
+            } else if (typeof timestamp === 'number') {
+              // If it's a number, check if it's in seconds (epoch-like) or milliseconds
+              // If it's a large number less than 10^12, it's likely in seconds
+              if (timestamp < 1000000000000) {
+                timestamp = new Date(timestamp * 1000); // Convert seconds to milliseconds
+              } else {
+                timestamp = new Date(timestamp); // Already in milliseconds
+              }
+            }
+            
+            return {
+              x: timestamp,
+              y: point.temp
+            };
+          }),
           borderColor: zoneColor,
           backgroundColor: zoneColor,
           borderWidth: 2,
@@ -290,7 +336,7 @@
         
         // Add segment styling if zones is provided
         if (zones || colorSegments) {
-          dataset.segment = {
+          tempDataset.segment = {
             borderColor: ctx => {
               const value = ctx.p1.parsed.y;
               const color1 = getZoneColor(ctx.p0.parsed.y, zoneColor);
@@ -307,7 +353,43 @@
           };
         }
         
-        datasets.push(dataset);
+        datasets.push(tempDataset);
+        
+        // RH dataset for this zone (light blue, thin line)
+        const rhDataset = {
+          label: `${zone} (Humidity)`,
+          data: points.map(point => {
+            // Ensure timestamp is a Date object for Chart.js time scale
+            let timestamp = point.timestamp;
+            if (typeof timestamp === 'string') {
+              // If it's a string, convert to Date
+              timestamp = new Date(timestamp);
+            } else if (typeof timestamp === 'number') {
+              // If it's a number, check if it's in seconds (epoch-like) or milliseconds
+              // If it's a large number less than 10^12, it's likely in seconds
+              if (timestamp < 1000000000000) {
+                timestamp = new Date(timestamp * 1000); // Convert seconds to milliseconds
+              } else {
+                timestamp = new Date(timestamp); // Already in milliseconds
+              }
+            }
+            
+            return {
+              x: timestamp,
+              y: point.rh
+            };
+          }),
+          borderColor: 'rgba(135, 206, 250, 0.7)', // Light blue with transparency
+          backgroundColor: 'rgba(135, 206, 250, 0.1)',
+          borderWidth: 1,
+          fill: false,
+          tension: 0.1,
+          pointRadius: 2,
+          pointHoverRadius: 4,
+          yAxisID: 'y1' // Use secondary y-axis for RH
+        };
+        
+        datasets.push(rhDataset);
       });
     }
 
@@ -329,7 +411,7 @@
           }
         },
         legend: {
-          display: true,
+          display: currentPeriod !== 'hourly', // Hide default legend for hourly, we'll create custom one
           position: 'top'
         },
         tooltip: {
@@ -348,6 +430,13 @@
               day: 'MMM dd',
               week: 'MMM dd',
               month: 'MMM yyyy'
+            },
+            // Ensure proper parsing of timestamps
+            parser: (value) => {
+              if (typeof value === 'string') {
+                return new Date(value);
+              }
+              return value; // Assume it's already a Date or timestamp
             }
           },
           title: {
@@ -359,14 +448,44 @@
           ticks: currentPeriod === 'hourly' ? {
             stepSize: 1,
             callback: hourTickCallback
-          } : undefined
+          } : {
+            // Format ticks to show readable dates instead of epoch numbers
+            callback: function(value) {
+              const date = new Date(value);
+              if (currentPeriod === 'daily') {
+                return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+              } else if (currentPeriod === 'weekly') {
+                return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+              } else if (currentPeriod === 'monthly') {
+                return date.toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
+              }
+              return date.toLocaleDateString();
+            }
+          }
         },
         y: {
+          type: 'linear',
+          display: true,
+          position: 'left',
           title: {
             display: true,
             text: 'Temperature (°C)'
           },
           beginAtZero: false
+        },
+        y1: {
+          type: 'linear',
+          display: true,
+          position: 'right',
+          title: {
+            display: true,
+            text: 'Relative Humidity (%)'
+          },
+          beginAtZero: true,
+          max: 100,
+          grid: {
+            drawOnChartArea: false, // Only show grid lines for the primary y-axis
+          }
         }
       }
     };
@@ -473,6 +592,19 @@
     </div>
   {/if}
 
+  <!-- Custom Zone Legend for All Charts -->
+  {#if currentPeriod === 'hourly' || currentPeriod === 'daily'}
+    <div class="zone-legend">
+      <h4>Passive Design Zones (Temperature & Humidity)</h4>
+      {#each ZONES as zone}
+        <div class="legend-item">
+          <div class="legend-color" style="background-color: {zone.color};"></div>
+          <span>{zone.id}: {zone.note || 'Complex T/RH boundary'}</span>
+        </div>
+      {/each}
+    </div>
+  {/if}
+
   <!-- Data Summary -->
   {#if aggregatedData && aggregatedData.length > 0}
     <div class="data-summary">
@@ -481,8 +613,13 @@
           Showing average day with 24 hourly data points
         {:else}
           Showing {aggregatedData.length} {currentPeriod} data points
-          from {formatDateForDisplay(aggregatedData[0].timestamp, currentPeriod)}
-          to {formatDateForDisplay(aggregatedData[aggregatedData.length - 1].timestamp, currentPeriod)}
+          {#if sourceDateRange && sourceDateRange.minDate && sourceDateRange.maxDate}
+            from {formatDateForDisplay(sourceDateRange.minDate.getTime(), currentPeriod)}
+            to {formatDateForDisplay(sourceDateRange.maxDate.getTime(), currentPeriod)}
+          {:else}
+            from {formatDateForDisplay(aggregatedData[0].timestamp, currentPeriod)}
+            to {formatDateForDisplay(aggregatedData[aggregatedData.length - 1].timestamp, currentPeriod)}
+          {/if}
         {/if}
       </p>
     </div>
@@ -564,6 +701,34 @@
     text-align: center;
   }
 
+  .zone-legend {
+    margin-top: 1rem;
+    padding: 0.5rem;
+    background: #f8f9fa;
+    border-radius: 4px;
+    font-size: 0.9rem;
+  }
+  
+  .zone-legend h4 {
+    margin: 0 0 0.5rem 0;
+    font-size: 0.9rem;
+    color: #495057;
+  }
+  
+  .legend-item {
+    display: flex;
+    align-items: center;
+    margin-bottom: 0.25rem;
+  }
+  
+  .legend-color {
+    width: 16px;
+    height: 16px;
+    border-radius: 2px;
+    margin-right: 0.5rem;
+    border: 1px solid #dee2e6;
+  }
+  
   .data-summary {
     margin-top: 1rem;
     padding: 0.5rem;

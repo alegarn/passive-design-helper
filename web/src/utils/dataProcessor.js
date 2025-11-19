@@ -1189,3 +1189,45 @@ const expectedHours = aggResult.totalMs / 3600000;
 const actualHours = aggResult.summary.reduce((sum, item) => sum + item.hours, 0);
 console.assert(Math.abs(expectedHours - actualHours) < 0.01, 'Summary hours should match total');
 */
+
+/**
+ * Get the actual date range from source data for accurate summary display
+ *
+ * @param {Array} sourceData - Original source data with timestamps
+ * @returns {Object} Object with minDate, maxDate, and totalDays
+ */
+export function getSourceDateRange(sourceData) {
+  if (!sourceData || sourceData.length === 0) {
+    return { minDate: null, maxDate: null, totalDays: 0 };
+  }
+  
+  // Extract timestamps and filter valid ones
+  const timestamps = sourceData
+    .map(record => {
+      let ts = record.ts || record.timestamp;
+      if (typeof ts === 'string') {
+        ts = new Date(ts).getTime();
+      } else if (typeof ts === 'number') {
+        // Convert seconds to milliseconds if needed
+        if (ts < 1000000000000) {
+          ts = ts * 1000;
+        }
+      }
+      return ts;
+    })
+    .filter(ts => ts && !isNaN(ts));
+  
+  if (timestamps.length === 0) {
+    return { minDate: null, maxDate: null, totalDays: 0 };
+  }
+  
+  const minTs = Math.min(...timestamps);
+  const maxTs = Math.max(...timestamps);
+  const totalDays = Math.round((maxTs - minTs) / (1000 * 60 * 60 * 24) * 100) / 100;
+  
+  return {
+    minDate: new Date(minTs),
+    maxDate: new Date(maxTs),
+    totalDays
+  };
+}
