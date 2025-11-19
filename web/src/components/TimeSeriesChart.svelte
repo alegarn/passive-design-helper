@@ -342,6 +342,25 @@
       }
     }
 
+    // --- TRIAGE: ensure every aggregated point has a single zone id
+    // Some aggregation paths (e.g. buildDailyBuckets) produce points with `zone: null`.
+    // We should triage each point to a single zone for consistent downstream rendering
+    // and to avoid leaving many points as 'Unclassified' or multi-match combo strings.
+    aggregatedData = aggregatedData.map(pt => {
+      const t = pt.temp;
+      const h = pt.rh;
+      // preserve explicitly provided zone if it's a non-empty string
+      if (pt.zone && typeof pt.zone === 'string' && pt.zone !== 'Unclassified') {
+        return pt;
+      }
+      if (t == null || h == null || isNaN(Number(t)) || isNaN(Number(h))) {
+        // keep as Unclassified when values are missing
+        return { ...pt, zone: 'Unclassified' };
+      }
+      const z = preferredZoneForPoint(t, h);
+      return { ...pt, zone: z ? z.id : 'Unclassified' };
+    });
+
     // Log processed data length for debugging
     console.info(`[TimeSeriesChart] Dataset data length: ${aggregatedData.length}`);
 
