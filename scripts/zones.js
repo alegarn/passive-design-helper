@@ -25,38 +25,80 @@ function p(t, rh) {
 import { ZONE_COLORS } from './theme.js';
 
 const ZONES = [
-  { 
-    id: 'Cold', 
-    color: ZONE_COLORS['Cold'], 
-    poly: null, 
-    note: 'T < 23°C' 
-  },
+
   { 
     id: 'Comfort', 
     color: ZONE_COLORS['Comfort'], 
     poly: [ 
-      p(23,20), 
-      p(23,80), 
+      p(22.8,20), 
+      p(22.8,80), 
       p(25,80), 
-      p(28,67), 
-      p(29.5,50), 
-      p(29.5,20) 
+      p(27.8,67), 
+      p(29.8,50), 
+      p(29.8,20) 
     ]
   },
   { 
     id: 'Ventilation', 
     color: ZONE_COLORS['Ventilation'], 
     poly: [ 
-      p(23,80), 
-      p(23,100), 
-      p(29.5,100), 
-      p(34.5,50), 
-      p(34.5,20), 
-      p(29.5,20), 
-      p(29.5,50), 
-      p(28,67), 
-      p(25,80) 
+      p(22.8, 80),
+      p(22.8, 100),
+      p(29.8,100),
+      p(34.8,50),
+      p(34.8,20),
+      p(29.8,20),
+      p(29.8,50),
+      p(27.8,67),
+      p(25,80),
+      p(23,80)
     ]
+  },
+  // Additional zones deduced from the psychrometric chart image
+  {
+    id: 'Humidification',
+    color: ZONE_COLORS['Humidification'],
+    // Approx DBT 0-22 °C, RH 40-100% — area where humidification may be applied
+    poly: [ 
+      p(0,0), 
+      p(0,20), 
+      p(5,20),
+      p(10,20),
+      p(15,20),
+      p(20,20),
+      p(22.8,20),
+      p(31.3, 0),
+      p(0,0)
+    ],
+    note: 'Humidification applicability (approx)'
+  },
+  {
+    id: 'Heating',
+    color: ZONE_COLORS['Heating'],
+    // Approx DBT 0-10 °C, RH 10-50%
+    poly: [ p(0,10), p(0,50), p(10,50), p(10,10) ],
+    note: 'Heating band (approx)'
+  },
+  {
+    id: 'Passive Solar Heating',
+    color: ZONE_COLORS['Passive Solar Heating'],
+    // Approx DBT 8-16 °C, RH 20-60%
+    poly: [ p(8,20), p(8,60), p(16,60), p(16,20) ],
+    note: 'Passive solar heating region (approx)'
+  },
+  {
+    id: 'Internal Gains',
+    color: ZONE_COLORS['Internal Gains'],
+    // Approx DBT 15-22 °C, RH 30-60%
+    poly: [ p(15,30), p(15,60), p(22,60), p(22,30) ],
+    note: 'Internal gains influence (approx)'
+  },
+  {
+    id: 'Winter Gains',
+    color: ZONE_COLORS['Winter Gains'],
+    // Approx DBT 18-24 °C, RH 30-55%
+    poly: [ p(18,30), p(18,55), p(24,55), p(24,30) ],
+    note: 'Winter gain comfort extension (approx)'
   },
   { 
     id: 'Mass Cooling', 
@@ -101,14 +143,15 @@ const ZONES = [
   {
     id: 'Air Conditioning + Dehumidifier',
     color: ZONE_COLORS['Air Conditioning + Dehumidifier'], 
+    // Refined: apply when relative humidity is high (>= ~40%) — ventilation alone insufficient
+    // Approx DBT 29.5-50 °C combined with RH 40-100%
     poly: [
-      p(34.7, 45),
-      p(34.7, 50),
-      p(29.8,100),
-      p(34.3,100),
+      p(29.5, 40),
+      p(29.5,100),
       p(50.0,100),
-      p(50.0,16)
-    ]
+      p(50.0,40)
+    ],
+    note: 'Air conditioning with dehumidifier — refined to RH >= 40% (ventilation insufficient)'
   },
   { 
     id: 'Air Conditioning', 

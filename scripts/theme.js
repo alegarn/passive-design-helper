@@ -10,6 +10,14 @@ export const ZONE_COLORS = {
   'Air Conditioning': '#d08770',
   'Unclassified': '#999999'
 };
+// Additional colors for zones identified on the psychrometric chart
+// (Added to support newly introduced zones in scripts/zones.js)
+ZONE_COLORS['Natural Ventilation'] = '#9fc66b';
+ZONE_COLORS['Humidification'] = '#4db6ac';
+ZONE_COLORS['Heating'] = '#f2a65a';
+ZONE_COLORS['Passive Solar Heating'] = '#ffd087';
+ZONE_COLORS['Internal Gains'] = '#b48ead';
+ZONE_COLORS['Winter Gains'] = '#c3b0d8';
 
 export const THEME = {
   primary: ZONE_COLORS['Mass Cooling'],
