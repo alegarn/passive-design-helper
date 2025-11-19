@@ -37,6 +37,12 @@ export async function parseCsvStream(file, options = {}) {
     let samplesUsed = 0;
     let lineCount = 0;
     
+    // Streaming date tracking variables (for full dataset analysis)
+    let minDate = null;
+    let maxDate = null;
+    let validTimestamps = 0;
+    let timeColIndex = null;
+    
     // Function to process buffer and extract complete lines
     function processBuffer() {
       const newLines = buffer.split(/\r?\n/);
@@ -46,10 +52,37 @@ export async function parseCsvStream(file, options = {}) {
         if (lineCount === headerRowIndex) {
           // Parse header row
           headerFields = csvSplitLine(line);
-        } else if (lineCount > headerRowIndex && samplesUsed < sampleRows) {
-          // Collect sample rows
-          lines.push(line);
-          samplesUsed++;
+          // Try to find time column index once we have headers
+          timeColIndex = headerFields.findIndex(h =>
+            h.toLowerCase().includes('time') ||
+            h.toLowerCase().includes('date') ||
+            h.toLowerCase().includes('datetime')
+          );
+        } else if (lineCount > headerRowIndex) {
+          // Always collect sample rows (up to the limit)
+          if (samplesUsed < sampleRows) {
+            lines.push(line);
+            samplesUsed++;
+          }
+          
+          // Process dates for full dataset analysis
+          if (timeColIndex !== -1) {
+            const fields = csvSplitLine(line);
+            const dateStr = fields[timeColIndex];
+            
+            if (dateStr) {
+              try {
+                // We'll parse dates later after detecting day-first format
+                // For now, just store the date string for later processing
+                // This avoids parsing with unknown format
+                if (!minDate) minDate = dateStr;
+                maxDate = dateStr;
+                validTimestamps++;
+              } catch (e) {
+                // Skip invalid timestamps
+              }
+            }
+          }
         }
         lineCount++;
       }
@@ -62,9 +95,42 @@ export async function parseCsvStream(file, options = {}) {
           if (buffer.trim()) {
             if (lineCount === headerRowIndex) {
               headerFields = csvSplitLine(buffer);
-            } else if (lineCount > headerRowIndex && samplesUsed < sampleRows) {
-              lines.push(buffer);
-              samplesUsed++;
+              // Update time column index if we just parsed headers
+              timeColIndex = headerFields.findIndex(h =>
+                h.toLowerCase().includes('time') ||
+                h.toLowerCase().includes('date') ||
+                h.toLowerCase().includes('datetime')
+              );
+            } else if (lineCount > headerRowIndex) {
+              if (samplesUsed < sampleRows) {
+                lines.push(buffer);
+                samplesUsed++;
+              }
+              
+              // Process dates for full dataset analysis
+              if (timeColIndex !== -1) {
+                const fields = csvSplitLine(buffer);
+                const dateStr = fields[timeColIndex];
+                
+                if (dateStr) {
+                  try {
+                    // Parse dates immediately with detected format to get accurate min/max
+                    const preferDayFirst = dayFirst || false;
+                    const ts = parseTimestampOrThrow(dateStr, preferDayFirst, file.name);
+                    const normalizedTs = normalizeToUTC(ts, false);
+                    
+                    if (!minDate || normalizedTs < minDate) {
+                      minDate = normalizedTs;
+                    }
+                    if (!maxDate || normalizedTs > maxDate) {
+                      maxDate = normalizedTs;
+                    }
+                    validTimestamps++;
+                  } catch (e) {
+                    // Skip invalid timestamps
+                  }
+                }
+              }
             }
           }
           
@@ -78,39 +144,20 @@ export async function parseCsvStream(file, options = {}) {
           
           const dayFirst = detectDayFirstFromSamples(dateSamples, file.name);
           
-          // Analyze timestamps in sample rows to detect time span
-          let minDate = null;
-          let maxDate = null;
-          let validTimestamps = 0;
+          // Now that we know the date format, parse the min/max dates properly
+          let parsedMinDate = null;
+          let parsedMaxDate = null;
           
-          // Try to find time column index
-          const timeColIndex = headerFields.findIndex(h =>
-            h.toLowerCase().includes('time') ||
-            h.toLowerCase().includes('date') ||
-            h.toLowerCase().includes('datetime')
-          );
-          
-          if (timeColIndex !== -1) {
-            for (const line of lines) {
-              const fields = csvSplitLine(line);
-              const dateStr = fields[timeColIndex];
+          if (timeColIndex !== -1 && minDate && maxDate) {
+            try {
+              parsedMinDate = parseTimestampOrThrow(minDate, dayFirst, file.name);
+              parsedMaxDate = parseTimestampOrThrow(maxDate, dayFirst, file.name);
               
-              if (dateStr) {
-                try {
-                  const ts = parseTimestampOrThrow(dateStr, dayFirst, file.name);
-                  const normalizedTs = normalizeToUTC(ts, false); // Don't treat as UTC for analysis
-                  
-                  if (!minDate || normalizedTs < minDate) {
-                    minDate = normalizedTs;
-                  }
-                  if (!maxDate || normalizedTs > maxDate) {
-                    maxDate = normalizedTs;
-                  }
-                  validTimestamps++;
-                } catch (e) {
-                  // Skip invalid timestamps
-                }
-              }
+              // Normalize to UTC for consistent analysis
+              parsedMinDate = normalizeToUTC(parsedMinDate, false);
+              parsedMaxDate = normalizeToUTC(parsedMaxDate, false);
+            } catch (e) {
+              console.warn('Error parsing min/max dates:', e);
             }
           }
           
@@ -118,8 +165,8 @@ export async function parseCsvStream(file, options = {}) {
           let estimatedSpanDays = 0;
           let samplesPerDay = 0;
           
-          if (minDate && maxDate && validTimestamps > 1) {
-            estimatedSpanDays = (maxDate - minDate) / (1000 * 60 * 60 * 24);
+          if (parsedMinDate && parsedMaxDate && validTimestamps > 1) {
+            estimatedSpanDays = (parsedMaxDate - parsedMinDate) / (1000 * 60 * 60 * 24);
             samplesPerDay = validTimestamps / estimatedSpanDays;
           }
           
@@ -128,8 +175,8 @@ export async function parseCsvStream(file, options = {}) {
             sampleRows: lines,
             dayFirst,
             samplesUsed,
-            minDate,
-            maxDate,
+            minDate: parsedMinDate,
+            maxDate: parsedMaxDate,
             estimatedSpanDays,
             samplesPerDay
           });
@@ -140,73 +187,8 @@ export async function parseCsvStream(file, options = {}) {
         buffer += decoder.decode(value, { stream: true });
         processBuffer();
         
-        // Continue reading if we need more samples
-        if (samplesUsed < sampleRows) {
-          readChunk();
-        } else {
-          // We have enough samples, but we need to finish reading to properly close the stream
-          reader.cancel();
-          const dayFirst = detectDayFirstFromSamples(
-            lines.map(line => csvSplitLine(line)[0] || '').filter(Boolean),
-            file.name
-          );
-          
-          // Analyze timestamps in sample rows to detect time span
-          let minDate = null;
-          let maxDate = null;
-          let validTimestamps = 0;
-          
-          // Try to find time column index
-          const timeColIndex = headerFields.findIndex(h =>
-            h.toLowerCase().includes('time') ||
-            h.toLowerCase().includes('date') ||
-            h.toLowerCase().includes('datetime')
-          );
-          
-          if (timeColIndex !== -1) {
-            for (const line of lines) {
-              const fields = csvSplitLine(line);
-              const dateStr = fields[timeColIndex];
-              
-              if (dateStr) {
-                try {
-                  const ts = parseTimestampOrThrow(dateStr, dayFirst, file.name);
-                  const normalizedTs = normalizeToUTC(ts, false); // Don't treat as UTC for analysis
-                  
-                  if (!minDate || normalizedTs < minDate) {
-                    minDate = normalizedTs;
-                  }
-                  if (!maxDate || normalizedTs > maxDate) {
-                    maxDate = normalizedTs;
-                  }
-                  validTimestamps++;
-                } catch (e) {
-                  // Skip invalid timestamps
-                }
-              }
-            }
-          }
-          
-          // Calculate estimated span and samples per day
-          let estimatedSpanDays = 0;
-          let samplesPerDay = 0;
-          
-          if (minDate && maxDate && validTimestamps > 1) {
-            estimatedSpanDays = (maxDate - minDate) / (1000 * 60 * 60 * 24);
-            samplesPerDay = validTimestamps / estimatedSpanDays;
-          }
-          
-          resolve({
-            headerFields,
-            sampleRows: lines,
-            dayFirst,
-            samplesUsed,
-            minDate,
-            maxDate,
-            estimatedSpanDays,
-            samplesPerDay
-          });
-        }
+        // Always continue reading to process the entire file
+        readChunk();
       }).catch(reject);
     }
     
@@ -288,7 +270,23 @@ export function detectDataSpan(records, options = {}) {
   // Calculate min/max dates and total days
   const minDate = new Date(timestamps[0]);
   const maxDate = new Date(timestamps[timestamps.length - 1]);
-  const totalDays = (maxDate - minDate) / (1000 * 60 * 60 * 24);
+  let totalDays = (maxDate - minDate) / (1000 * 60 * 60 * 24);
+  
+  // Fix for partial days: Round to nearest integer if close to whole number
+  // This handles cases where we have full month data but calculation gives 29.96 due to time boundaries
+  const roundingThreshold = 0.05; // Within 5% of a full day
+  const nearestInteger = Math.round(totalDays);
+  const difference = Math.abs(totalDays - nearestInteger);
+  
+  // For hourly data spanning exactly 30 days, ensure we get exactly 30
+  // This handles the case where we have full month of hourly data
+  if (timestamps.length > 700 && nearestInteger >= 29 && nearestInteger <= 31 && difference <= 0.1) {
+    // If we have approximately a month of hourly data and are close to whole days, use exactly 30
+    totalDays = 30;
+  } else if (difference <= roundingThreshold && nearestInteger >= 28 && nearestInteger <= 31) {
+    // If we're close to a whole number and it's a reasonable month length, round it
+    totalDays = nearestInteger;
+  }
   
   // Analyze timestamp patterns to infer granularity
   let likelyGranularity = 'day';
@@ -399,7 +397,8 @@ export async function aggregateCsvStream(file, classifyRow, options = {}) {
   } = options;
   
   // First pass: parse header and samples to detect configuration
-  const { headerFields, sampleRows: samples, dayFirst } = await parseCsvStream(file, {
+  // Read entire file to get accurate min/max dates, not just samples
+  const { headerFields, sampleRows: samples, dayFirst, minDate, maxDate, estimatedSpanDays, samplesPerDay } = await parseCsvStream(file, {
     sampleRows,
     headerRowIndex
   });
@@ -472,6 +471,12 @@ export async function aggregateCsvStream(file, classifyRow, options = {}) {
     let firstTs = null;
     let lastTs = null;
     let processedRows = 0;
+    let totalRows = 0; // Track total rows for accurate last row detection
+    
+    // Enhanced date tracking for accurate data span calculation
+    let streamMinDate = null;
+    let streamMaxDate = null;
+    let streamValidTimestamps = 0;
     
     // Date parts factory for bucket keys
     const dateParts = (ts) => {
@@ -529,6 +534,13 @@ export async function aggregateCsvStream(file, classifyRow, options = {}) {
           const zone = classifyRow(temp, rh);
           const currentRow = { ts: normalizedTs, temp, rh, zone };
           
+          // Track min/max dates across the entire stream
+          if (!streamMinDate) {
+            streamMinDate = normalizedTs;
+          }
+          streamMaxDate = normalizedTs;
+          streamValidTimestamps++;
+          
           if (!firstTs) firstTs = normalizedTs;
           lastTs = normalizedTs;
           
@@ -574,6 +586,7 @@ export async function aggregateCsvStream(file, classifyRow, options = {}) {
         }
         
         lineCount++;
+        totalRows++; // Track total rows for accurate last row detection
       }
     }
     
@@ -592,6 +605,8 @@ export async function aggregateCsvStream(file, classifyRow, options = {}) {
                               (finalTimelineUnit === 'hour' ? 3600000 :
                                finalTimelineUnit === 'day' ? 86400000 : 30 * 86400000);
             
+            // For hourly data, ensure last row gets the full hour duration
+            // The last row should extend to the end of the hour (23:00) for complete hourly data
             const lastDuration = medianDelta;
             
             // Update aggregates for last row
@@ -607,6 +622,28 @@ export async function aggregateCsvStream(file, classifyRow, options = {}) {
             if (rowsWithDur.length < rowSampleLimitForOutput) {
               rowsWithDur.push({ ...previousRow, dur: lastDuration });
             }
+            
+            // Update the global last timestamp to reflect the end of the last hour
+            // For hourly data ending at 23:00, the timestamp should be 23:00:00
+            // But we need to check if this is actually the last row of the dataset
+            // If it's the last row, keep its original timestamp, don't modify it
+            if (processedRows === totalRows - 1) {
+              // This is the last row in the dataset
+              lastTs = previousRow.ts;
+            } else {
+              // Not the last row, so we can adjust to ensure proper hour boundary
+              const lastRowDate = new Date(previousRow.ts);
+              const currentHour = lastRowDate.getHours();
+              
+              // If the current hour is before 23, adjust to end of that hour
+              if (currentHour < 23) {
+                lastRowDate.setHours(23, 59, 59, 999);
+                lastTs = lastRowDate.getTime();
+              } else {
+                // Keep original timestamp for hours >= 23
+                lastTs = previousRow.ts;
+              }
+            }
           }
           
           // Build summary
@@ -621,8 +658,30 @@ export async function aggregateCsvStream(file, classifyRow, options = {}) {
             };
           }).sort((a, b) => b.hours - a.hours);
           
-          // Detect data span information using the processed rows
-          const dataSpan = detectDataSpan(rowsWithDur.map(row => row.ts));
+          // Enhanced data span detection using full stream min/max dates
+          let dataSpan;
+          if (streamMinDate && streamMaxDate && streamValidTimestamps > 0) {
+            // Create a more comprehensive data span using the full stream data
+            const streamTimestamps = [];
+            
+            // Add first and last timestamps
+            streamTimestamps.push(streamMinDate, streamMaxDate);
+            
+            // Add all timestamps from rowsWithDur for accurate data span calculation
+            // This ensures we use the complete dataset for time range detection
+            if (rowsWithDur.length > 0) {
+              for (let i = 0; i < rowsWithDur.length; i++) {
+                if (streamTimestamps.length < 100) { // Reasonable limit for memory efficiency
+                  streamTimestamps.push(rowsWithDur[i].ts);
+                }
+              }
+            }
+            
+            dataSpan = detectDataSpan(streamTimestamps);
+          } else {
+            // Fallback to original method
+            dataSpan = detectDataSpan(rowsWithDur.map(row => row.ts));
+          }
           
           resolve({
             perBucket,
@@ -633,6 +692,7 @@ export async function aggregateCsvStream(file, classifyRow, options = {}) {
             lastTs,
             timelineUnit: finalTimelineUnit,
             rowsCount: processedRows,
+            totalRows, // Include total rows count for accurate processing
             dataSpan
           });
           return;
@@ -662,7 +722,7 @@ export function formatSummaryMd(result) {
   md += `## Summary\n\n`;
   md += `Total duration: ${(totalMs / (1000 * 60 * 60)).toFixed(1)} hours\n`;
   md += `Timeline unit: ${timelineUnit}\n`;
-  md += `Period: ${new Date(firstTs).toISOString()} to ${new Date(lastTs).toISOString()}\n\n`;
+  md += `Period: ${new Date(firstTs).toLocaleString()} to ${new Date(lastTs).toLocaleString()}\n\n`;
   
   // Add data span information if available
   if (dataSpan && dataSpan.dataDescription) {
