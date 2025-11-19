@@ -387,7 +387,7 @@ export async function aggregateCsvStream(file, classifyRow, options = {}) {
   const {
     sampleRows = 50,
     deltaReservoirSize = 2000,
-    rowSampleLimitForOutput = 500,
+    rowSampleLimitForOutput = 8800, // Increased from 500 to handle larger datasets
     timelineUnit = 'auto',
     capMultiplier = 4,
     headerRowIndex = 0,
@@ -1198,6 +1198,7 @@ console.assert(Math.abs(expectedHours - actualHours) < 0.01, 'Summary hours shou
  */
 export function getSourceDateRange(sourceData) {
   if (!sourceData || sourceData.length === 0) {
+    console.warn('Cannot compute source date range: no source data provided');
     return { minDate: null, maxDate: null, totalDays: 0 };
   }
   
@@ -1218,6 +1219,7 @@ export function getSourceDateRange(sourceData) {
     .filter(ts => ts && !isNaN(ts));
   
   if (timestamps.length === 0) {
+    console.warn('Cannot compute source date range: no valid timestamps found in source data');
     return { minDate: null, maxDate: null, totalDays: 0 };
   }
   
@@ -1225,9 +1227,127 @@ export function getSourceDateRange(sourceData) {
   const maxTs = Math.max(...timestamps);
   const totalDays = Math.round((maxTs - minTs) / (1000 * 60 * 60 * 24) * 100) / 100;
   
-  return {
+  const result = {
     minDate: new Date(minTs),
     maxDate: new Date(maxTs),
     totalDays
   };
+  
+  return result;
+}
+
+/**
+ * Build daily buckets covering every calendar day from sourceMinDate to sourceMaxDate inclusive.
+ * Each bucket contains the average value for that day or null if no samples exist.
+ *
+ * @param {Array} sourceRows - Raw rows (pre-aggregation) with timestamps and values
+ * @param {Function} valueSelector - Function to extract numeric value from row (e.g., row.temp)
+ * @returns {Array} Array of buckets: { x: Date at local 00:00, y: averageValue | null }
+ */
+export function buildDailyBuckets(sourceRows, valueSelector) {
+  // Input validation with unit-safe checks
+  if (!sourceRows || !Array.isArray(sourceRows) || sourceRows.length === 0) {
+    console.warn('buildDailyBuckets: No source data provided');
+    return [];
+  }
+  
+  if (typeof valueSelector !== 'function') {
+    console.warn('buildDailyBuckets: valueSelector must be a function');
+    return [];
+  }
+  
+  // Extract and normalize timestamps (seconds → ms) and values
+  const validRows = sourceRows
+    .map(row => {
+      let ts = row.ts || row.timestamp;
+      
+      // Normalize timestamp to milliseconds
+      if (typeof ts === 'string') {
+        ts = new Date(ts).getTime();
+      } else if (typeof ts === 'number') {
+        // Convert seconds to milliseconds if needed
+        if (ts < 1000000000000) {
+          ts = ts * 1000;
+        }
+      }
+      
+      // Validate timestamp
+      if (!ts || isNaN(ts)) {
+        return null;
+      }
+      
+      // Extract value using selector
+      const value = valueSelector(row);
+      if (typeof value !== 'number' || isNaN(value)) {
+        return null;
+      }
+      
+      return { ts, value };
+    })
+    .filter(row => row !== null);
+  
+  if (validRows.length === 0) {
+    console.warn('buildDailyBuckets: No valid rows with timestamps and values found');
+    return [];
+  }
+  
+  // Compute sourceMinDate and sourceMaxDate from valid rows
+  const timestamps = validRows.map(row => row.ts);
+  const sourceMinTs = Math.min(...timestamps);
+  const sourceMaxTs = Math.max(...timestamps);
+  
+  if (!sourceMinTs || !sourceMaxTs || isNaN(sourceMinTs) || isNaN(sourceMaxTs)) {
+    console.warn('buildDailyBuckets: Cannot compute sourceMinDate/sourceMaxDate');
+    return [];
+  }
+  
+  const sourceMinDate = new Date(sourceMinTs);
+  const sourceMaxDate = new Date(sourceMaxTs);
+  
+  // Group values by day (using local timezone)
+  const dayGroups = {};
+  validRows.forEach(row => {
+    const date = new Date(row.ts);
+    const dayKey = date.getFullYear() + '-' +
+                   String(date.getMonth() + 1).padStart(2, '0') + '-' +
+                   String(date.getDate()).padStart(2, '0');
+    
+    if (!dayGroups[dayKey]) {
+      dayGroups[dayKey] = [];
+    }
+    dayGroups[dayKey].push(row.value);
+  });
+  
+  // Create buckets for every day from sourceMinDate to sourceMaxDate inclusive
+  const buckets = [];
+  const currentDate = new Date(sourceMinDate);
+  currentDate.setHours(0, 0, 0, 0); // Set to local 00:00
+  
+  const endDate = new Date(sourceMaxDate);
+  endDate.setHours(0, 0, 0, 0); // Set to local 00:00
+  
+  while (currentDate <= endDate) {
+    const dayKey = currentDate.getFullYear() + '-' +
+                   String(currentDate.getMonth() + 1).padStart(2, '0') + '-' +
+                   String(currentDate.getDate()).padStart(2, '0');
+    
+    const dayValues = dayGroups[dayKey];
+    const averageValue = dayValues && dayValues.length > 0
+      ? dayValues.reduce((sum, val) => sum + val, 0) / dayValues.length
+      : null; // Null days are included to render gaps in Chart.js
+    
+    // Create bucket with Date at local 00:00 for that day
+    buckets.push({
+      x: new Date(currentDate), // Copy to avoid mutation
+      y: averageValue
+    });
+    
+    // Move to next day
+    currentDate.setDate(currentDate.getDate() + 1);
+  }
+  
+  // Ensure buckets are sorted ascending by day (should already be sorted)
+  buckets.sort((a, b) => a.x - b.x);
+  
+  return buckets;
 }

@@ -148,8 +148,6 @@
         points.slice(0, 5).forEach((pt, idx) => {
           const T = Number(pt.T), W = Number(pt.W), color = pt.color;
           const { x, y } = psychroToCanvasLocal(T, W);
-          console.log('Point -> pixel', { T, W, x: Math.round(x), y: Math.round(y), color });
-          console.log('Drawing point', idx);
         });
       } catch (e) {
         console.warn('PsychroChart: pixel mapping logs failed', e);
