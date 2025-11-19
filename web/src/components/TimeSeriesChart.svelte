@@ -12,7 +12,7 @@
     getAggregationFunction,
     getRecommendedAggregation
   } from '../utils/timeSeriesAggregator.js';
-  import { getSourceDateRange } from '../utils/dataProcessor.js';
+  import { getSourceDateRange, buildDailyBuckets } from '../utils/dataProcessor.js';
   import 'chartjs-adapter-date-fns';
 
   // Register Chart.js components only once and check if already registered to avoid conflicts
@@ -181,6 +181,9 @@
       return;
     }
 
+    // Log source data length for debugging
+    console.info(`[TimeSeriesChart] Source rows length: ${timeSeriesData.length}`);
+
     // Filter out invalid records and normalize field names
     const validData = timeSeriesData.filter(record => {
       return record &&
@@ -217,6 +220,27 @@
     // Special handling for hourly view - create average day
     if (currentPeriod === 'hourly') {
       aggregatedData = createHourlyAverageData(validData);
+    } else if (currentPeriod === 'daily') {
+      // Use buildDailyBuckets for daily view to ensure inclusive range with null gaps
+      try {
+        // Build temperature buckets covering every day from sourceMinDate to sourceMaxDate
+        const tempBuckets = buildDailyBuckets(validData, row => row.temp);
+        // Build humidity buckets for the same range
+        const rhBuckets = buildDailyBuckets(validData, row => row.rh);
+        
+        // Combine temperature and RH buckets into unified data structure
+        aggregatedData = tempBuckets.map((tempBucket, index) => ({
+          timestamp: tempBucket.x,
+          temp: tempBucket.y,
+          rh: rhBuckets[index] ? rhBuckets[index].y : null,
+          zone: null // Zone will be determined by color based on temp/rh values
+        }));
+      } catch (error) {
+        console.error('Error building daily buckets:', error);
+        // Fallback to regular aggregation if bucket building fails
+        const aggregateFn = getAggregationFunction(currentPeriod);
+        aggregatedData = aggregateFn(validData);
+      }
     } else {
       // Aggregate data based on selected period
       const aggregateFn = getAggregationFunction(currentPeriod);
@@ -229,6 +253,9 @@
         return;
       }
     }
+
+    // Log processed data length for debugging
+    console.info(`[TimeSeriesChart] Dataset data length: ${aggregatedData.length}`);
 
     // Prepare datasets for Chart.js
     const datasets = [];
@@ -434,6 +461,39 @@
       datasets: datasets
     };
     
+    // Create dynamic chart title based on period and data
+    let chartTitle = `Temperature Time Series (${currentPeriod.charAt(0).toUpperCase() + currentPeriod.slice(1)})`;
+    
+    // Special handling for hourly view - create dynamic title with source date range
+    if (currentPeriod === 'hourly' && sourceDateRange && sourceDateRange.minDate && sourceDateRange.maxDate) {
+      // Format dates for display (e.g., "Apr 01" or "Apr 01, 2023" if different years)
+      const formatDateForTitle = (date) => {
+        const d = new Date(date);
+        const month = d.toLocaleDateString('en-US', { month: 'short' });
+        const day = d.getDate();
+        const year = d.getFullYear();
+        
+        // Include year if data spans different years or not current year
+        const currentYear = new Date().getFullYear();
+        const includeYear = year !== currentYear ||
+                         (sourceDateRange.minDate.getFullYear() !== sourceDateRange.maxDate.getFullYear());
+        
+        return includeYear ? `${month} ${day}, ${year}` : `${month} ${day}`;
+      };
+      
+      const startDateStr = formatDateForTitle(sourceDateRange.minDate);
+      const endDateStr = formatDateForTitle(sourceDateRange.maxDate);
+      
+      // Use first dataset label if available, otherwise "Average day hourly"
+      const datasetLabel = chartData && chartData.datasets && chartData.datasets[0]
+        ? chartData.datasets[0].label
+        : 'Average day hourly';
+      
+      // Compose title: "{label} — Average day hourly ({start} → {end})"
+      // This format shows the dataset label and the inclusive date range
+      chartTitle = `${datasetLabel} — Average day hourly (${startDateStr} → ${endDateStr})`;
+    }
+    
     // Update chart options
     chartOptions = {
       responsive: true,
@@ -441,7 +501,7 @@
       plugins: {
         title: {
           display: true,
-          text: `Temperature Time Series (${currentPeriod.charAt(0).toUpperCase() + currentPeriod.slice(1)})`,
+          text: chartTitle,
           font: {
             size: 16
           }
@@ -648,7 +708,14 @@
         {#if currentPeriod === 'hourly'}
           Showing average day with 24 hourly data points
         {:else}
-          Showing {aggregatedData.length} {currentPeriod} data points
+          {#if currentPeriod === 'daily'}
+            <!-- For daily view, show total days in inclusive range from sourceMinDate to sourceMaxDate -->
+            Showing {sourceDateRange && sourceDateRange.minDate && sourceDateRange.maxDate
+              ? Math.ceil((sourceDateRange.maxDate.getTime() - sourceDateRange.minDate.getTime()) / (1000 * 60 * 60 * 24)) + 1
+              : aggregatedData.length} daily data points
+          {:else}
+            Showing {aggregatedData.length} {currentPeriod} data points
+          {/if}
           {#if sourceDateRange && sourceDateRange.minDate && sourceDateRange.maxDate}
             from {formatDateForDisplay(sourceDateRange.minDate.getTime(), currentPeriod)}
             to {formatDateForDisplay(sourceDateRange.maxDate.getTime(), currentPeriod)}

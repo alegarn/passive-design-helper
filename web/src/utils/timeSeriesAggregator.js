@@ -6,27 +6,31 @@
 /**
  * Group data by a specified time period and calculate averages
  * @param {Array} data - Array of time series records
- * @param {Function} getPeriodKey - Function to get the period key for a record
+ * @param {Function} getPeriodKey - Function to get period key for a record
  * @returns {Array} Aggregated data with averages
  */
 function aggregateByPeriod(data, getPeriodKey) {
   const groups = {};
   
   data.forEach(record => {
-    // Validate the record has required fields
-    if (!record || !record.timestamp || typeof record.temp !== 'number' || typeof record.rh !== 'number') {
+    // Validate record has required fields (check both timestamp and ts fields)
+    const timestampField = record.timestamp || record.ts;
+    if (!record || 
+        (!record.timestamp && !record.ts) || 
+        typeof record.temp !== 'number' || 
+        typeof record.rh !== 'number') {
       console.warn('Skipping invalid record:', record);
       return;
     }
     
-    // Validate timestamp
-    const recordDate = new Date(record.timestamp);
+    // Validate timestamp (support both timestamp and ts fields)
+    const recordDate = new Date(timestampField);
     if (isNaN(recordDate.getTime())) {
-      console.warn('Skipping record with invalid timestamp:', record.timestamp);
+      console.warn('Skipping record with invalid timestamp:', timestampField);
       return;
     }
     
-    const key = getPeriodKey(record);
+    const key = getPeriodKey({ ...record, timestamp: timestampField });
     if (!key) {
       console.warn('Skipping record with invalid period key:', record);
       return;
@@ -88,7 +92,7 @@ function aggregateByPeriod(data, getPeriodKey) {
  */
 export function aggregateByHour(data) {
   return aggregateByPeriod(data, (record) => {
-    const date = new Date(record.timestamp);
+    const date = new Date(record.timestamp || record.ts);
     if (isNaN(date.getTime())) {
       return null;
     }
@@ -98,18 +102,77 @@ export function aggregateByHour(data) {
 }
 
 /**
- * Aggregate data by day
+ * Aggregate data by day with complete date range coverage
  * @param {Array} data - Array of time series records
- * @returns {Array} Daily aggregated data
+ * @returns {Array} Daily aggregated data with nulls for missing days
  */
 export function aggregateByDay(data) {
-  return aggregateByPeriod(data, (record) => {
-    const date = new Date(record.timestamp);
+  // First get the basic aggregated data for existing days
+  const basicAggregated = aggregateByPeriod(data, (record) => {
+    const date = new Date(record.timestamp || record.ts);
     if (isNaN(date.getTime())) {
       return null;
     }
     date.setHours(0, 0, 0, 0);
     return date.toISOString();
+  });
+  
+  // Extract timestamps to find min/max date range
+  const timestamps = data.map(record => {
+    let ts = record.timestamp || record.ts;
+    if (typeof ts === 'string') {
+      ts = new Date(ts).getTime();
+    } else if (typeof ts === 'number') {
+      // Convert seconds to milliseconds if needed
+      if (ts < 1000000000000) {
+        ts = ts * 1000;
+      }
+    }
+    return ts;
+  }).filter(ts => ts && !isNaN(ts));
+  
+  if (timestamps.length === 0) {
+    return basicAggregated;
+  }
+  
+  const minTs = Math.min(...timestamps);
+  const maxTs = Math.max(...timestamps);
+  
+  // Create date objects for min/max dates at start of day
+  const minDate = new Date(minTs);
+  minDate.setHours(0, 0, 0, 0);
+  
+  const maxDate = new Date(maxTs);
+  maxDate.setHours(0, 0, 0, 0);
+  
+  // Create complete day range from min to max inclusive
+  const completeDayRange = [];
+  const currentDate = new Date(minDate);
+  
+  while (currentDate <= maxDate) {
+    const dayKey = currentDate.toISOString();
+    completeDayRange.push({
+      timestamp: dayKey,
+      temp: null,
+      rh: null,
+      dur_hours: 0,
+      zone: 'Unclassified',
+      raw: null
+    });
+    // Move to next day
+    currentDate.setDate(currentDate.getDate() + 1);
+  }
+  
+  // Merge actual aggregated data with complete range
+  const aggregatedMap = new Map();
+  basicAggregated.forEach(day => {
+    aggregatedMap.set(day.timestamp, day);
+  });
+  
+  // Create final array with complete range, filling in actual data where available
+  return completeDayRange.map(dayTemplate => {
+    const actualData = aggregatedMap.get(dayTemplate.timestamp);
+    return actualData || dayTemplate;
   });
 }
 
@@ -120,7 +183,7 @@ export function aggregateByDay(data) {
  */
 export function aggregateByWeek(data) {
   return aggregateByPeriod(data, (record) => {
-    const date = new Date(record.timestamp);
+    const date = new Date(record.timestamp || record.ts);
     if (isNaN(date.getTime())) {
       return null;
     }
@@ -139,7 +202,7 @@ export function aggregateByWeek(data) {
  */
 export function aggregateByMonth(data) {
   return aggregateByPeriod(data, (record) => {
-    const date = new Date(record.timestamp);
+    const date = new Date(record.timestamp || record.ts);
     if (isNaN(date.getTime())) {
       return null;
     }
@@ -150,14 +213,14 @@ export function aggregateByMonth(data) {
 }
 
 /**
- * Determine the appropriate aggregation level based on data span
+ * Determine appropriate aggregation level based on data span
  * @param {Array} data - Array of time series records
  * @returns {string} Recommended aggregation level
  */
 export function getRecommendedAggregation(data) {
   if (!data || data.length === 0) return 'daily';
   
-  const timestamps = data.map(record => new Date(record.timestamp));
+  const timestamps = data.map(record => new Date(record.timestamp || record.ts));
   const minDate = new Date(Math.min(...timestamps));
   const maxDate = new Date(Math.max(...timestamps));
   const daysDiff = (maxDate - minDate) / (1000 * 60 * 60 * 24);
