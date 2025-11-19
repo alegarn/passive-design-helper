@@ -212,8 +212,33 @@ function tryParseDate(raw, preferDayFirst) {
   
   let d = Date.parse(s);
   
+  // Single-month export heuristic: if second component (month) is constant across samples and first component varies,
+  // treat as DD/MM/YYYY even if preferDayFirst is false.
+  // This handles files like '2024_04_...' where dates are '01/04/2024', '02/04/2024', etc.
+  if (!isNaN(d) && s.match(/^\d{1,2}[\/\-]\d{1,2}[\/\-]\d{2,4}/)) {
+    const m = s.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2,4})/);
+    if (m) {
+      const first = Number(m[1]), second = Number(m[2]);
+      // If first component can be a day (>12) and second is a valid month (1-12),
+      // assume DD/MM/YYYY format regardless of preferDayFirst flag.
+      if (first > 12 && second >= 1 && second <= 12) {
+        const iso = `${m[3].length === 2 ? '20'+m[3] : m[3]}-${String(second).padStart(2,'0')}-${String(first).padStart(2,'0')}T${m[4] || '00:00:00'}`;
+        const dt = Date.parse(iso);
+        if (!isNaN(dt)) return dt;
+      }
+    }
+  }
+  
   if (!isNaN(d) && preferDayFirst && s.match(/^\d{1,2}[\/\-]\d{1,2}[\/\-]\d{2,4}/)) {
   } else if (!isNaN(d)) {
+    // record sample mapping when browser bundle runs
+    try {
+      window._dateParseMappings = window._dateParseMappings || [];
+      if (window._dateParseMappings.length < 10) {
+        window._dateParseMappings.push({ raw: String(raw), iso: new Date(d).toISOString() });
+        console.debug(`DateParse(bundle): "${raw}" -> ${new Date(d).toISOString()}`);
+      }
+    } catch (e) {}
     return d;
   }
   

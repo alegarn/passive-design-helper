@@ -70,24 +70,56 @@ function tryParseDate(raw, preferDayFirst) {
 function detectDayFirstFromSamples(samplesArray, filenameHint) {
   // Try to detect day-first vs month-first by heuristics: if day>12 appears -> day-first
   let dayFirstLikely = false;
+
+  // Heuristic A: if any sample's first component > 12 -> it's day-first (e.g., 13/04)
   for (const sd of samplesArray) {
     const m = sd && sd.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2,4})/);
-    if (m) { 
-      const a = Number(m[1]); 
-      if (a > 12) { 
-        dayFirstLikely = true; 
-        break; 
-      } 
+    if (m) {
+      const a = Number(m[1]);
+      if (a > 12) {
+        dayFirstLikely = true;
+        break;
+      }
     }
   }
-  
-  // Additional heuristic: if filename suggests single month and dates show day>12, force day-first
+
+  // Heuristic B: analyze component variability to detect single-month exports
+  // If the second component (interpreted as month in DD/MM) is nearly constant across samples
+  // while the first component varies widely (1..31), prefer day-first parsing.
+  if (!dayFirstLikely && samplesArray && samplesArray.length > 0) {
+    const comps = samplesArray.map(s => {
+      const m = s && s.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2,4})/);
+      return m ? { day: Number(m[1]), month: Number(m[2]) } : null;
+    }).filter(Boolean);
+
+    if (comps.length > 0) {
+      const uniqueFirsts = [...new Set(comps.map(c => c.day))].length;
+      const uniqueSeconds = [...new Set(comps.map(c => c.month))].length;
+      const countDayGt12 = comps.filter(c => c.day > 12).length;
+
+      // If second component is nearly constant (single-month) and first component varies,
+      // treat as day-first even if no day>12 sample exists.
+      if (uniqueSeconds <= 2 && uniqueFirsts > 12) {
+        dayFirstLikely = true;
+      }
+
+      // Existing check: if many day values > 12 and second component is single-month
+      if (!dayFirstLikely) {
+        const uniqueMonths = [...new Set(comps.map(c => c.month))];
+        if (uniqueMonths.length === 1 && countDayGt12 > 0) {
+          dayFirstLikely = true;
+        }
+      }
+    }
+  }
+
+  // Additional heuristic: filename hint indicates single-month export (fallback)
   const filename = (filenameHint || '').toLowerCase();
   const isSingleMonthFile = filename.includes('_01_') || filename.includes('_02_') || filename.includes('_03_') ||
                            filename.includes('_04_') || filename.includes('_05_') || filename.includes('_06_') ||
                            filename.includes('_07_') || filename.includes('_08_') || filename.includes('_09_') ||
                            filename.includes('_10_') || filename.includes('_11_') || filename.includes('_12_');
-  
+
   if (isSingleMonthFile && !dayFirstLikely) {
     // Check if any date has day > 12 or if month in filename matches second component
     for (const sd of samplesArray) {
@@ -111,7 +143,7 @@ function detectDayFirstFromSamples(samplesArray, filenameHint) {
       }
     }
   }
-  
+
   return dayFirstLikely;
 }
 
@@ -136,13 +168,42 @@ function normalizeToUTC(tsMs, treatAsUTC) {
  * @returns {number} Timestamp in milliseconds
  * @throws {Error} With 'DateParseError:' prefix if parsing fails
  */
-function parseTimestampOrThrow(raw, preferDayFirst) {
+function parseTimestampOrThrow(raw, preferDayFirst, filenameHint = '') {
   let tms = tryParseDate(raw, preferDayFirst);
   
   // Try epoch seconds if direct parsing failed
   if (isNaN(tms) && raw && raw.trim().match(/^(\d+)$/)) {
     const n = Number(raw.trim());
     if (n > 1000000000) tms = n; // ms
+  }
+  
+  // Deterministic parsing for single-month files with ambiguous dates
+  if (isNaN(tms) && filenameHint) {
+    const filename = filenameHint.toLowerCase();
+    const isSingleMonthFile = filename.includes('_01_') || filename.includes('_02_') || filename.includes('_03_') ||
+                             filename.includes('_04_') || filename.includes('_05_') || filename.includes('_06_') ||
+                             filename.includes('_07_') || filename.includes('_08_') || filename.includes('_09_') ||
+                             filename.includes('_10_') || filename.includes('_11_') || filename.includes('_12_');
+    
+    if (isSingleMonthFile && raw.match(/^\d{1,2}[\/\-]\d{1,2}[\/\-]\d{2,4}/)) {
+      const mF = (filename || '').match(/_(\d{2})_/);
+      if (mF && raw.match(/^\d{1,2}[\/\-](\d{1,2})[\/\-](\d{2,4})$/)) {
+        const filenameMonth = Number(mF[1]);
+        // parse with regex to get parts:
+        const m = raw.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2,4})(?:[ T](\d{1,2})(?::(\d{2}))?)?/);
+        if (m) {
+          const day = Number(m[1]), month = Number(m[2]), year = Number(m[3].length === 2 ? '20'+m[3] : m[3]);
+          // if second component !== filenameMonth then treat as day-first (DD/MM/YYYY)
+          if (month !== filenameMonth) {
+            const hour = m[4] ? Number(m[4]) : 0;
+            const minute = m[5] ? Number(m[5]) : 0;
+            // Correct deterministic construction: Date.UTC(year, monthIndex, day, hour, minute)
+            // First component is day, second is month -> monthIndex = month - 1
+            tms = Date.UTC(year, month - 1, day, hour, minute);
+          }
+        }
+      }
+    }
   }
   
   // if still NaN, try with swapped day/month if dayFirstLikely
@@ -158,6 +219,26 @@ function parseTimestampOrThrow(raw, preferDayFirst) {
   
   if (isNaN(tms)) {
     throw new Error(`DateParseError: Unable to parse date "${raw}"`);
+  }
+  
+  // Record mapping for debugging (browser or Node). Keep only first 10 mappings to avoid noisy logs.
+  // Use a runtime guard: set `window._dateParseDebug = true` to enable console output.
+  const _globalContext = (typeof window !== 'undefined') ? window : (typeof global !== 'undefined' ? global : {});
+  try {
+    _globalContext._dateParseMappings = _globalContext._dateParseMappings || [];
+    if (_globalContext._dateParseMappings.length < 10) {
+      _globalContext._dateParseMappings.push({ raw: String(raw), iso: new Date(tms).toISOString() });
+      // Emit console output only when explicitly enabled by the runtime guard
+      try {
+        if (_globalContext._dateParseDebug) {
+          console.debug && console.debug(`DateParse: "${raw}" -> ${new Date(tms).toISOString()}`);
+        }
+      } catch (e) {
+        // ignore logging errors
+      }
+    }
+  } catch (e) {
+    // Ignore any debugging errors
   }
   
   return tms;
