@@ -2,6 +2,7 @@
   import UploadZone from './components/UploadZone.svelte';
   import ProcessControls from './components/ProcessControls.svelte';
   import PsychroChart from './components/PsychroChart.svelte';
+  import TimeSeriesChart from './components/TimeSeriesChart.svelte';
 
   // State to hold file data from UploadZone
   let fileData = $state({
@@ -62,6 +63,21 @@
   
   {#if fileData.aggregationResult}
     <PsychroChart summaryData={fileData.aggregationResult} />
+    
+    <!-- Time Series Chart -->
+    {#if fileData.aggregationResult.rowsWithDur}
+      <TimeSeriesChart
+        timeSeriesData={fileData.aggregationResult.rowsWithDur}
+        selectedPeriod="daily"
+        colorSegments={[
+          { threshold: 30, color: '#ff4444' },  // Hot: red
+          { threshold: 25, color: '#ff8844' },  // Warm: orange
+          { threshold: 20, color: '#ffcc44' },  // Mild: yellow
+          { threshold: 15, color: '#44cc44' },  // Cool: light green
+          { threshold: 10, color: '#4488ff' }   // Cold: blue
+        ]}
+      />
+    {/if}
   {/if}
 </main>
 
