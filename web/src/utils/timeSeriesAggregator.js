@@ -262,3 +262,32 @@ export function getAggregationFunction(period) {
       return aggregateByDay;
   }
 }
+
+/**
+ * Calculate the average of an array of values
+ * @param {Array} values - Array of numeric values
+ * @param {number} decimals - Number of decimal places to round to (default: 1)
+ * @returns {number|null} The average value rounded to specified decimals, or null if invalid input
+ */
+export function calculateAverage(values, decimals = 1) {
+  // Defensive: handle empty or non-array input
+  if (!Array.isArray(values) || values.length === 0) {
+    return null;
+  }
+  
+  // Filter out non-numeric values
+  const numericValues = values.filter(val => typeof val === 'number' && !isNaN(val));
+  
+  // Return null if no valid numeric values
+  if (numericValues.length === 0) {
+    return null;
+  }
+  
+  // Calculate average
+  const sum = numericValues.reduce((acc, val) => acc + val, 0);
+  const average = sum / numericValues.length;
+  
+  // Round to specified decimal places
+  const multiplier = Math.pow(10, decimals);
+  return Math.round(average * multiplier) / multiplier;
+}

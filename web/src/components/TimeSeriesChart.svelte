@@ -10,9 +10,11 @@
     aggregateByWeek,
     aggregateByMonth,
     getAggregationFunction,
-    getRecommendedAggregation
+    getRecommendedAggregation,
+    calculateAverage
   } from '../utils/timeSeriesAggregator.js';
   import { getSourceDateRange, buildDailyBuckets } from '../utils/dataProcessor.js';
+  import StatCard from './StatCard.svelte';
   import 'chartjs-adapter-date-fns';
 
   // Register Chart.js components only once and check if already registered to avoid conflicts
@@ -72,6 +74,71 @@
   let chartData = $state(null);
   let chartOptions = $state({});
   let sourceDateRange = $state(null); // Store actual source date range
+  
+  // Calculate averages for displayed datasets - reactive to chartData changes
+  let datasetAverages = $state([]);
+  $effect(() => {
+    if (!chartData || !chartData.datasets) {
+      datasetAverages = [];
+      return;
+    }
+    datasetAverages = (chartData.datasets || []).map(dataset => {
+      // Extract numeric values from dataset.data array defensively
+      const values = (dataset.data || []).map(point => (point && point.y)).filter(val => typeof val === 'number' && !isNaN(val));
+      const average = calculateAverage(values, 1);
+      return {
+        label: dataset.label,
+        value: average,
+        color: dataset.borderColor
+      };
+    });
+  });
+  
+  // Calculate zone totals for passive design zones - reactive to aggregatedData/timeSeriesData and currentPeriod
+  let zoneTotals = $state([]);
+  $effect(() => {
+    const agg = aggregatedData;
+    const raw = timeSeriesData;
+    const period = currentPeriod;
+    const totals = {};
+    ZONES.forEach(z => (totals[z.id] = 0));
+  
+    if (period === 'hourly' && raw && raw.length) {
+      raw.forEach(r => {
+        const t = r.temp, h = r.rh;
+        if (t == null || h == null) return;
+        const zone = preferredZoneForPoint(t, h);
+        if (!zone) return;
+        const hours = r.dur ? r.dur / 3600000 : 1;
+        totals[zone.id] = (totals[zone.id] || 0) + hours;
+      });
+    } else if (agg && agg.length) {
+      agg.forEach(point => {
+        const t = point.temp, h = point.rh;
+        if (t == null || h == null) return;
+        const zone = preferredZoneForPoint(t, h);
+        if (!zone) return;
+        let hours = point.dur_hours || point.dur || 0;
+        if (!hours) {
+          if (period === 'daily') hours = 24;
+          else if (period === 'weekly') hours = 24 * 7;
+          else if (period === 'monthly') hours = 24 * 30;
+          else hours = 1;
+        }
+        totals[zone.id] = (totals[zone.id] || 0) + hours;
+      });
+    } else {
+      zoneTotals = [];
+      return;
+    }
+  
+    zoneTotals = ZONES.map(z => ({
+      id: z.id,
+      name: z.id,
+      value: totals[z.id] || 0,
+      color: z.color
+    })).filter(z => z.value > 0);
+  });
   
   // Chart options (defined outside reactive context to avoid cloning issues)
   const hourTickCallback = function(value) {
@@ -579,7 +646,7 @@
           }
         },
         legend: {
-          display: currentPeriod !== 'hourly', // Hide default legend for hourly, we'll create custom one
+          display: false, // Turn off Chart.js dataset legend display - replaced with StatCards
           position: 'top'
         },
         tooltip: {
@@ -760,7 +827,46 @@
     </div>
   {/if}
 
-  <!-- Custom Zone Legend for All Charts -->
+  <!-- Dataset Statistics (replaces Chart.js dataset legend) -->
+  {#if datasetAverages && datasetAverages.length > 0}
+    <div class="dataset-stats" role="list">
+      <h4>Dataset Averages</h4>
+      <div class="dataset-stats__grid">
+        {#each datasetAverages as dataset (dataset.label)}
+          {#if dataset.value > 0}
+            <StatCard
+              label={dataset.label}
+              value={dataset.value}
+              color={dataset.color}
+              decimals={1}
+            />
+          {/if}
+        {/each}
+      </div>
+    </div>
+  {/if}
+
+  <!-- Passive Design Zone StatCards (replaced custom zone legend at lines ~862-873) -->
+  {#if zoneTotals && zoneTotals.length > 0}
+    <div class="zone-stats" role="list">
+      <h4>Passive Design Zones (Hours)</h4>
+      <div class="zone-stats__grid">
+        {#each zoneTotals as zone (zone.id)}
+          <StatCard
+            role="listitem"
+            aria-label={`Zone ${zone.name}: ${Math.round(zone.value)} hours`}
+            label={zone.name}
+            value={zone.value}
+            color={zone.color}
+            decimals={0}
+          />
+        {/each}
+      </div>
+    </div>
+  {/if}
+  
+  <!-- Original Custom Zone Legend (commented out - replaced with StatCards above) -->
+  <!--
   {#if currentPeriod === 'hourly' || currentPeriod === 'daily'}
     <div class="zone-legend">
       <h4>Passive Design Zones (Temperature & Humidity)</h4>
@@ -772,6 +878,7 @@
       {/each}
     </div>
   {/if}
+  -->
 
   <!-- Data Summary -->
   {#if aggregatedData && aggregatedData.length > 0}
@@ -911,6 +1018,46 @@
     border-radius: 4px;
     font-size: 0.9rem;
     color: #6c757d;
+  }
+
+  .dataset-stats {
+    margin-top: 1rem;
+    padding: 0.5rem;
+    background: #f8f9fa;
+    border-radius: 4px;
+    font-size: 0.9rem;
+  }
+  
+  .dataset-stats h4 {
+    margin: 0 0 0.5rem 0;
+    font-size: 0.9rem;
+    color: #495057;
+  }
+  
+  .dataset-stats__grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: 0.75rem;
+  }
+
+  .zone-stats {
+    margin-top: 1rem;
+    padding: 0.5rem;
+    background: #f8f9fa;
+    border-radius: 4px;
+    font-size: 0.9rem;
+  }
+  
+  .zone-stats h4 {
+    margin: 0 0 0.5rem 0;
+    font-size: 0.9rem;
+    color: #495057;
+  }
+  
+  .zone-stats__grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: 0.75rem;
   }
 
   @media (max-width: 768px) {
