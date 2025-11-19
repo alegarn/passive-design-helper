@@ -55,11 +55,11 @@ Common flags:
 - `--assume-day-first` : prefer day-first date parsing
 - `--utc` : treat parsed datetimes as UTC
 - `--ts <path>` : path for timeseries CSV (default: ./tactics_timeseries.csv)
-- `--format, -f <md|txt|csv>` : summary format
+- `--format, -f <md|txt|csv|json>` : summary format for the human-readable summary
 - `--out, -o <path>` : summary file path
-- `--json, -j [path]` : write JSON summary (optional path)
-- `--no-ts` : skip timeseries CSV
-- `--only <csv|md|txt|json>` : produce only a single output type
+- `--json, -j [path]` : write JSON summary; when passed without a path the CLI writes `./tactics_summary.json` by default
+- `--no-ts` : skip writing the timeseries CSV
+- `--only <csv|md|txt|json>` : produce only a single output type (e.g., `--only json`)
 
 Implementation entrypoints:
 - CLI wrapper: [`tactics-cli.js`](tactics-cli.js:1)
@@ -100,7 +100,7 @@ Outputs
 Default outputs:
 - Timeseries CSV for plotting: `tactics_timeseries.csv` (columns: datetime,temperature,humidity,zone,color)
 - Summary report: Markdown/TXT/CSV (e.g., `tactics_summary.md`)
-- Optional JSON summary: `tactics_summary.json`
+- Optional JSON summary: `tactics_summary.json` (written when `--json` is used; default file path shown above if no path supplied)
 
 Summary report includes:
 - Global aggregated hours per zone and percent of time
@@ -134,8 +134,8 @@ sh scripts/test-run.sh
 ```
 
 Development notes
-- Node.js LTS recommended (v16+).
-- No external dependencies required beyond standard Node.js modules.
+- Node.js LTS recommended for the CLI (v21+). The CLI uses only built-in Node modules and has no runtime external dependencies listed.
+- The web application (found in [`web/`](web/)) requires Node.js + npm (or yarn) for development; see [`web/package.json`](web/package.json:1) for dev-time dependencies and scripts.
 - The project is modular; prefer changing `scripts/*` modules and adding unit tests for parsing/classification logic.
 - Tests: add simple fixtures in `test/` and use `node` or your preferred test runner to validate `parseTimestamp`, `classifyPoint`, and aggregator behaviour.
 
@@ -154,7 +154,7 @@ Code structure (high level)
 Web Application
 ---------------
 
-A modern Svelte 5 based web application is available in the [`web/`](web/) directory, providing:
+A modern Svelte5-based web application is available in the [`web/`](web/) directory, providing:
 
 - **Streaming CSV Processing**: Memory-efficient chunk-based processing for large files
 - **Interactive UI**: Drag-and-drop file upload with real-time feedback
