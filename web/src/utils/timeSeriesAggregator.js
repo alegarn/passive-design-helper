@@ -182,7 +182,7 @@ export function aggregateByDay(data) {
  * @returns {Array} Weekly aggregated data
  */
 export function aggregateByWeek(data) {
-  return aggregateByPeriod(data, (record) => {
+  const aggregated = aggregateByPeriod(data, (record) => {
     const date = new Date(record.timestamp || record.ts);
     if (isNaN(date.getTime())) {
       return null;
@@ -193,6 +193,12 @@ export function aggregateByWeek(data) {
     date.setHours(0, 0, 0, 0);
     return date.toISOString();
   });
+  
+  // Weekly/Monthly: output schema required by TimeSeriesChart (temp,rh,dur_hours,zone:null,raw)
+  return aggregated.map(bucket => ({
+    ...bucket,
+    zone: null
+  }));
 }
 
 /**
@@ -201,7 +207,7 @@ export function aggregateByWeek(data) {
  * @returns {Array} Monthly aggregated data
  */
 export function aggregateByMonth(data) {
-  return aggregateByPeriod(data, (record) => {
+  const aggregated = aggregateByPeriod(data, (record) => {
     const date = new Date(record.timestamp || record.ts);
     if (isNaN(date.getTime())) {
       return null;
@@ -210,6 +216,12 @@ export function aggregateByMonth(data) {
     date.setHours(0, 0, 0, 0);
     return date.toISOString();
   });
+  
+  // Weekly/Monthly: output schema required by TimeSeriesChart (temp,rh,dur_hours,zone:null,raw)
+  return aggregated.map(bucket => ({
+    ...bucket,
+    zone: null
+  }));
 }
 
 /**
