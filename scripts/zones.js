@@ -337,3 +337,170 @@ export {
   formatMultichoiceTable,
   formatSimplifiedView
 };
+
+/**
+ * Approximate wet-bulb temperature (°C) from dry-bulb T (°C) and RH (%)
+ * Uses Stull (2011) approximation — accurate within ~0.5 °C for typical ranges.
+ */
+function computeWetBulb(T, RH) {
+  // T in °C, RH in %
+  const t = Number(T);
+  const rh = Math.max(0, Math.min(100, Number(RH)));
+  // Stull (2011) approximation
+  const part1 = t * Math.atan(0.151977 * Math.sqrt(rh + 8.313659));
+  const part2 = Math.atan(t + rh);
+  const part3 = Math.atan(rh - 1.676331);
+  const part4 = 0.00391838 * Math.pow(rh, 1.5) * Math.atan(0.023101 * rh);
+  const tw = part1 + part2 - part3 + part4 - 4.686035;
+  return tw;
+}
+
+/**
+ * Convert saturation vapor pressure (hPa) using Magnus formula and get actual e (hPa)
+ * from T (°C) and RH (%). Returns e in hPa and mmHg.
+ */
+function actualVaporPressure_hPa(T, RH) {
+  const t = Number(T);
+  const rh = Math.max(0, Math.min(100, Number(RH)));
+  // Magnus-Tetens approximation
+  const es = 6.112 * Math.exp((17.62 * t) / (243.12 + t)); // hPa
+  const e = es * (rh / 100);
+  return { hPa: e, mmHg: e * 0.750062 }; // 1 hPa = 0.750062 mmHg
+}
+
+/**
+ * Approximate mixing ratio (g/kg) from vapor pressure (hPa) and ambient pressure
+ * Uses standard sea-level pressure 1013.25 hPa unless overridden.
+ */
+function vaporContent_g_per_kg(e_hPa, p_hPa = 1013.25) {
+  // mixing ratio w = 0.62198 * e / (p - e) in kg/kg -> convert to g/kg
+  const e = Number(e_hPa);
+  const p = Number(p_hPa);
+  if (p <= e) return 0;
+  const w = 0.62198 * e / (p - e); // kg/kg
+  return w * 1000; // g/kg
+}
+
+/**
+ * Classify climate strategies for a single climate point (DBT, RH or WBT),
+ * following the BBCC rules summarized in the documentation.
+ *
+ * Input: object with keys: dbt (°C), rh (%) optional, wbt (°C) optional,
+ *        vp_mmHg optional, diurnalRange optional, options: {developing:boolean, highMass:boolean}
+ * Output: object listing applicability booleans and recommended prioritized list
+ */
+function classifyClimate(input = {}) {
+  const { dbt, rh, wbt, vp_mmHg, diurnalRange } = input;
+  const opts = input.options || {};
+  const developing = !!opts.developing;
+  const highMass = !!opts.highMass;
+
+  const T = Number(dbt);
+  const RH = (typeof rh === 'number') ? rh : (input.rh === undefined ? null : Number(input.rh));
+
+  // compute wet-bulb if not provided
+  const W = (typeof wbt === 'number') ? wbt : (RH != null ? computeWetBulb(T, RH) : null);
+
+  // compute vapor pressure and vapor content if possible
+  let e_hPa = null, vp_mm = null, vap_gkg = null;
+  if (RH != null) {
+    const e = actualVaporPressure_hPa(T, RH);
+    e_hPa = e.hPa;
+    vp_mm = e.mmHg;
+    vap_gkg = vaporContent_g_per_kg(e_hPa);
+  } else if (vp_mmHg != null) {
+    vp_mm = Number(vp_mmHg);
+    e_hPa = vp_mm / 0.750062;
+    vap_gkg = vaporContent_g_per_kg(e_hPa);
+  }
+
+  // diurnal range fallback: estimate from vp_mm if provided via T_range = 26 - 0.83*vp
+  let range = (typeof diurnalRange === 'number') ? diurnalRange : null;
+  if (range == null && vp_mm != null) range = 26 - 0.83 * vp_mm;
+
+  // thresholds (from the literature summary)
+  const comfortUpper = developing ? 29 : 27; // °C with still air
+  const comfortLower = 20; // °C (summer comfort lower bound)
+  const comfortVaporLimit = developing ? 12 : 10; // g/kg for upper temp applicability
+  const absoluteVaporLimit = 15; // g/kg absolute upper
+
+  const ventilSpeedLimit = developing ? 32 : 30; // °C with ~2 m/s airspeed
+
+  // Evaporative limits
+  const directEvap_wbt_limit = developing ? 24 : 22; // WBT
+  const directEvap_db_limit = developing ? 44 : 42; // DBT
+  const indirectEvap_wbt_limit = 24; // roof pond extension
+  const indirectEvap_db_limit = 44;
+
+  // nocturnal cooling applicability
+  const nocturnal_db_limit = 36; // above this night ventilation alone insufficient
+
+  const result = {
+    T, RH, W, vp_mm, vap_gkg, diurnalRange: range,
+    comfortStillAir: false,
+    comfortVentilation: false,
+    nocturnalConvectiveCooling: false,
+    directEvaporative: false,
+    indirectEvaporative: false,
+    airConditioningSuggested: false,
+    recommended: [],
+    reasons: []
+  };
+
+  // comfort still-air
+  if (T >= comfortLower && T <= comfortUpper) {
+    if (vap_gkg == null || vap_gkg <= absoluteVaporLimit) {
+      result.comfortStillAir = true;
+      result.reasons.push('T within still-air comfort bounds');
+    }
+  }
+
+  // comfort ventilation (raise airspeed to ~2 m/s)
+  if (T <= ventilSpeedLimit) {
+    result.comfortVentilation = true;
+    result.reasons.push('T within ventilation-extended comfort bounds');
+  }
+
+  // direct evaporative cooling
+  if (W != null) {
+    if (W <= directEvap_wbt_limit && T <= directEvap_db_limit) {
+      result.directEvaporative = true;
+      result.reasons.push('WBT/DBT within direct evaporative limits');
+    }
+  }
+
+  // indirect evaporative (roof pond) — looser on humidity
+  if (W != null) {
+    if (W <= indirectEvap_wbt_limit && T <= indirectEvap_db_limit) {
+      result.indirectEvaporative = true;
+      result.reasons.push('WBT/DBT within indirect evaporative (roof pond) limits');
+    }
+  }
+
+  // nocturnal convective cooling: needs highMass true and adequate diurnal range and DBT limit
+  if (highMass && range != null && T <= nocturnal_db_limit && range >= 8) {
+    // require reasonable diurnal range (>= ~8 K)
+    result.nocturnalConvectiveCooling = true;
+    result.reasons.push('High-mass building with sufficient diurnal range; nocturnal cooling applicable');
+  }
+
+  // suggest air conditioning if none of the passive strategies apply and/or DBT very high
+  if (!result.directEvaporative && !result.indirectEvaporative && !result.nocturnalConvectiveCooling && !result.comfortVentilation && !result.comfortStillAir) {
+    // in very hot/humid conditions AC likely required
+    result.airConditioningSuggested = true;
+    result.reasons.push('No suitable passive strategy applies — consider air conditioning');
+  }
+
+  // Build prioritized recommendation list (energy-sensitivity: passive -> hybrid -> active)
+  if (result.comfortStillAir) result.recommended.push('Comfort (still air)');
+  if (result.comfortVentilation) result.recommended.push('Comfort ventilation / fans');
+  if (result.nocturnalConvectiveCooling) result.recommended.push('Nocturnal convective cooling (high-mass)');
+  if (result.indirectEvaporative) result.recommended.push('Indirect evaporative (roof pond)');
+  if (result.directEvaporative) result.recommended.push('Direct evaporative cooling');
+  if (result.airConditioningSuggested) result.recommended.push('Air conditioning (with/without dehumidification)');
+
+  return result;
+}
+
+// export helper
+export { computeWetBulb, actualVaporPressure_hPa, vaporContent_g_per_kg, classifyClimate };
