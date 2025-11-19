@@ -1034,34 +1034,6 @@
     color: #6c757d;
     text-align: center;
   }
-
-  .zone-legend {
-    margin-top: 1rem;
-    padding: 0.5rem;
-    background: #f8f9fa;
-    border-radius: 4px;
-    font-size: 0.9rem;
-  }
-  
-  .zone-legend h4 {
-    margin: 0 0 0.5rem 0;
-    font-size: 0.9rem;
-    color: #495057;
-  }
-  
-  .legend-item {
-    display: flex;
-    align-items: center;
-    margin-bottom: 0.25rem;
-  }
-  
-  .legend-color {
-    width: 16px;
-    height: 16px;
-    border-radius: 2px;
-    margin-right: 0.5rem;
-    border: 1px solid #dee2e6;
-  }
   
   .data-summary {
     margin-top: 1rem;
