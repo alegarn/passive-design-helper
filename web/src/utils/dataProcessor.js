@@ -387,7 +387,7 @@ export async function aggregateCsvStream(file, classifyRow, options = {}) {
   const {
     sampleRows = 50,
     deltaReservoirSize = 2000,
-    rowSampleLimitForOutput = 8800, // Increased from 500 to handle larger datasets
+    rowSampleLimitForOutput = 8800, // datasets up to 365 days of hourly data
     timelineUnit = 'auto',
     capMultiplier = 4,
     headerRowIndex = 0,
