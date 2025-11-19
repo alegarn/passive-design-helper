@@ -206,6 +206,94 @@ function pointInPoly(px, py, poly) {
   return inside;
 }
 
+/* Helper: compute minimal Euclidean distance from point to polygon edges */
+function distancePointToPoly(px, py, poly) {
+  if (!Array.isArray(poly) || poly.length === 0) return Infinity;
+  
+  let minDist = Infinity;
+  const n = poly.length;
+  
+  for (let i = 0; i < n; i++) {
+    const x1 = poly[i][0], y1 = poly[i][1];
+    const x2 = poly[(i + 1) % n][0], y2 = poly[(i + 1) % n][1];
+    
+    // Vector from p1 to p2
+    const dx = x2 - x1;
+    const dy = y2 - y1;
+    
+    // Handle degenerate segment (point)
+    const segLenSq = dx * dx + dy * dy;
+    if (segLenSq < 1e-12) {
+      const dist = Math.sqrt((px - x1) * (px - x1) + (py - y1) * (py - y1));
+      minDist = Math.min(minDist, dist);
+      continue;
+    }
+    
+    // Parameter t for closest point on segment [0,1]
+    let t = ((px - x1) * dx + (py - y1) * dy) / segLenSq;
+    t = Math.max(0, Math.min(1, t)); // clamp to segment
+    
+    // Closest point on segment
+    const closestX = x1 + t * dx;
+    const closestY = y1 + t * dy;
+    
+    // Distance from point to closest point on segment
+    const dist = Math.sqrt((px - closestX) * (px - closestX) + (py - closestY) * (py - closestY));
+    minDist = Math.min(minDist, dist);
+  }
+  
+  return minDist;
+}
+
+/* Helper: find nearest zone for a point when no zones contain it */
+function nearestZoneForPoint(temp, rh) {
+  const t = Number(temp);
+  const h = Number(rh);
+  
+  let nearestZone = null;
+  let minDist = Infinity;
+  
+  // Energy ranking: passive (lowest) -> mechanical -> hybrid -> active (highest)
+  const rank = { passive: 0, mechanical: 1, hybrid: 2, active: 3 };
+  
+  for (const zone of ZONES) {
+    // Skip zones without polygons (like Cold zone)
+    if (!zone.poly) continue;
+    
+    const dist = distancePointToPoly(t, h, zone.poly);
+    
+    if (dist < minDist - 1e-9) {
+      // Clear winner - much closer
+      minDist = dist;
+      nearestZone = zone;
+    } else if (Math.abs(dist - minDist) <= 1e-9) {
+      // Distance tie - apply energy ranking tie-breaker
+      const currentRank = rank[nearestZone.type] ?? 99;
+      const zoneRank = rank[zone.type] ?? 99;
+      
+      if (zoneRank < currentRank) {
+        // New zone has lower energy rank (preferred)
+        nearestZone = zone;
+      } else if (zoneRank === currentRank) {
+        // Same energy rank - use priority then id as final tie-breaker
+        const currentPriority = nearestZone.priority ?? 99;
+        const zonePriority = zone.priority ?? 99;
+        
+        if (zonePriority < currentPriority) {
+          nearestZone = zone;
+        } else if (zonePriority === currentPriority) {
+          // Final tie-breaker: alphabetical id
+          if (String(zone.id).localeCompare(String(nearestZone.id)) < 0) {
+            nearestZone = zone;
+          }
+        }
+      }
+    }
+  }
+  
+  return nearestZone;
+}
+
 /* Return list of zone objects that contain the given temp/rh point.
    - For `Cold` (poly === null) we treat as T < 23
 */
@@ -227,10 +315,15 @@ function zonesContainingPoint(temp, rh) {
 
 /* Choose preferred zone when multiple zones match.
    Uses `priority` (lower is preferred). If tie, prefer passive type then hybrid then active.
+   If no zones contain the point, falls back to nearest zone.
 */
 function preferredZoneForPoint(temp, rh) {
   const matches = zonesContainingPoint(temp, rh);
-  if (matches.length === 0) return null;
+  if (matches.length === 0) {
+    // Fallback: use nearest zone when no zones contain the point
+    return nearestZoneForPoint(temp, rh);
+  }
+  
   // Prefer the least-energy option when multiple zones match.
   // Energy ranking: passive (lowest) -> mechanical -> hybrid -> active (highest)
   const rank = { passive: 0, mechanical: 1, hybrid: 2, active: 3 };
@@ -265,11 +358,19 @@ function summarizeTimeSeries(points, hourPerPoint = 1) {
     else { t = entry.t ?? entry.temp; h = entry.rh ?? entry.humidity; }
 
     const matches = zonesContainingPoint(t, h).map(z => z.id).sort();
-    const key = matches.length ? matches.join(' & ') : 'Unclassified';
-    comboCounts.set(key, (comboCounts.get(key) || 0) + hourPerPoint);
-
     const pref = preferredZoneForPoint(t, h);
     const prefId = pref ? pref.id : 'Unclassified';
+    
+    // If no zones contain the point, use the preferred/fallback zone for combos
+    let key;
+    if (matches.length === 0) {
+      // Use fallback zone instead of 'Unclassified'
+      key = prefId;
+    } else {
+      key = matches.join(' & ');
+    }
+    comboCounts.set(key, (comboCounts.get(key) || 0) + hourPerPoint);
+
     preferredCounts.set(prefId, (preferredCounts.get(prefId) || 0) + hourPerPoint);
 
     timeline.push({ t: Number(t), rh: Number(h), matches, preferred: prefId });
