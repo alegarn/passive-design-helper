@@ -76,41 +76,34 @@ const ZONES = [
     id: 'Heating',
     color: ZONE_COLORS['Heating'],
     // Approx DBT 0-10 °C, RH 10-50%
-    poly: [ p(0,10), p(0,50), p(10,50), p(10,10) ],
+    poly: [ p(0,0), p(0,100), p(6.8,100), p(6.8,0) ],
     note: 'Heating band (approx)'
   },
   {
     id: 'Passive Solar Heating',
     color: ZONE_COLORS['Passive Solar Heating'],
     // Approx DBT 8-16 °C, RH 20-60%
-    poly: [ p(8,20), p(8,60), p(16,60), p(16,20) ],
+    poly: [ p(10.8,0), p(10.8,100), p(22.8,100), p(22.8,0) ],
     note: 'Passive solar heating region (approx)'
   },
   {
     id: 'Internal Gains',
     color: ZONE_COLORS['Internal Gains'],
     // Approx DBT 15-22 °C, RH 30-60%
-    poly: [ p(15,30), p(15,60), p(22,60), p(22,30) ],
+    poly: [ p(15.3,20), p(15.3,80), p(22,80), p(22,20) ],
     note: 'Internal gains influence (approx)'
-  },
-  {
-    id: 'Winter Gains',
-    color: ZONE_COLORS['Winter Gains'],
-    // Approx DBT 18-24 °C, RH 30-55%
-    poly: [ p(18,30), p(18,55), p(24,55), p(24,30) ],
-    note: 'Winter gain comfort extension (approx)'
   },
   { 
     id: 'Mass Cooling', 
     color: ZONE_COLORS['Mass Cooling'], 
     poly: [ 
-      p(23,20), 
-      p(29.5,20), 
-      p(29.5,50), 
-      p(28,67), 
-      p(36,33), 
-      p(39.5,30), 
-      p(39.5,7) 
+      p(22.8,20), 
+      p(29.8,20), 
+      p(29.8,50), 
+      p(27.8,67), 
+      p(36,41), 
+      p(39.8,30), 
+      p(39.8,7) 
     ]
   },
   { 
