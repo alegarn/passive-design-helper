@@ -77,6 +77,7 @@ const result = await aggregateCsvStream(file, classifyRow, {
   deltaReservoirSize: 2000,        // Size of delta reservoir for median calculation
   rowSampleLimitForOutput: 500,    // Limit of rows to store with duration
   capMultiplier: 4,                // Duration cap multiplier
+                                   // Caps per-row durations to medianInterval × multiplier to avoid counting large timestamp gaps
   treatAsUTC: false,               // Treat dates as UTC
   preferDayFirst: null             // Force day-first parsing
 });

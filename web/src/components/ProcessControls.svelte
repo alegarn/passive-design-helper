@@ -26,6 +26,22 @@
   let timelineUnit = $state('auto');
   let treatAsUTC = $state(false);
   let capMultiplier = $state(4);
+
+  // Reactive values for median and effective cap (populated after processing)
+  let medianMs = $state(null);
+  let effectiveCapMs = $state(null);
+  // Tooltip state for the cap multiplier info box
+  let showCapInfo = $state(false);
+
+  $effect(() => {
+    if (aggregationResult && aggregationResult.medianDelta !== undefined) {
+      medianMs = aggregationResult.medianDelta;
+      effectiveCapMs = medianMs * capMultiplier;
+    } else {
+      medianMs = null;
+      effectiveCapMs = null;
+    }
+  });
   
   
   // Auto-select columns based on header names
@@ -168,6 +184,19 @@
       processingError = `Export failed: ${error.message}`;
       console.error("Export error:", error);
     }
+  }
+
+  // Utility: format duration in ms to human-readable string
+  function formatDuration(ms) {
+    if (ms === null || ms === undefined) return '';
+    const hours = ms / (1000 * 60 * 60);
+    if (hours >= 24) {
+      const days = hours / 24;
+      return `${days.toFixed(2)} days (${hours.toFixed(2)} h)`;
+    }
+    if (hours >= 1) return `${hours.toFixed(2)} h`;
+    const minutes = ms / (1000 * 60);
+    return `${Math.round(minutes)} min`;
   }
   
   // Function to export individual file types
@@ -338,16 +367,41 @@
             </label>
           </div>
           
-          <div class="option-control">
+          <div class="option-control cap-multiplier-control">
             <label for="cap-multiplier">Duration Cap Multiplier:</label>
-            <input
-              type="number"
-              id="cap-multiplier"
-              bind:value={capMultiplier}
-              min="1"
-              max="10"
-              step="0.5"
-            />
+            <div class="cap-control-row">
+              <input
+                type="number"
+                id="cap-multiplier"
+                bind:value={capMultiplier}
+                min="1"
+                max="10"
+                step="0.5"
+                aria-describedby="cap-info"
+              />
+              <button
+                type="button"
+                class="info-button"
+                aria-label="Duration cap information"
+                aria-expanded={showCapInfo}
+                onclick={() => showCapInfo = !showCapInfo}
+              >
+                ⓘ
+              </button>
+            </div>
+
+            {#if showCapInfo}
+              <div id="cap-info" class="tooltip-box" role="region">
+                <strong>Why this exists</strong>
+                <p>Missing samples or device downtime can create very large gaps between timestamps. Without capping, those gaps would add large amounts of time to your zone totals.</p>
+                <strong>How it works</strong>
+                <p>The app computes the median interval between recent samples and caps each computed per-row duration to <em>median × multiplier</em> (default 4). This prevents single large gaps from inflating totals.</p>
+                <strong>Example</strong>
+                <p>If your data is hourly (median ≈ 1 hour) and multiplier = 4, any gap larger than 4 hours is counted as 4 hours to avoid over-counting sensor outages.</p>
+                <strong>Guidance</strong>
+                <p>Lower the multiplier to be stricter, or raise it if you expect legitimately long continuous conditions.</p>
+              </div>
+            {/if}
           </div>
         </div>
       </div>
@@ -381,6 +435,10 @@
           Timeline unit: {aggregationResult.timelineUnit}
           <br>
           Data range: {new Date(aggregationResult.firstTs).toLocaleDateString()} to {new Date(aggregationResult.lastTs).toLocaleDateString()}
+          {#if medianMs}
+            <br>
+            <small>Median interval: {formatDuration(medianMs)} — Effective cap: {formatDuration(effectiveCapMs)} (multiplier ×{capMultiplier})</small>
+          {/if}
         </div>
         
         <!-- Export Section -->
@@ -648,4 +706,38 @@
   .data-span-explanation p {
     margin: 0.25rem 0;
   }
+
+  /* Cap multiplier info styles */
+  .cap-multiplier-control .cap-control-row {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+  }
+
+  .info-button {
+    border: 1px solid #cbd5e0;
+    background: white;
+    border-radius: 50%;
+    width: 28px;
+    height: 28px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    font-size: 0.9rem;
+    color: #3f51b5;
+  }
+
+  .tooltip-box {
+    margin-top: 0.5rem;
+    padding: 0.75rem;
+    background: #fff;
+    border: 1px solid #e0e6f8;
+    box-shadow: 0 2px 6px rgba(47,63,150,0.06);
+    border-radius: 6px;
+    font-size: 0.85rem;
+    color: #333;
+  }
+
+  .tooltip-box p { margin: 0.35rem 0; }
 </style>
