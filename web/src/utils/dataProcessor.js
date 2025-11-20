@@ -1358,3 +1358,128 @@ export function buildDailyBuckets(sourceRows, valueSelector) {
   
   return buckets;
 }
+
+/**
+ * Convert JSON data to CSV format for Open-Meteo responses
+ *
+ * @param {Object} data - Open-Meteo JSON response data
+ * @returns {string} CSV formatted string
+ */
+export function jsonToCsv(data) {
+  if (!data || !data.hourly || !data.hourly.time) {
+    return '';
+  }
+  
+  const variables = Object.keys(data.hourly).filter(k => k !== 'time');
+  const headers = ['time', ...variables];
+  const rows = [];
+  
+  rows.push(headers.join(','));
+  
+  const timeArray = data.hourly.time;
+  const numRecords = timeArray.length;
+  
+  for (let i = 0; i < numRecords; i++) {
+    const row = [timeArray[i]];
+    for (const key of variables) {
+      const value = data.hourly[key] && data.hourly[key][i] !== null ? data.hourly[key][i] : '';
+      row.push(value);
+    }
+    rows.push(row.join(','));
+  }
+  
+  return rows.join('\n');
+}
+
+/**
+ * Normalize Open-Meteo API response to unified file data structure
+ *
+ * @param {Object} data - Open-Meteo JSON response data
+ * @param {string} filename - Filename for the File object
+ * @param {string} format - Output format ('csv' or 'json')
+ * @returns {Object} Normalized file data object with file, headerFields, sampleRows, dayFirst, and dataSpanInfo
+ */
+export function normalizeOpenMeteoToFileData(data, filename, format) {
+  // Create a mock file object
+  const content = format === 'csv' ? jsonToCsv(data) : JSON.stringify(data, null, 2);
+  const file = new File([content], filename, {
+    type: format === 'csv' ? 'text/csv' : 'application/json'
+  });
+  
+  // Parse the data to extract header fields and sample rows
+  let headerFields = [];
+  let sampleRows = [];
+  
+  if (format === 'csv') {
+    const lines = content.split('\n');
+    if (lines.length > 0) {
+      headerFields = lines[0].split(',');
+      sampleRows = lines.slice(1, 6).map(line => line.split(','));
+    }
+  } else {
+    // For JSON, extract from hourly data
+    if (data.hourly) {
+      headerFields = ['time', ...Object.keys(data.hourly).filter(k => k !== 'time')];
+      const timeArray = data.hourly.time;
+      const numSamples = Math.min(5, timeArray.length);
+      for (let i = 0; i < numSamples; i++) {
+        const row = [timeArray[i]];
+        for (const key of headerFields.slice(1)) {
+          row.push(data.hourly[key] && data.hourly[key][i] !== null ? data.hourly[key][i] : '');
+        }
+        sampleRows.push(row);
+      }
+    }
+  }
+  
+  // Build data span info
+  const dataSpanInfo = {
+    totalRows: data.hourly?.time?.length || 0,
+    dateRange: data.hourly?.time ? {
+      start: data.hourly.time[0],
+      end: data.hourly.time[data.hourly.time.length - 1]
+    } : null
+  };
+  
+  return {
+    file,
+    headerFields,
+    sampleRows,
+    dayFirst: false, // Open-Meteo uses ISO format (month-first)
+    dataSpanInfo
+  };
+}
+
+/**
+ * Extract header fields and sample rows from JSON hourly data payload
+ *
+ * @param {Object} data - Open-Meteo JSON response with hourly data
+ * @param {number} maxSamples - Maximum number of sample rows to extract (default: 5)
+ * @returns {Object} Object containing headerFields and sampleRows arrays
+ */
+export function extractHeaderAndSamplesFromJsonHourly(data, maxSamples = 5) {
+  if (!data || !data.hourly) {
+    return {
+      headerFields: [],
+      sampleRows: []
+    };
+  }
+  
+  const headerFields = ['time', ...Object.keys(data.hourly).filter(k => k !== 'time')];
+  const timeArray = data.hourly.time;
+  const numSamples = Math.min(maxSamples, timeArray.length);
+  const sampleRows = [];
+  
+  for (let i = 0; i < numSamples; i++) {
+    const row = [timeArray[i]];
+    for (const key of headerFields.slice(1)) {
+      row.push(data.hourly[key] && data.hourly[key][i] !== null ? data.hourly[key][i] : '');
+    }
+    sampleRows.push(row);
+  }
+  
+  return {
+    headerFields,
+    sampleRows
+  };
+}

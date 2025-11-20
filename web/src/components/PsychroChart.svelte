@@ -1,6 +1,5 @@
 <script>
   import { onMount, onDestroy, tick } from 'svelte';
-  import { results } from '../stores/uiStore.js';
   import ZoneHours from './ZoneHours.svelte';
 
   let { summaryData = null } = $props();
@@ -11,6 +10,15 @@
   let isLoading = $state(true);
   let error = $state(null);
   let __origConsole = null; // Store original console methods for restoration later
+  
+  // Create a derived value to ensure reactivity
+  const psychrometricPoints = $derived(() => {
+    const data = summaryData;
+    const rawPoints = data?.psychrometricData || [];
+    const points = sanitizePoints(rawPoints);
+    console.log('PsychroChart: $derived recomputed, points.length:', points.length);
+    return points;
+  });
 
   // Sanitize incoming psychrometric points:
   // - Ensure numeric T and W
@@ -82,8 +90,7 @@
           renderer.renderBackground();
           
           // Re-render data points if available (sanitize before rendering)
-          const rawPoints = summaryData?.psychrometricData || $results?.psychrometricData || [];
-          const points = sanitizePoints(rawPoints);
+          const points = psychrometricPoints();
           
           // Local diagnostics: compute simple pixel mapping using renderer defaults to detect off-canvas / range issues
           try {
@@ -126,46 +133,43 @@
     }
   });
 
-  // Reactive effect to handle summaryData changes
+  // Reactive effect to handle psychrometric points changes
   $effect(() => {
-    const rawPoints = summaryData?.psychrometricData || [];
-    const points = sanitizePoints(rawPoints);
-    console.log('PsychroChart: Rendering', points.length, 'data points (sanitized)');
+    const points = psychrometricPoints();
+    console.log('PsychroChart: $effect triggered with', points.length, 'points from derived');
+    console.log('PsychroChart: First 3 points:', points.slice(0, 3));
     
-    if (renderer && points.length > 0) {
-      renderer.renderDataPoints(points);
-      // Log pixel mapping for up to 5 sample points using local mapping (matches renderer psychroToCanvas)
-      try {
-        const rect = canvasElement?.parentElement?.getBoundingClientRect ? canvasElement.parentElement.getBoundingClientRect() : { width: 300, height: 150 };
-        const width = rect.width;
-        const height = rect.height;
-        const Tmin = 0, Tmax = 50, Wmax = 0.03;
-        const psychroToCanvasLocal = (T, W) => {
-          const x = ((T - Tmin) / (Tmax - Tmin)) * width;
-          const y = height - (W / Wmax) * height;
-          return { x, y };
-        };
-        points.slice(0, 5).forEach((pt, idx) => {
-          const T = Number(pt.T), W = Number(pt.W), color = pt.color;
-          const { x, y } = psychroToCanvasLocal(T, W);
-        });
-      } catch (e) {
-        console.warn('PsychroChart: pixel mapping logs failed', e);
+    if (renderer) {
+      if (points.length > 0) {
+        renderer.renderDataPoints(points);
+        // Log pixel mapping for up to 5 sample points using local mapping (matches renderer psychroToCanvas)
+        try {
+          const rect = canvasElement?.parentElement?.getBoundingClientRect ? canvasElement.parentElement.getBoundingClientRect() : { width: 300, height: 150 };
+          const width = rect.width;
+          const height = rect.height;
+          const Tmin = 0, Tmax = 50, Wmax = 0.03;
+          const psychroToCanvasLocal = (T, W) => {
+            const x = ((T - Tmin) / (Tmax - Tmin)) * width;
+            const y = height - (W / Wmax) * height;
+            return { x, y };
+          };
+          points.slice(0, 5).forEach((pt, idx) => {
+            const T = Number(pt.T), W = Number(pt.W), color = pt.color;
+            const { x, y } = psychroToCanvasLocal(T, W);
+          });
+        } catch (e) {
+          console.warn('PsychroChart: pixel mapping logs failed', e);
+        }
+      } else {
+        // Clear points when no data is available
+        renderer.renderDataPoints([]);
+        console.log('PsychroChart: Cleared data points (no data available)');
       }
+    } else {
+      console.log('PsychroChart: Renderer not yet initialized');
     }
   });
   
-  // Keep the original results store effect for backward compatibility
-  $effect(() => {
-    if (renderer && $results && $results.psychrometricData) {
-      const points = sanitizePoints($results.psychrometricData);
-      let renderPoints = points;
-      if (points.length >= 500) {
-        renderPoints = points.concat(points[0] ? { ...points[0] } : [{ T: 0, W: 0, zone: '', color: '#000' }]);
-      }
-      renderer.renderDataPoints(renderPoints);
-    }
-  });
   
   onDestroy(() => {
     // Restore original console methods
@@ -203,9 +207,9 @@
   {/if}
 </div>
 
-{#if (summaryData && summaryData.summary) || ($results && $results.data && $results.data.summary)}
+{#if summaryData && summaryData.summary}
   <div class="zone-hours-container" role="list" aria-label="Zone hours list">
-    {#each (summaryData ? summaryData.summary : $results.data.summary) as zoneData (zoneData.zone)}
+    {#each summaryData.summary as zoneData (zoneData.zone)}
       <ZoneHours {zoneData} />
     {/each}
   </div>
