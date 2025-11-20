@@ -152,6 +152,11 @@
       
       aggregationResult = { ...result, psychrometricData };
       
+      // Debug: Log what we're creating
+      console.log('ProcessControls: Generated psychrometricData:', psychrometricData.slice(0, 5));
+      console.log('ProcessControls: aggregationResult keys:', Object.keys(aggregationResult));
+      console.log('ProcessControls: aggregationResult.psychrometricData length:', aggregationResult.psychrometricData?.length);
+      
       // Dispatch event to notify parent component
       dispatch('dataprocessed', { result: aggregationResult });
       

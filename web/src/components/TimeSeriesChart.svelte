@@ -77,22 +77,20 @@
   let sourceDateRange = $state(null); // Store actual source date range
   
   // Calculate averages for displayed datasets - reactive to chartData changes
-  let datasetAverages = $state([]);
-  $effect(() => {
+  const datasetAverages = $derived(() => {
     if (!chartData || !chartData.datasets) {
-      datasetAverages = [];
-      return;
+      return [];
     }
     
     // For Daily granularity, use collapsed averages (Temperature and Humidity only)
     if (currentPeriod === 'daily') {
-      datasetAverages = calculateDatasetAverages(aggregatedData, {
+      return calculateDatasetAverages(aggregatedData, {
         collapseClassificationsFor: ['daily'],
         granularity: currentPeriod
       });
     } else {
       // For other granularities, use the original behavior based on chart datasets
-      datasetAverages = (chartData.datasets || []).map(dataset => {
+      return (chartData.datasets || []).map(dataset => {
         // Extract numeric values from dataset.data array defensively
         const values = (dataset.data || []).map(point => (point && point.y)).filter(val => typeof val === 'number' && !isNaN(val));
         const average = calculateAverage(values, 1);
@@ -109,8 +107,7 @@
   // For hourly (average-day) view we scale each hourly-average point by number of days
   // in source range so cards reflect total hours across selected period (consistent
   // with daily/weekly behavior) instead of listing every single sample hour.
-  let zoneTotals = $state([]);
-  $effect(() => {
+  const zoneTotals = $derived(() => {
     const agg = aggregatedData;
     const raw = timeSeriesData;
     const period = currentPeriod;
@@ -139,8 +136,7 @@
           totals[zone.id] = (totals[zone.id] || 0) + hours;
         });
       } else {
-        zoneTotals = [];
-        return;
+        return [];
       }
     } else if (agg && agg.length) {
       // For daily/weekly/monthly use aggregatedData points (prefer displayed data)
@@ -160,11 +156,10 @@
         totals[zone.id] = (totals[zone.id] || 0) + hours;
       });
     } else {
-      zoneTotals = [];
-      return;
+      return [];
     }
   
-    zoneTotals = ZONES.map(z => ({
+    return ZONES.map(z => ({
       id: z.id,
       name: z.id,
       value: totals[z.id] || 0,
@@ -272,19 +267,22 @@
     return gradient;
   }
 
-  // Process data for chart
-  function processDataForChart() {
-    if (!timeSeriesData || timeSeriesData.length === 0) {
-      aggregatedData = [];
-      chartData = null;
-      return;
+  // Pure function to process data for chart - returns values instead of updating state
+  function processDataForChartPure(data, period, selectedPeriodProp) {
+    if (!data || data.length === 0) {
+      return {
+        aggregatedData: [],
+        chartData: null,
+        chartOptions: {},
+        sourceDateRange: null
+      };
     }
 
     // Log source data length for debugging
-    console.info(`[TimeSeriesChart] Source rows length: ${timeSeriesData.length}`);
+    console.info(`[TimeSeriesChart] Source rows length: ${data.length}`);
 
     // Filter out invalid records and normalize field names
-    const validData = timeSeriesData.filter(record => {
+    const validData = data.filter(record => {
       return record &&
              record.ts &&
              typeof record.temp === 'number' &&
@@ -302,24 +300,28 @@
 
     if (validData.length === 0) {
       console.warn('No valid time series data found after filtering');
-      aggregatedData = [];
-      chartData = null;
-      sourceDateRange = null;
-      return;
+      return {
+        aggregatedData: [],
+        chartData: null,
+        chartOptions: {},
+        sourceDateRange: null
+      };
     }
     
     // Calculate source date range for accurate summary
-    sourceDateRange = getSourceDateRange(validData);
+    const sourceDateRange = getSourceDateRange(validData);
 
     // Set recommended period if not specified
-    if (!selectedPeriod) {
-      currentPeriod = getRecommendedAggregation(validData);
+    let finalPeriod = period;
+    if (!selectedPeriodProp) {
+      finalPeriod = getRecommendedAggregation(validData);
     }
 
     // Special handling for hourly view - create average day
-    if (currentPeriod === 'hourly') {
+    let aggregatedData;
+    if (finalPeriod === 'hourly') {
       aggregatedData = createHourlyAverageData(validData);
-    } else if (currentPeriod === 'daily') {
+    } else if (finalPeriod === 'daily') {
       // Use buildDailyBuckets for daily view to ensure inclusive range with null gaps
       try {
         // Build temperature buckets covering every day from sourceMinDate to sourceMaxDate
@@ -337,19 +339,22 @@
       } catch (error) {
         console.error('Error building daily buckets:', error);
         // Fallback to regular aggregation if bucket building fails
-        const aggregateFn = getAggregationFunction(currentPeriod);
+        const aggregateFn = getAggregationFunction(finalPeriod);
         aggregatedData = aggregateFn(validData);
       }
     } else {
       // Aggregate data based on selected period
-      const aggregateFn = getAggregationFunction(currentPeriod);
+      const aggregateFn = getAggregationFunction(finalPeriod);
       try {
         aggregatedData = aggregateFn(validData);
       } catch (error) {
         console.error('Error aggregating time series data:', error);
-        aggregatedData = [];
-        chartData = null;
-        return;
+        return {
+          aggregatedData: [],
+          chartData: null,
+          chartOptions: {},
+          sourceDateRange: null
+        };
       }
     }
 
@@ -379,7 +384,7 @@
     const datasets = [];
     
     // For hourly average day, create temperature and RH datasets
-    if (currentPeriod === 'hourly') {
+    if (finalPeriod === 'hourly') {
       const defaultColor = ZONE_COLORS['Unclassified'] || '#999999';
       
       // Temperature dataset
@@ -450,7 +455,7 @@
     } else {
       // Weekly/Monthly/Daily: unified two-series rendering (temp + rh) with per-segment zone coloring
       // Treat `daily` like weekly/monthly so temperature is a single line with per-segment zone colors
-      if (currentPeriod === 'weekly' || currentPeriod === 'monthly' || currentPeriod === 'daily') {
+      if (finalPeriod === 'weekly' || finalPeriod === 'monthly' || finalPeriod === 'daily') {
         // Build pointMap for efficient lookup keyed by timestamp in milliseconds
         const pointMap = new Map(aggregatedData.map(p => [new Date(p.timestamp).getTime(), p]));
         
@@ -648,15 +653,15 @@
     }
 
     // Chart configuration
-    chartData = {
+    const chartData = {
       datasets: datasets
     };
     
     // Create dynamic chart title based on period and data
-    let chartTitle = `Temperature Time Series (${currentPeriod.charAt(0).toUpperCase() + currentPeriod.slice(1)})`;
+    let chartTitle = `Temperature Time Series (${finalPeriod.charAt(0).toUpperCase() + finalPeriod.slice(1)})`;
     
     // Special handling for hourly view - create dynamic title with source date range
-    if (currentPeriod === 'hourly' && sourceDateRange && sourceDateRange.minDate && sourceDateRange.maxDate) {
+    if (finalPeriod === 'hourly' && sourceDateRange && sourceDateRange.minDate && sourceDateRange.maxDate) {
       // Format dates for display (e.g., "Apr 01" or "Apr 01, 2023" if different years)
       const formatDateForTitle = (date) => {
         const d = new Date(date);
@@ -686,7 +691,7 @@
     }
     
     // Update chart options
-    chartOptions = {
+    const chartOptions = {
       responsive: true,
       maintainAspectRatio: false,
       plugins: {
@@ -709,10 +714,10 @@
       },
       scales: {
         x: {
-          type: currentPeriod === 'hourly' ? 'linear' : 'time',
-          time: currentPeriod === 'hourly' ? undefined : {
-            unit: currentPeriod === 'daily' ? 'day' :
-                  currentPeriod === 'weekly' ? 'week' : 'month',
+          type: finalPeriod === 'hourly' ? 'linear' : 'time',
+          time: finalPeriod === 'hourly' ? undefined : {
+            unit: finalPeriod === 'daily' ? 'day' :
+                  finalPeriod === 'weekly' ? 'week' : 'month',
             displayFormats: {
               day: 'MMM dd',
               week: 'MMM dd',
@@ -728,22 +733,22 @@
           },
           title: {
             display: true,
-            text: currentPeriod === 'hourly' ? 'Hour of Day' : 'Time'
+            text: finalPeriod === 'hourly' ? 'Hour of Day' : 'Time'
           },
-          min: currentPeriod === 'hourly' ? 0 : undefined,
-          max: currentPeriod === 'hourly' ? 23 : undefined,
-          ticks: currentPeriod === 'hourly' ? {
+          min: finalPeriod === 'hourly' ? 0 : undefined,
+          max: finalPeriod === 'hourly' ? 23 : undefined,
+          ticks: finalPeriod === 'hourly' ? {
             stepSize: 1,
             callback: hourTickCallback
           } : {
             // Format ticks to show readable dates instead of epoch numbers
             callback: function(value) {
               const date = new Date(value);
-              if (currentPeriod === 'daily') {
+              if (finalPeriod === 'daily') {
                 return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-              } else if (currentPeriod === 'weekly') {
+              } else if (finalPeriod === 'weekly') {
                 return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-              } else if (currentPeriod === 'monthly') {
+              } else if (finalPeriod === 'monthly') {
                 return date.toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
               }
               return date.toLocaleDateString();
@@ -776,6 +781,22 @@
         }
       }
     };
+    
+    return {
+      aggregatedData,
+      chartData,
+      chartOptions,
+      sourceDateRange
+    };
+  }
+
+  // Process data for chart (legacy function for backward compatibility)
+  function processDataForChart() {
+    const result = processDataForChartPure(timeSeriesData, currentPeriod, selectedPeriod);
+    aggregatedData = result.aggregatedData;
+    chartData = result.chartData;
+    chartOptions = result.chartOptions;
+    sourceDateRange = result.sourceDateRange;
   }
 
   // Create hourly average day data (24 points for hours 0-23)
@@ -818,7 +839,11 @@
   function handlePeriodChange() {
     // Use setTimeout to break potential reactive cycles
     setTimeout(() => {
-      processDataForChart();
+      try {
+        processDataForChart();
+      } catch (error) {
+        console.error('Error processing chart data on period change:', error);
+      }
     }, 0);
   }
 
@@ -829,7 +854,45 @@
 
   // Initialize on mount
   onMount(() => {
-    processDataForChart();
+    try {
+      processDataForChart();
+    } catch (error) {
+      console.error('Error processing chart data on mount:', error);
+    }
+  });
+  
+  // Create a derived value for processed chart data to avoid state updates in effects
+  const processedChartState = $derived(() => {
+    if (!timeSeriesData || timeSeriesData.length === 0) {
+      return {
+        aggregatedData: [],
+        chartData: null,
+        chartOptions: {},
+        sourceDateRange: null
+      };
+    }
+    
+    try {
+      // Create a pure version of processDataForChart that returns values instead of updating state
+      return processDataForChartPure(timeSeriesData, currentPeriod, selectedPeriod);
+    } catch (error) {
+      console.error('Error processing chart data:', error);
+      return {
+        aggregatedData: [],
+        chartData: null,
+        chartOptions: {},
+        sourceDateRange: null
+      };
+    }
+  });
+  
+  // Update state variables from the derived values
+  $effect(() => {
+    const state = processedChartState();
+    aggregatedData = state.aggregatedData;
+    chartData = state.chartData;
+    chartOptions = state.chartOptions;
+    sourceDateRange = state.sourceDateRange;
   });
 </script>
 
