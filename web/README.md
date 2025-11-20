@@ -1,186 +1,91 @@
-# Passive Design Tactics Web UI
+# Passive Design Tactics — Web UI
 
-A modern Svelte + Vite application for the Passive Design Tactics tool with streaming CSV processing capabilities.
+A Svelte 5 + Vite single-page app for browser-based analysis of timestamped temperature and relative-humidity CSV data (streaming parsing, psychrometric charts, time-series aggregation, and export).
 
-## Overview
+## Features
+- Streaming CSV processing (large-file friendly)
+- Drag-and-drop upload with automatic column detection
+- Interactive psychrometric chart + time-series visualizations
+- Multi-period aggregation (hourly/daily/weekly/monthly)
+- Export processed data (CSV / JSON / Markdown)
 
-The web application provides a user-friendly interface for analyzing timestamped temperature and relative-humidity CSV time series data. It features memory-efficient streaming processing that can handle large files without loading the entire file into memory.
+## Prerequisites
+- Node.js 21+ (or a recent stable Node.js)
+- npm (bundled with Node.js)
 
-## Key Features
-
-- **Streaming CSV Processing**: Memory-efficient chunk-based processing for large files
-- **Data Span Detection**: Automatic detection of time range, data frequency, and granularity
-- **Interactive UI Components**: Drag-and-drop file upload and intuitive controls
-- **Multiple Export Formats**: Generate CSV, JSON, and Markdown reports
-- **Real-time Analysis**: Process and visualize data without full file loading
-
-## Getting Started
+## Installation
+Run from the project `web/` directory:
 
 ```bash
 cd web
 npm install
+```
+
+If you need deterministic installs in CI use:
+
+```bash
+npm ci
+```
+
+## Development
+Start the Vite dev server:
+
+```bash
 npm run dev
 ```
 
-## Building
+By default Vite serves on `http://localhost:5173` (or the next available port).
+
+## Build (production)
+Create a production build:
 
 ```bash
 npm run build
 ```
 
-The build output will be in the `dist/` directory, which can be served with an MCP server.
+Build output is placed in `dist/`.
 
-## Development
+## Preview production build
+Serve the built app locally:
 
-- `npm run dev` - Start the development server
-- `npm run build` - Build for production
-- `npm run preview` - Preview the production build
-
-## Streaming CSV Processing
-
-The application uses a memory-efficient streaming approach to process CSV files:
-
-### parseCsvStream
-
-Extracts header and sample rows without reading the entire file into memory:
-
-```javascript
-import { parseCsvStream } from './src/utils/dataProcessor.js';
-
-const result = await parseCsvStream(file, {
-  sampleRows: 50,        // Number of sample rows to collect
-  headerRowIndex: 0,      // Index of header row
-  encoding: 'utf-8'       // Text encoding
-});
-
-// Returns: {
-//   headerFields: string[],
-//   sampleRows: string[],
-//   dayFirst: boolean,
-//   samplesUsed: number,
-//   minDate: Date,
-//   maxDate: Date,
-//   estimatedSpanDays: number,
-//   samplesPerDay: number
-// }
-```
-
-### aggregateCsvStream
-
-Processes the entire file using streaming aggregation without loading it into memory:
-
-```javascript
-import { aggregateCsvStream } from './src/utils/dataProcessor.js';
-
-const result = await aggregateCsvStream(file, classifyRow, {
-  timelineUnit: 'auto',           // 'auto', 'hour', 'day', or 'month'
-  deltaReservoirSize: 2000,        // Size of delta reservoir for median calculation
-  rowSampleLimitForOutput: 500,    // Limit of rows to store with duration
-  capMultiplier: 4,                // Duration cap multiplier
-                                   // Caps per-row durations to medianInterval × multiplier to avoid counting large timestamp gaps
-  treatAsUTC: false,               // Treat dates as UTC
-  preferDayFirst: null             // Force day-first parsing
-});
-
-// Returns aggregation result with perBucket, summary, rowsWithDur, etc.
-```
-
-### detectDataSpan
-
-Analyzes timestamps to determine time range, granularity, and consistency:
-
-```javascript
-import { detectDataSpan } from './src/utils/dataProcessor.js';
-
-const dataSpan = detectDataSpan(timestamps, {
-  confidenceThreshold: 0.8    // Minimum confidence threshold
-});
-
-// Returns: {
-//   minDate: string,
-//   maxDate: string,
-//   totalDays: number,
-//   likelyGranularity: 'hour' | 'day' | 'month',
-//   dataDescription: string,
-//   confidence: number
-// }
-```
-
-### exportAllFiles
-
-Generates and downloads all export file types:
-
-```javascript
-import { exportAllFiles } from './src/utils/dataProcessor.js';
-
-const blobs = exportAllFiles(baseName, aggregationResult, {
-  includeRowsWithDur: false,   // Include rowsWithDur in JSON
-  includeDur: true,             // Include duration in CSV
-  tsIso: true                   // Use ISO timestamp format
-});
-
-// Downloads: baseName_time_series.csv, baseName_summary.json, baseName_summary.md
-```
-
-## UI Components
-
-### UploadZone Component
-
-Features:
-- Drag-and-drop file upload with visual feedback
-- Streaming CSV parsing for immediate header detection
-- Automatic date format detection (day-first vs month-first)
-- File validation and error handling
-
-Usage:
-```svelte
-<UploadZone onfileparsed={handleFileParsed} />
-```
-
-### ProcessControls Component
-
-Features:
-- Column mapping with auto-detection
-- Data span visualization with confidence indicators
-- Processing options (timeline unit, UTC handling, duration capping)
-- Export controls for multiple file formats
-- Real-time processing feedback
-
-Usage:
-```svelte
-<ProcessControls
-  file={fileData.file}
-  headerFields={fileData.headerFields}
-  sampleRows={fileData.sampleRows}
-  dayFirst={fileData.dayFirst}
-  dataSpanInfo={fileData.dataSpanInfo}
-/>
-```
-
-## Data Span Detection
-
-The application automatically analyzes uploaded CSV files to determine:
-
-- **Time Range**: First and last timestamps in the data
-- **Granularity**: Hourly, daily, or monthly data patterns
-- **Confidence**: Consistency of time intervals between data points
-- **Description**: Human-readable summary of the data span
-
-The detection algorithm samples timestamps from the file and analyzes patterns to determine the most likely data granularity. A confidence score indicates how regular the time intervals are.
-
-## Testing
-
-The application includes comprehensive test files for streaming functionality:
-
-- `test-streaming.js` - Tests streaming CSV parsing and aggregation
-- `test-data-span-detection.js` - Tests data span detection algorithms
-- `test-ui-integration.js` - Tests UI component integration
-
-To run tests:
 ```bash
-node test-streaming.js
-node test-data-span-detection.js
-node test-ui-integration.js
+npm run preview
 ```
 
-Note: Test files use sample CSV data but do not read entire CSV files during testing.
+## Where the source lives
+- Entry: [`web/src/main.js`](web/src/main.js:1)  
+- Top-level app component: [`web/src/App.svelte`](web/src/App.svelte:1)  
+- HTML template: [`web/index.html`](web/index.html:1)  
+- Vite config: [`web/vite.config.js`](web/vite.config.js:1)  
+- Package metadata & scripts: [`web/package.json`](web/package.json:1)
+
+Key components:
+- [`web/src/components/UploadZone.svelte`](web/src/components/UploadZone.svelte:1) — CSV drag-and-drop & file input
+- [`web/src/components/ProcessControls.svelte`](web/src/components/ProcessControls.svelte:1) — Processing options UI
+- [`web/src/components/PsychroChart.svelte`](web/src/components/PsychroChart.svelte:1) — Psychrometric visualization
+- [`web/src/components/TimeSeriesChart.svelte`](web/src/components/TimeSeriesChart.svelte:1) — Time-series charts
+- [`web/src/utils/dataProcessor.js`](web/src/utils/dataProcessor.js:1) — Streaming CSV parsing & aggregation logic
+- [`web/src/utils/timeSeriesAggregator.js`](web/src/utils/timeSeriesAggregator.js:1) — Aggregation helpers
+- [`web/src/stores/uiStore.js`](web/src/stores/uiStore.js:1) — App state stores
+
+## CSV expectations
+- A timestamp column (auto-detected by names containing "time", "date", "datetime")
+- A temperature column (names with "temp" or "temperature")
+- A relative-humidity column (names with "rh" or "humidity")
+
+The app auto-detects date formats and can treat dates as UTC if configured.
+
+## Notes & caveats
+- The app runs fully client-side; no server required.
+- Uses a relative base path (`./`) for deployment compatibility.
+- Large CSVs are processed in chunks to avoid memory exhaustion.
+- If ports conflict, Vite will choose the next available port.
+
+## Quick checklist of important files
+- [`web/package.json`](web/package.json:1)  
+- [`web/vite.config.js`](web/vite.config.js:1)  
+- [`web/index.html`](web/index.html:1)  
+- [`web/src/main.js`](web/src/main.js:1)  
+- [`web/src/App.svelte`](web/src/App.svelte:1)  
+- [`web/src/utils/dataProcessor.js`](web/src/utils/dataProcessor.js:1)  
+- [`web/src/components/UploadZone.svelte`](web/src/components/UploadZone.svelte:1)

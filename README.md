@@ -9,19 +9,23 @@ Contents
 - Input CSV format & column detection
 - Zones & classification
 - Outputs
+- Web Application
 - Troubleshooting
 - Development & testing
 - License
 
 Overview
 --------
-This repository provides a small Node.js CLI that:
-- Parses timestamped temperature and relative-humidity CSVs
+This repository provides both a Node.js CLI and a modern web application that:
+- Parses timestamped temperature and relative-humidity CSVs using memory-efficient streaming
 - Classifies each datapoint into a "tactic" zone based on temperature and relative humidity polytopes
 - Aggregates duration per zone and per time bucket (month / day / hour)
 - Writes a timeseries CSV suitable for plotting and a human-readable summary (MD/TXT/CSV) and optional JSON output
+- Detects data span and granularity automatically for optimal analysis
 
-The typical workflow is command-line driven: point to a CSV (or let the tool pick one), verify detected columns and date format (interactive by default), then inspect the generated summary and timeseries files.
+The CLI workflow is command-line driven: point to a CSV (or let the tool pick one), verify detected columns and date format (interactive by default), then inspect the generated summary and timeseries files.
+
+The web application provides an intuitive browser-based interface with drag-and-drop upload, real-time processing feedback, and interactive data visualization.
 
 Features
 --------
@@ -29,8 +33,10 @@ Features
 - Heuristics for ambiguous date formats (day-first vs month-first)
 - Optional non-interactive `--auto` mode for scripting
 - Streaming processing to handle large files without high memory use
+- Data span detection with confidence scoring
 - Multiple summary formats: Markdown, plain text, CSV, and JSON
 - Default outputs: timeseries CSV for plotting and a summary report
+- Modern web interface with streaming processing capabilities
 
 Quick start
 -----------
@@ -49,11 +55,11 @@ Common flags:
 - `--assume-day-first` : prefer day-first date parsing
 - `--utc` : treat parsed datetimes as UTC
 - `--ts <path>` : path for timeseries CSV (default: ./tactics_timeseries.csv)
-- `--format, -f <md|txt|csv>` : summary format
+- `--format, -f <md|txt|csv|json>` : summary format for the human-readable summary
 - `--out, -o <path>` : summary file path
-- `--json, -j [path]` : write JSON summary (optional path)
-- `--no-ts` : skip timeseries CSV
-- `--only <csv|md|txt|json>` : produce only a single output type
+- `--json, -j [path]` : write JSON summary; when passed without a path the CLI writes `./tactics_summary.json` by default
+- `--no-ts` : skip writing the timeseries CSV
+- `--only <csv|md|txt|json>` : produce only a single output type (e.g., `--only json`)
 
 Implementation entrypoints:
 - CLI wrapper: [`tactics-cli.js`](tactics-cli.js:1)
@@ -94,7 +100,7 @@ Outputs
 Default outputs:
 - Timeseries CSV for plotting: `tactics_timeseries.csv` (columns: datetime,temperature,humidity,zone,color)
 - Summary report: Markdown/TXT/CSV (e.g., `tactics_summary.md`)
-- Optional JSON summary: `tactics_summary.json`
+- Optional JSON summary: `tactics_summary.json` (written when `--json` is used; default file path shown above if no path supplied)
 
 Summary report includes:
 - Global aggregated hours per zone and percent of time
@@ -128,8 +134,8 @@ sh scripts/test-run.sh
 ```
 
 Development notes
-- Node.js LTS recommended (v16+).
-- No external dependencies required beyond standard Node.js modules.
+- Node.js LTS recommended for the CLI (v21+). The CLI uses only built-in Node modules and has no runtime external dependencies listed.
+- The web application (found in [`web/`](web/)) requires Node.js + npm (or yarn) for development; see [`web/package.json`](web/package.json:1) for dev-time dependencies and scripts.
 - The project is modular; prefer changing `scripts/*` modules and adding unit tests for parsing/classification logic.
 - Tests: add simple fixtures in `test/` and use `node` or your preferred test runner to validate `parseTimestamp`, `classifyPoint`, and aggregator behaviour.
 
@@ -144,6 +150,28 @@ Code structure (high level)
 - [`scripts/zones.js`](scripts/zones.js:1) & [`scripts/classify.js`](scripts/classify.js:1) — zone definitions and classification
 - [`logic.js`](logic.js:1) — original single-file CLI (kept for reference)
 - [`tactics-cli.js`](tactics-cli.js:1) — thin entrypoint invoking the refactor
+
+Web Application
+---------------
+
+A modern Svelte5-based web application is available in the [`web/`](web/) directory, providing:
+
+- **Streaming CSV Processing**: Memory-efficient chunk-based processing for large files
+- **Interactive UI**: Drag-and-drop file upload with real-time feedback
+- **Data Span Detection**: Automatic detection of time range and data granularity
+- **Column Mapping**: Interactive column selection with auto-detection
+- **Export Options**: Generate CSV, JSON, and Markdown reports
+- **Visualization**: Psychrometric charts and zone analysis
+
+For detailed documentation on the web application, see [`web/README.md`](web/README.md).
+
+Quick start with the web app:
+```bash
+cd web
+npm install
+npm run dev
+```
+Then open your browser to the provided localhost URL.
 
 Contributing
 ------------
