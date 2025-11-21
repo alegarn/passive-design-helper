@@ -1070,6 +1070,9 @@ function createPsychroRenderer(containerEl, options = {}) {
     const frameInterval = 1000 / targetFPS;
 
     const render = (timestamp) => {
+      if (typeof timestamp !== 'number' || !isFinite(timestamp)) {
+        timestamp = (typeof performance !== 'undefined' && typeof performance.now === 'function') ? performance.now() : Date.now();
+      }
       if (timestamp - lastFrameTime >= frameInterval) {
         // Redraw background
         ctx.clearRect(0, 0, width, height);
@@ -1103,7 +1106,7 @@ function createPsychroRenderer(containerEl, options = {}) {
     if (useThrottle) {
       rafId = requestAnimationFrame(render);
     } else {
-      render(0);
+      render((typeof performance !== 'undefined' && typeof performance.now === 'function') ? performance.now() : Date.now());
     }
   }
 
