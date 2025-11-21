@@ -472,9 +472,9 @@ export async function aggregateCsvStream(file, classifyRow, options = {}) {
       tempCol: tempCol === -1 ? null : headerFields[tempCol],
       rhCol: rhCol === -1 ? null : headerFields[rhCol]
     };
-    console.debug('aggregateCsvStream: headerFields=', headerFields);
-    console.debug('aggregateCsvStream: user overrides=', { userTimeColName, userTempColName, userRhColName });
-    console.debug('aggregateCsvStream: resolved columns=', found);
+    // console.debug('aggregateCsvStream: headerFields=', headerFields);
+    // console.debug('aggregateCsvStream: user overrides=', { userTimeColName, userTempColName, userRhColName });
+    // console.debug('aggregateCsvStream: resolved columns=', found);
     throw new Error('Required columns (time, temperature, humidity) not found in CSV');
   }
   
@@ -1221,9 +1221,9 @@ const { headerFields, sampleRows, dayFirst, samplesUsed } = await parseCsvStream
   headerRowIndex: 0
 });
 
-console.log('Headers:', headerFields);
-console.log('Samples collected:', samplesUsed);
-console.log('Day-first format detected:', dayFirst);
+// console.log('Headers:', headerFields);
+// console.log('Samples collected:', samplesUsed);
+// console.log('Day-first format detected:', dayFirst);
 
 // Example 2: Aggregate CSV with streaming
 const result = await aggregateCsvStream(file, (temp, rh) => {
@@ -1237,13 +1237,13 @@ const result = await aggregateCsvStream(file, (temp, rh) => {
   treatAsUTC: false
 });
 
-console.log('Timeline unit detected:', result.timelineUnit);
-console.log('Total hours:', result.totalMs / 3600000);
-console.log('Per-bucket keys:', Object.keys(result.perBucket));
+// console.log('Timeline unit detected:', result.timelineUnit);
+// console.log('Total hours:', result.totalMs / 3600000);
+// console.log('Per-bucket keys:', Object.keys(result.perBucket));
 
 // Example 3: Format results as markdown
 const markdown = formatSummaryMd(result);
-console.log(markdown);
+// console.log(markdown);
 
 TESTING INSTRUCTIONS:
 

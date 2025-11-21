@@ -67,13 +67,13 @@ export function createPsychroRenderer(containerEl, options = {}) {
 
     // debug: log canvas insertion and computed style
     try {
-      console.debug('psychro:init canvas appended', {
+      /* console.debug('psychro:init canvas appended', {
         containerRect: containerEl.getBoundingClientRect ? containerEl.getBoundingClientRect() : null,
         canvasClass: canvas.className,
         canvasStyle: window.getComputedStyle ? window.getComputedStyle(canvas) : null
-      });
+      }); */
     } catch (e) {
-      console.debug('psychro:init debug failed', e);
+      // console.debug('psychro:init debug failed', e);
     }
 
     // Get DPR (device pixel ratio) with cap
@@ -123,6 +123,7 @@ export function createPsychroRenderer(containerEl, options = {}) {
    * Resize canvases to container dimensions
    */
   function resize(w, h) {
+    console.log('[DEBUG psychro] canvas dims', { width: opts.width, height: opts.height, margin: opts.margin });
     if (w !== undefined && h !== undefined) {
       width = w;
       height = h;
@@ -134,6 +135,7 @@ export function createPsychroRenderer(containerEl, options = {}) {
       width = rect ? rect.width : 300;
       height = rect ? rect.height : 150;
     }
+    console.log('[DEBUG psychro] actual canvas size', { width, height, optsWmax: opts.Wmax, optsTmin: opts.Tmin, optsTmax: opts.Tmax });
 
     const dpr = Math.min(window.devicePixelRatio || 1, opts.dprCap);
 
@@ -172,6 +174,7 @@ export function createPsychroRenderer(containerEl, options = {}) {
   function psychroToCanvas(T, W) {
     const x = ((T - opts.Tmin) / (opts.Tmax - opts.Tmin)) * width;
     const y = height - (W / opts.Wmax) * height;
+    console.log('[DEBUG psychro] map->canvas', { T, W, x, y, isFiniteX: isFinite(x), isFiniteY: isFinite(y) });
     return { x, y };
   }
 
@@ -308,12 +311,12 @@ export function createPsychroRenderer(containerEl, options = {}) {
             offscreenCtx.stroke(path);
           } catch (e) {
             // ignore drawing errors per-zone
-            console.debug('psychro:zone draw failed for', zone && zone.id, e);
+            // console.debug('psychro:zone draw failed for', zone && zone.id, e);
           }
         }
         offscreenCtx.restore();
       } catch (e) {
-        console.debug('psychro:drawZones failed', e);
+        // console.debug('psychro:drawZones failed', e);
       }
 
     // Set styles
@@ -362,7 +365,7 @@ export function createPsychroRenderer(containerEl, options = {}) {
     try {
       ctx.drawImage(offscreenCanvas, 0, 0, width, height);
     } catch (e) {
-      console.debug('psychro:drawImage failed', e);
+      // console.debug('psychro:drawImage failed', e);
     }
     
     // Draw labels on the visible canvas
@@ -376,7 +379,7 @@ export function createPsychroRenderer(containerEl, options = {}) {
     // debug: log that labels routine is running and key values
     try {
       const debugInfo = { dpr: window.devicePixelRatio || 1, width, height, Tmin: opts.Tmin, Tmax: opts.Tmax, Wmax: opts.Wmax };
-      console.debug('psychro:drawLabels start', debugInfo);
+      // console.debug('psychro:drawLabels start', debugInfo);
 
       // compute a few sample positions to verify psychroToCanvas mapping
       const sampleT1 = Math.ceil(opts.Tmin/5)*5;
@@ -384,9 +387,9 @@ export function createPsychroRenderer(containerEl, options = {}) {
       const p1 = psychroToCanvas(sampleT1, sampleW);
       const sampleTn = Math.max(opts.Tmin, opts.Tmax - 2);
       const sampleWrh = (typeof W_from_RH_T === 'function') ? W_from_RH_T(0.9, sampleTn, opts.p) : null;
-      console.debug('psychro:drawLabels samplePositions', { sampleT1, p1, sampleTn, sampleWrh });
+      // console.debug('psychro:drawLabels samplePositions', { sampleT1, p1, sampleTn, sampleWrh });
     } catch (e) {
-      console.debug('psychro:drawLabels debug failed', e);
+      // console.debug('psychro:drawLabels debug failed', e);
     }
 
     const dpr = Math.max(1, window.devicePixelRatio || 1);
@@ -409,7 +412,7 @@ export function createPsychroRenderer(containerEl, options = {}) {
       const p = psychroToCanvas(T, sampleW);
       const labelY = Math.min(height - 8 * dpr, Math.max(8 * dpr, p.y + 10 * dpr));
       if (T === Math.ceil(opts.Tmin/5)*5) {
-        console.debug('psychro:label temp sample', { T, x: p.x, y: p.y, labelY });
+        // console.debug('psychro:label temp sample', { T, x: p.x, y: p.y, labelY });
       }
       ctx.lineWidth = Math.max(2, Math.round(3 * dpr));
       ctx.strokeText(`${T}°C`, p.x, labelY);
@@ -460,7 +463,7 @@ export function createPsychroRenderer(containerEl, options = {}) {
       const p = psychroToCanvas(sampleT, sampleW);
       const ox = Math.min(width - 6 * dpr, p.x + 6 * dpr);
       if (Math.abs(rh - 0.1) < 1e-12) {
-        console.debug('psychro:label RH sample', { rh, sampleT, sampleW, p, ox });
+        // console.debug('psychro:label RH sample', { rh, sampleT, sampleW, p, ox });
       }
       const label = `${Math.round(rh * 100)}%`;
       ctx.lineWidth = Math.max(2, Math.round(3 * dpr));
@@ -481,15 +484,25 @@ export function createPsychroRenderer(containerEl, options = {}) {
   // If incoming points contain W values > current opts.Wmax, expand Wmax and re-render background
   try {
     const maxWInPoints = dataDataMaxW(dataPoints);
+    console.log('[DEBUG psychro] maxWInPoints:', maxWInPoints, 'opts.Wmax (before):', opts.Wmax, 'dataPoints.length:', dataPoints.length);
+    // Log a few sample W values to understand the data
+    if (dataPoints.length > 0) {
+      const sampleWs = dataPoints.slice(0, 5).map(p => p.W);
+      console.log('[DEBUG psychro] sample W values:', sampleWs);
+    }
     if (maxWInPoints > opts.Wmax) {
       // bump Wmax a bit above the observed maximum to provide margin
+      const oldWmax = opts.Wmax;
       opts.Wmax = Math.max(opts.Wmax, maxWInPoints * 1.1);
+      console.log('[DEBUG psychro] Wmax expanded ->', opts.Wmax, 'from maxWInPoints:', maxWInPoints, 'oldWmax:', oldWmax);
       // clear cache so curves are re-generated with new Wmax
       curveCache.clear();
       renderBackground();
+    } else {
+      console.log('[DEBUG psychro] Wmax NOT expanded - maxWInPoints <= opts.Wmax');
     }
   } catch (e) {
-    console.debug('psychro:renderDataPoints Wmax adjust failed', e);
+    // console.debug('psychro:renderDataPoints Wmax adjust failed', e);
   }
 
   // Throttle based on point count
@@ -508,13 +521,29 @@ export function createPsychroRenderer(containerEl, options = {}) {
 
       // Draw points (skip points outside visible W range)
       ctx.fillStyle = '#ff4444';
-      dataPoints.forEach(point => {
+      console.log('[DEBUG psychro] Total points to render:', dataPoints.length);
+      dataPoints.forEach((point, i) => {
         if (!point || typeof point.T !== 'number' || typeof point.W !== 'number') return;
         if (!Number.isFinite(point.W) || point.W < 0) return;
         // skip points that would be outside the visible area (defensive)
+        console.log('[DEBUG psychro] before-skip', { idx: i, T: point.T, W: point.W, optsWmax: opts.Wmax, passesSkip: !(point.W > opts.Wmax) });
         if (point.W > opts.Wmax) return;
         const canvasPoint = psychroToCanvas(point.T, point.W);
+        const { x, y } = canvasPoint;
+        const r = 4;
+        const fill = '#ff4444';
+        const opacity = 1.0;
+        const className = 'data-point';
+        console.log('[DEBUG psychro] draw-point attrs', {
+          T: point.T, W: point.W, x, y,
+          r,
+          fill,
+          opacity,
+          class: className
+        });
+        if (!isFinite(x) || !isFinite(y)) console.warn('[DEBUG psychro] Non-finite coords for point', point);
         // ensure point is inside canvas bounds
+        console.log('[DEBUG psychro] bounds check', { x, y, width, height, xInBounds: canvasPoint.x >= -10 && canvasPoint.x <= width + 10, yInBounds: canvasPoint.y >= -10 && canvasPoint.y <= height + 10 });
         if (canvasPoint.x < -10 || canvasPoint.x > width + 10 || canvasPoint.y < -10 || canvasPoint.y > height + 10) return;
         ctx.beginPath();
         ctx.arc(canvasPoint.x, canvasPoint.y, 4, 0, 2 * Math.PI);
