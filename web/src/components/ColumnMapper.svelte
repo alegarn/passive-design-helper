@@ -1,5 +1,5 @@
 <script>
-  import { rawData, mapping, setMapping } from '../stores/uiStore.js';
+  import { fileStore, mapping } from '../stores/fileStore.js';
   // Define the required fields that need mapping
   const requiredFields = ['timestamp', 'temperature', 'humidity'];
 
@@ -7,7 +7,7 @@
   let tempMapping = $state({});
 
   // Derived values using $derived
-  const availableColumns = $derived($rawData && $rawData.length > 0 ? Object.keys($rawData[0]) : []);
+  const availableColumns = $derived($fileStore && $fileStore.raw && $fileStore.raw.headerFields && $fileStore.raw.headerFields.length ? $fileStore.raw.headerFields : []);
   const currentMapping = $derived($mapping || {});
   const isMappingComplete = $derived(requiredFields.every(field => !!tempMapping[field]));
 
@@ -22,7 +22,7 @@
   // Apply the mapping to the store
   function applyMapping() {
     if (isMappingComplete) {
-      setMapping(tempMapping);
+      fileStore.setMapping(tempMapping);
     }
   }
   
@@ -35,7 +35,7 @@
   }
 </script>
 
-{#if $rawData.length > 0}
+{#if $fileStore && $fileStore.raw && $fileStore.raw.headerFields && $fileStore.raw.headerFields.length > 0}
   <div class="column-mapper">
     <h2 class="export-controls__title">Map CSV Columns</h2>
     

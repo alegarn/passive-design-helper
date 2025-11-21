@@ -17,8 +17,8 @@
     // Commit aggregation result into fileStore so charts and exports react
     const { result } = event.detail;
     try {
-      fileStore.setAggregationResult(result);
-      console.log('Data processed and saved to fileStore:', result);
+      // ProcessControls already commits `aggregationResult` into fileStore
+      console.log('Data processed (event) - fileStore commit is done by ProcessControls', result);
     } catch (e) {
       console.error('App.svelte: failed to save processed data to fileStore:', e);
     }
@@ -56,7 +56,6 @@
     {#if $fileStore.raw.aggregationResult.rowsWithDur}
       <!-- Example 1: Hourly average day with zones as threshold array -->
       <TimeSeriesChart
-        timeSeriesData={$fileStore.raw.aggregationResult.rowsWithDur}
         selectedPeriod="hourly"
         zones={[
           { threshold: 30, color: '#ff4444' },  // Hot: red
@@ -69,7 +68,6 @@
       
       <!-- Example 2: Daily chart with zones as function -->
       <TimeSeriesChart
-        timeSeriesData={$fileStore.raw.aggregationResult.rowsWithDur}
         selectedPeriod="daily"
         zones={(value) => {
           if (value > 28) return '#ff0000';  // Very hot

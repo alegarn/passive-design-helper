@@ -27,9 +27,15 @@ function makeInitialState() {
     raw: {
       file: null,
       headerFields: [],
+      rawData: [],
       sampleRows: [],
       dayFirst: null,
       dataSpanInfo: null,
+      mapping: {
+        timestamp: null,
+        temperature: null,
+        humidity: null
+      },
       aggregationResult: null
     },
     meta: {
@@ -41,9 +47,12 @@ function makeInitialState() {
   };
 }
 
+
 /**
  * Factory function to create a file store
- * @returns {Object} A file store object with methods and Svelte store interface
+      setAggregationResult,
+      setMapping
+      setRawData
  */
 export function createFileStore() {
   // Internal writable store to hold the canonical snapshot
@@ -395,6 +404,38 @@ export function createFileStore() {
   }
 
   /**
+   * Set full parsed CSV as row objects in the store
+   * @param {Array<Object>} data - Parsed rows
+   * @param {boolean} resetResults - Whether to reset results (optional)
+   */
+  function setRawData(data = [], resetResults = true) {
+    const currentSnapshot = getSnapshot();
+    const newSnapshot = {
+      ...currentSnapshot,
+      raw: {
+        ...currentSnapshot.raw,
+        rawData: Array.isArray(data) ? data : []
+      }
+    };
+    commit(newSnapshot);
+  }
+
+  /**
+   * UI ephemeral state container (migrated from uiStore)
+   */
+  function setResults(resultsData) {
+    const currentSnapshot = getSnapshot();
+    const newSnapshot = {
+      ...currentSnapshot,
+      ui: {
+        ...currentSnapshot.ui,
+        results: resultsData
+      }
+    };
+    commit(newSnapshot);
+  }
+
+  /**
    * Commit aggregation result produced by ProcessControls into the store.
    * This will make the charts and exports react to the processed data.
    *
@@ -427,6 +468,25 @@ export function createFileStore() {
     }
     commit(newSnapshot);
   }
+
+  /**
+   * Set column mapping configuration on the file store
+   * @param {Object} mappingConfig - e.g. { timestamp, temperature, humidity }
+   */
+  function setMapping(mappingConfig = {}) {
+    const currentSnapshot = getSnapshot();
+    const newSnapshot = {
+      ...currentSnapshot,
+      raw: {
+        ...currentSnapshot.raw,
+        mapping: {
+          ...(currentSnapshot.raw.mapping || {}),
+          ...(mappingConfig || {})
+        }
+      }
+    };
+    commit(newSnapshot);
+  }
  
   // Return the store object with Svelte store interface and methods
   return {
@@ -440,7 +500,9 @@ export function createFileStore() {
     loadFromCsv,
     cancel,
     setParsedRaw,
-    setAggregationResult
+    setAggregationResult,
+    setMapping,
+    setResults,
   };
 }
 
@@ -464,6 +526,19 @@ const _timeSeries = derived(fileStore, $s => {
   return [];
 });
 export const timeSeries = readonly(_timeSeries);
+
+/**
+ * Raw parsed rows (array of objects) derived from fileStore snapshot.
+ * This mirrors previous uiStore.rawData store.
+ */
+const _rawData = derived(fileStore, $s => $s?.raw?.rawData || []);
+export const rawData = readonly(_rawData);
+
+/**
+ * UI ephemeral results derived from fileStore.ui.results
+ */
+const _results = derived(fileStore, $s => $s?.ui?.results || { psychrometricData: null, comfortZones: null, tactics: null });
+export const results = readonly(_results);
 
 /**
  * Lightweight aggregation summary (counts, min/max) derived from aggregationResult.
@@ -490,6 +565,18 @@ export const isLoading = readonly(_isLoading);
  */
 const _lastError = derived(fileStore, $s => $s?.meta?.lastError ?? null);
 export const lastError = readonly(_lastError);
+
+/**
+ * Current mapping configuration derived store
+ */
+const _mapping = derived(fileStore, $s => $s?.raw?.mapping || { timestamp: null, temperature: null, humidity: null });
+export const mapping = readonly(_mapping);
+
+/**
+ * Derived boolean for mapping complete
+ */
+const _isMappingComplete = derived(mapping, $m => Boolean($m && $m.timestamp && $m.temperature && $m.humidity));
+export const isMappingComplete = readonly(_isMappingComplete);
 
 // Test hook for unit tests - only available in development
 /**
