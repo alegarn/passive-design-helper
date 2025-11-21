@@ -340,52 +340,6 @@ export function createFileStore() {
 // Create the default shared instance
 export const fileStore = createFileStore();
 
-// Legacy shims with deprecation warnings
-let fileDataWarned = false;
-let loadingWarned = false;
-let errorWarned = false;
-
-// Legacy fileData shim - readonly derived store pointing to snapshot.raw
-export const fileData = readonly(
-  derived(
-    fileStore,
-    ($fileStore) => {
-      if (!fileDataWarned) {
-        console.warn('fileData is deprecated. Use fileStore.getSnapshot().raw instead.');
-        fileDataWarned = true;
-      }
-      return $fileStore.raw;
-    }
-  )
-);
-
-// Legacy loading shim - readonly derived store pointing to snapshot.meta.loadingCount > 0
-export const loading = readonly(
-  derived(
-    fileStore,
-    ($fileStore) => {
-      if (!loadingWarned) {
-        console.warn('loading is deprecated. Use fileStore.getSnapshot().meta.loadingCount > 0 instead.');
-        loadingWarned = true;
-      }
-      return $fileStore.meta.loadingCount > 0;
-    }
-  )
-);
-
-// Legacy error shim - readonly derived store pointing to snapshot.meta.lastError
-export const error = readonly(
-  derived(
-    fileStore,
-    ($fileStore) => {
-      if (!errorWarned) {
-        console.warn('error is deprecated. Use fileStore.getSnapshot().meta.lastError instead.');
-        errorWarned = true;
-      }
-      return $fileStore.meta.lastError;
-    }
-  )
-);
 
 // PR5 Step A: New readonly derived selectors
 

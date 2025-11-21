@@ -1,7 +1,7 @@
 <script>
   import { Chart as ChartJS, CategoryScale, LinearScale, PointElement, LineElement, Title, Tooltip, Legend, TimeScale } from 'chart.js';
   import { Line } from 'svelte5-chartjs';
-  import { onMount, onDestroy } from 'svelte';
+  import { onDestroy } from 'svelte';
   import { ZONE_COLORS } from '../../../scripts/theme.js';
   import { ZONES, preferredZoneForPoint } from '../../../scripts/zones.js';
   import {
@@ -16,6 +16,7 @@
   } from '../utils/timeSeriesAggregator.js';
   import { getSourceDateRange, buildDailyBuckets } from '../utils/dataProcessor.js';
   import StatCard from './StatCard.svelte';
+  import { timeSeries } from '../stores/fileStore.js';
   import 'chartjs-adapter-date-fns';
 
   // Register Chart.js components only once and check if already registered to avoid conflicts
@@ -26,7 +27,6 @@
 
   // Props
   let {
-    timeSeriesData = [],
     selectedPeriod = 'daily',
     colorSegments = null, // Multi-color line configuration (deprecated, use zones instead)
     zones = null // Zone-based color gradient configuration
@@ -103,13 +103,13 @@
     }
   });
   
-  // Calculate zone totals for passive design zones - reactive to aggregatedData/timeSeriesData and currentPeriod
+  // Calculate zone totals for passive design zones - reactive to aggregatedData/timeSeries and currentPeriod
   // For hourly (average-day) view we scale each hourly-average point by number of days
   // in source range so cards reflect total hours across selected period (consistent
   // with daily/weekly behavior) instead of listing every single sample hour.
   const zoneTotals = $derived(() => {
     const agg = aggregatedData;
-    const raw = timeSeriesData;
+    const raw = $timeSeries;
     const period = currentPeriod;
     const totals = {};
     ZONES.forEach(z => (totals[z.id] = 0));
@@ -792,7 +792,7 @@
 
   // Process data for chart (legacy function for backward compatibility)
   function processDataForChart() {
-    const result = processDataForChartPure(timeSeriesData, currentPeriod, selectedPeriod);
+    const result = processDataForChartPure($timeSeries, currentPeriod, selectedPeriod);
     aggregatedData = result.aggregatedData;
     chartData = result.chartData;
     chartOptions = result.chartOptions;
@@ -852,18 +852,10 @@
     showChart = !showChart;
   }
 
-  // Initialize on mount
-  onMount(() => {
-    try {
-      processDataForChart();
-    } catch (error) {
-      console.error('Error processing chart data on mount:', error);
-    }
-  });
   
   // Create a derived value for processed chart data to avoid state updates in effects
   const processedChartState = $derived(() => {
-    if (!timeSeriesData || timeSeriesData.length === 0) {
+    if (!$timeSeries || $timeSeries.length === 0) {
       return {
         aggregatedData: [],
         chartData: null,
@@ -874,7 +866,7 @@
     
     try {
       // Create a pure version of processDataForChart that returns values instead of updating state
-      return processDataForChartPure(timeSeriesData, currentPeriod, selectedPeriod);
+      return processDataForChartPure($timeSeries, currentPeriod, selectedPeriod);
     } catch (error) {
       console.error('Error processing chart data:', error);
       return {
@@ -927,7 +919,7 @@
   <!-- Chart Container -->
   {#if showChart}
     <div class="chart-container">
-      {#if timeSeriesData && timeSeriesData.length > 0 && chartData}
+      {#if $timeSeries && $timeSeries.length > 0 && chartData}
         <div class="chart-wrapper">
           <Line
             data={chartData}

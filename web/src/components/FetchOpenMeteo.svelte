@@ -1,5 +1,5 @@
 <script>
-  import { fileStore } from '../stores/fileStore.js';
+  import { fileStore, fetchRemote, isLoading, lastError } from '../stores/fileStore.js';
   
   // Form state
   let url = $state('https://archive-api.open-meteo.com/v1/archive?latitude=52.52&longitude=13.41&start_date=2025-11-16&end_date=2025-11-17&hourly=temperature_2m,relative_humidity_2m');
@@ -17,7 +17,6 @@
   // Toggle between URL and parameters mode
   function toggleMode() {
     useParams = !useParams;
-    error.set('');
     success = '';
   }
   
@@ -51,25 +50,24 @@
         format: format
       };
       
-      await fileStore.fetchRemote(params);
+      // Use the new fileStore API - get the normalized data result
+      const { requestId, promise } = fetchRemote(params);
+      const { result } = await promise;
       
       // Generate filename for download
       const filename = `open-meteo-${startDate}-${endDate}.${format}`;
       
-      // Get the data from the store for download
-      const response = await fetch(useParams ? buildUrl() : url);
-      const data = await response.json();
-      
+      // Use the normalized data from the store result instead of fetching again
       let content;
       let mimeType;
       
       if (format === 'csv') {
         // Import jsonToCsv from dataProcessor
         const { jsonToCsv } = await import('../utils/dataProcessor.js');
-        content = jsonToCsv(data);
+        content = jsonToCsv(result);
         mimeType = 'text/csv';
       } else {
-        content = JSON.stringify(data, null, 2);
+        content = JSON.stringify(result, null, 2);
         mimeType = 'application/json';
       }
       
@@ -84,7 +82,7 @@
       document.body.removeChild(a);
       URL.revokeObjectURL(downloadUrl);
       
-      const recordCount = data.hourly?.time?.length || 0;
+      const recordCount = result.hourly?.time?.length || 0;
       success = `Downloaded ${recordCount} records to ${filename}`;
       
     } catch (err) {
@@ -112,7 +110,7 @@
         hourly: hourly,
         format: format
       };
-      fileStore.fetchRemote(params);
+      fetchRemote(params);
     }
   }
   
@@ -206,19 +204,19 @@
   
   <button
     type="button"
-    class="fetch-btn {$fileStore.meta.loadingCount > 0 ? 'loading' : ''}"
+    class="fetch-btn {$isLoading ? 'loading' : ''}"
     onclick={fetchAndDownload}
-    disabled={$fileStore.meta.loadingCount > 0}
+    disabled={$isLoading}
   >
-    {#if $fileStore.meta.loadingCount > 0}
+    {#if $isLoading}
       Fetching...
     {:else}
       Fetch & Download
     {/if}
   </button>
   
-  {#if $fileStore.meta.lastError}
-    <div class="error-message">{$fileStore.meta.lastError}</div>
+  {#if $lastError}
+    <div class="error-message">{$lastError}</div>
   {/if}
   
   {#if success}
