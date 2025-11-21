@@ -25,7 +25,6 @@ function p(t, rh) {
 import { ZONE_COLORS } from './theme.js';
 
 const ZONES = [
-
   { 
     id: 'Comfort', 
     color: ZONE_COLORS['Comfort'], 
