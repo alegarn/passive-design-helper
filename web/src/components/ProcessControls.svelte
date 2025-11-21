@@ -512,17 +512,6 @@
         {/if}
       </button>
       
-      <!-- Button to process remotely fetched data -->
-      {#if $fileStore.raw.file}
-        <button
-          class="btn btn-primary"
-          onclick={handleProcessData}
-          disabled={!timeColumn || !tempColumn || !rhColumn}
-        >
-          Process Remote Data
-        </button>
-      {/if}
-      
       <!-- Error Message -->
       {#if processingError}
         <div class="error-message">
