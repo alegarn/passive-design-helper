@@ -12,6 +12,7 @@
   
   // Import fileStore to check for remotely fetched data
   import { fileStore } from '../stores/fileStore.js';
+  import { mapping, setMapping } from '../stores/uiStore.js';
 
   // Local state variables using $state
   let isProcessing = $state(false);
@@ -94,6 +95,16 @@
       console.debug('ProcessControls: No header fields available for auto-selection');
     }
   });
+
+    // Hydrate local mapping values from global uiStore.mapping when available
+    $effect(() => {
+      if ($mapping) {
+        if (!$mapping.timestamp && !$mapping.temperature && !$mapping.humidity) return;
+        if (!timeColumn && $mapping.timestamp) timeColumn = $mapping.timestamp;
+        if (!tempColumn && $mapping.temperature) tempColumn = $mapping.temperature;
+        if (!rhColumn && $mapping.humidity) rhColumn = $mapping.humidity;
+      }
+    });
   
   // Calculate detailed data span when dataSpanInfo changes
   $effect(() => {
@@ -135,6 +146,12 @@
     try {
       isProcessing = true;
       processingError = null;
+      // Persist user's mapping selection to uiStore mapping for ColumnMapper compatibility
+      try {
+        setMapping({ timestamp: timeColumn, temperature: tempColumn, humidity: rhColumn });
+      } catch (e) {
+        console.debug('ProcessControls: setMapping failed:', e);
+      }
       
       // Create a custom classifier that uses the selected columns
       let customClassifyRow;
