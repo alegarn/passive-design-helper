@@ -16,7 +16,7 @@
     const data = summaryData;
     const rawPoints = data?.psychrometricData || [];
     const points = sanitizePoints(rawPoints);
-    console.log('PsychroChart: $derived recomputed, points.length:', points.length);
+    // console.log('PsychroChart: $derived recomputed, points.length:', points.length);
     return points;
   });
 
@@ -114,7 +114,7 @@
           }
           
           if (points.length > 0) {
-            console.log('PsychroChart: about to call renderer.renderDataPoints, renderer.ok?', !!(renderer && renderer.renderDataPoints));
+            // console.log('PsychroChart: about to call renderer.renderDataPoints, renderer.ok?', !!(renderer && renderer.renderDataPoints));
             let renderPoints = points;
             // Ensure we trigger the renderer's RAF path for large batches (>= threshold)
             if (points.length >= 500) {
@@ -136,8 +136,8 @@
   // Reactive effect to handle psychrometric points changes
   $effect(() => {
     const points = psychrometricPoints();
-    console.log('PsychroChart: $effect triggered with', points.length, 'points from derived');
-    console.log('PsychroChart: First 3 points:', points.slice(0, 3));
+    // console.log('PsychroChart: $effect triggered with', points.length, 'points from derived');
+    // console.log('PsychroChart: First 3 points:', points.slice(0, 3));
     
     if (renderer) {
       if (points.length > 0) {
@@ -163,10 +163,10 @@
       } else {
         // Clear points when no data is available
         renderer.renderDataPoints([]);
-        console.log('PsychroChart: Cleared data points (no data available)');
+        // console.log('PsychroChart: Cleared data points (no data available)');
       }
     } else {
-      console.log('PsychroChart: Renderer not yet initialized');
+      // console.log('PsychroChart: Renderer not yet initialized');
     }
   });
   
@@ -175,7 +175,7 @@
     // Restore original console methods
     try {
       if (__origConsole) {
-        console.log = __origConsole.log;
+        // console.log = __orig// console.log;
         console.trace = __origConsole.trace;
         console.info = __origConsole.info;
         console.debug = __origConsole.debug;

@@ -18,6 +18,8 @@ ZONE_COLORS['Heating'] = '#f2a65a';
 ZONE_COLORS['Passive Solar Heating'] = '#ffd087';
 ZONE_COLORS['Internal Gains'] = '#b48ead';
 ZONE_COLORS['Winter Gains'] = '#c3b0d8';
+// Color for the Active Solar Heating zone (approx. orange tone)
+ZONE_COLORS['Active Solar Heating'] = '#f7a35c';
 
 export const THEME = {
   primary: ZONE_COLORS['Mass Cooling'],

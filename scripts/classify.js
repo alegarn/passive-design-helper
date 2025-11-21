@@ -48,17 +48,22 @@ const ENERGY_PRIORITY = ['Comfort', 'Ventilation', 'Mass Cooling', 'Evaporative 
  * @returns {string} Zone ID
  */
 function classifyPoint(temp, rh) {
-  // Cold zone is simple temperature threshold
-  if (Number(temp) < 23) return 'Cold';
+  const T = Number(temp);
+  const H = Number(rh);
 
-  // Use the shared preferredZoneForPoint logic from zones.js which
-  // applies the project's energy-priority tie-breaking and any
-  // explicit priority metadata on zones.
-  const pref = preferredZoneForPoint(temp, rh);
+  // Try to detect a preferred zone based on polygon membership and the
+  // preferredZoneForPoint tie-breaking rules. This will pick 'Heating',
+  // 'Passive Solar Heating', etc. even if T < 23°C when the point lies in
+  // those polygons.
+  const pref = preferredZoneForPoint(T, H);
   if (pref && pref.id) return pref.id;
 
+  // If no polygon matched, fall back to 'Cold' only when the temperature
+  // is below the threshold.
+  if (T < 23) return 'Cold';
+
   // Fallback for very high temperatures
-  if (Number(temp) >= 43.7) return 'Air Conditioning';
+  if (T >= 43.7) return 'Air Conditioning';
 
   return 'Unclassified';
 }

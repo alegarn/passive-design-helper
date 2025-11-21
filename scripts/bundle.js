@@ -30,6 +30,16 @@ const ZONES = [
       p(29.5,20) 
     ]
   },
+  {
+    id: 'Active Solar Heating',
+    color: '#f7a35c',
+    poly: [
+      p(6.8, 0),
+      p(6.8, 100),
+      p(10.8, 100),
+      p(10.8, 0)
+    ]
+  },
   { 
     id: 'Ventilation', 
     color: '#ebcb8b', 
@@ -138,10 +148,11 @@ function isPointOnSegment(px, py, x1, y1, x2, y2) {
 }
 
 // === classify.js ===
-const ENERGY_PRIORITY = ['Comfort', 'Ventilation', 'Mass Cooling', 'Evaporative Cooling', 'Air Conditioning + Dehumidifier', 'Air Conditioning', 'Cold', 'Unclassified'];
+const ENERGY_PRIORITY = ['Comfort', 'Ventilation', 'Active Solar Heating', 'Mass Cooling', 'Evaporative Cooling', 'Air Conditioning + Dehumidifier', 'Air Conditioning', 'Cold', 'Unclassified'];
 
 function classifyPoint(temp, rh) {
-  if (temp < 23) return 'Cold';
+  const T = Number(temp);
+  const H = Number(rh);
   
   const matches = [];
   for (let zi = 1; zi < ZONES.length; zi++) {
@@ -151,7 +162,8 @@ function classifyPoint(temp, rh) {
   }
   
   if (matches.length === 0) {
-    if (temp >= 43.7) return 'Air Conditioning';
+    if (T < 23) return 'Cold';
+    if (T >= 43.7) return 'Air Conditioning';
     return 'Unclassified';
   }
   
@@ -1070,6 +1082,9 @@ function createPsychroRenderer(containerEl, options = {}) {
     const frameInterval = 1000 / targetFPS;
 
     const render = (timestamp) => {
+      if (typeof timestamp !== 'number' || !isFinite(timestamp)) {
+        timestamp = (typeof performance !== 'undefined' && typeof performance.now === 'function') ? performance.now() : Date.now();
+      }
       if (timestamp - lastFrameTime >= frameInterval) {
         // Redraw background
         ctx.clearRect(0, 0, width, height);
@@ -1103,7 +1118,7 @@ function createPsychroRenderer(containerEl, options = {}) {
     if (useThrottle) {
       rafId = requestAnimationFrame(render);
     } else {
-      render(0);
+      render((typeof performance !== 'undefined' && typeof performance.now === 'function') ? performance.now() : Date.now());
     }
   }
 

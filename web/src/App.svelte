@@ -9,7 +9,7 @@
   // Handle fileparsed event from UploadZone
   function handleFileParsed(event) {
     // Stage parsed metadata already handled by UploadZone -> fileStore.setParsedRaw
-    console.log('File parsed (handled):', event.detail.file);
+    // console.log('File parsed (handled):', event.detail.file);
   }
   
   // Handle dataprocessed event from ProcessControls
@@ -18,7 +18,7 @@
     const { result } = event.detail;
     try {
       // ProcessControls already commits `aggregationResult` into fileStore
-      console.log('Data processed (event) - fileStore commit is done by ProcessControls', result);
+      // console.log('Data processed (event) - fileStore commit is done by ProcessControls', result);
     } catch (e) {
       console.error('App.svelte: failed to save processed data to fileStore:', e);
     }
@@ -47,9 +47,9 @@
   
   {#if $fileStore.raw.aggregationResult}
     <!-- Debug: Log what we're passing to PsychroChart -->
-    {#if typeof window !== 'undefined'}
+    <!-- {#if typeof window !== 'undefined'}
       {console.log('App.svelte: Passing aggregationResult to PsychroChart:', $fileStore.raw.aggregationResult)}
-    {/if}
+    {/if} -->
     <PsychroChart summaryData={$fileStore.raw.aggregationResult} />
     
     <!-- Time Series Chart -->

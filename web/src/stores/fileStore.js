@@ -1,6 +1,8 @@
 import { writable, derived, readonly, get } from 'svelte/store';
 import { start as startRequest, cancel as cancelRequest } from './requestManager.js';
 import { normalizeOpenMeteoToFileData, parseCsvText, aggregateCsvStream } from '../utils/dataProcessor.js';
+import { preferredZoneForPoint, ZONES } from '../../../scripts/zones.js';
+import { ZONE_COLORS } from '../../../scripts/theme.js';
 
 /**
  * @typedef {Object} Snapshot
@@ -153,7 +155,7 @@ export function createFileStore() {
             payload = await response.json();
           } catch (parseErr) {
             // If parsing fails, fall back to text to preserve raw payload for debugging
-            console.debug('fileStore.fetchRemote: response.json() failed, falling back to text:', parseErr);
+            // console.debug('fileStore.fetchRemote: response.json() failed, falling back to text:', parseErr);
             payload = await response.text();
           }
           const requestedOutputFormat = params.format || 'json';
@@ -168,16 +170,16 @@ export function createFileStore() {
 
             // Debug: show normalized keys so UI can inspect header detection
             try {
-              console.debug('fileStore.fetchRemote: normalizedData keys:', Object.keys(normalizedData || {}));
-              console.debug('fileStore.fetchRemote: normalizedData.headerFields:', normalizedData.headerFields);
-              console.debug('fileStore.fetchRemote: normalizedData.sampleRows (first 3):', (normalizedData.sampleRows || []).slice(0,3));
-              console.debug('fileStore.fetchRemote: normalizedData.file:', normalizedData.file && { name: normalizedData.file.name, type: normalizedData.file.type });
+              // console.debug('fileStore.fetchRemote: normalizedData keys:', Object.keys(normalizedData || {}));
+              // console.debug('fileStore.fetchRemote: normalizedData.headerFields:', normalizedData.headerFields);
+              // console.debug('fileStore.fetchRemote: normalizedData.sampleRows (first 3):', (normalizedData.sampleRows || []).slice(0,3));
+              // console.debug('fileStore.fetchRemote: normalizedData.file:', normalizedData.file && { name: normalizedData.file.name, type: normalizedData.file.type });
             } catch (dbgErr) {
-              console.debug('fileStore.fetchRemote: debug logging failed:', dbgErr);
+              // console.debug('fileStore.fetchRemote: debug logging failed:', dbgErr);
             }
           } catch (e) {
             // Fallback: use raw payload as aggregationResult
-            console.debug('Normalizer failed, using raw payload:', e);
+            // console.debug('Normalizer failed, using raw payload:', e);
             normalizedData = { aggregationResult: payload };
           }
           
@@ -205,11 +207,11 @@ export function createFileStore() {
 
           // Debug: confirm what was committed so ProcessControls can rely on it
           try {
-            console.debug('fileStore.fetchRemote: committed successSnapshot.raw.headerFields:', successSnapshot.raw.headerFields);
-            console.debug('fileStore.fetchRemote: committed successSnapshot.raw.file:', successSnapshot.raw.file && { name: successSnapshot.raw.file.name, type: successSnapshot.raw.file.type });
-            console.debug('fileStore.fetchRemote: committed successSnapshot.raw.sampleRows (first 2):', (successSnapshot.raw.sampleRows || []).slice(0,2));
+            // console.debug('fileStore.fetchRemote: committed successSnapshot.raw.headerFields:', successSnapshot.raw.headerFields);
+            // console.debug('fileStore.fetchRemote: committed successSnapshot.raw.file:', successSnapshot.raw.file && { name: successSnapshot.raw.file.name, type: successSnapshot.raw.file.type });
+            // console.debug('fileStore.fetchRemote: committed successSnapshot.raw.sampleRows (first 2):', (successSnapshot.raw.sampleRows || []).slice(0,2));
           } catch (dbgErr) {
-            console.debug('fileStore.fetchRemote: post-commit debug failed:', dbgErr);
+            // console.debug('fileStore.fetchRemote: post-commit debug failed:', dbgErr);
           }
           
           // Return the normalized data and raw payload for component use (download, preview)
@@ -235,7 +237,7 @@ export function createFileStore() {
               }
             };
             commit(abortSnapshot);
-            console.debug('Request aborted:', currentRequestId);
+            // console.debug('Request aborted:', currentRequestId);
           } else {
             // On other errors: set lastError and decrement loadingCount
             const errorSnapshot = {
@@ -247,7 +249,7 @@ export function createFileStore() {
               }
             };
             commit(errorSnapshot);
-            console.debug('Request failed:', error);
+            // console.debug('Request failed:', error);
           }
           
           throw error;
@@ -256,7 +258,7 @@ export function createFileStore() {
     });
     
     // Return the request info (the promise from startRequest is already correctly structured)
-    console.debug('fileStore.fetchRemote: returning promise:', promise);
+    // console.debug('fileStore.fetchRemote: returning promise:', promise);
     return promise;
   }
 
@@ -339,7 +341,7 @@ export function createFileStore() {
               }
             };
             commit(abortSnapshot);
-            console.debug('CSV loading aborted:', currentRequestId);
+            // console.debug('CSV loading aborted:', currentRequestId);
           } else {
             // On other errors: commit meta.lastError and decrement loadingCount, then rethrow
             const errorSnapshot = {
@@ -351,7 +353,7 @@ export function createFileStore() {
               }
             };
             commit(errorSnapshot);
-            console.debug('CSV loading failed:', error);
+            // console.debug('CSV loading failed:', error);
           }
           
           throw error;
@@ -443,17 +445,40 @@ export function createFileStore() {
    */
   function setAggregationResult(aggregationResult) {
     const currentSnapshot = getSnapshot();
+    // If we received an aggregation result, recompute the `summary` using
+    // preferredZoneForPoint to avoid legacy 'Cold' labels from older CLI outputs
+    let adjustedAggregation = aggregationResult;
+    try {
+      if (aggregationResult && Array.isArray(aggregationResult.rowsWithDur)) {
+        const totals = {};
+        for (const r of aggregationResult.rowsWithDur) {
+          const t = Number(r.temp);
+          const h = Number(r.rh);
+          if (!Number.isFinite(t) || !Number.isFinite(h)) continue;
+          const z = preferredZoneForPoint(t, h);
+          const id = (z && z.id) || (r.zone || 'Unclassified');
+          totals[id] = (totals[id] || 0) + (r.dur || r.durMs || 0);
+        }
+        const totalMs = Object.values(totals).reduce((s, v) => s + v, 0) || 1;
+        const summary = Object.keys(totals).map(k => ({ zone: k, hours: Number((totals[k] / (1000*60*60)).toFixed(3)), percent: Number((totals[k] * 100 / totalMs).toFixed(2)), milliseconds: totals[k], color: ZONE_COLORS[k] || '#999999' })).sort((a,b) => b.hours - a.hours);
+        adjustedAggregation = { ...aggregationResult, summary };
+      }
+    } catch (e) {
+      // If re-computation fails, just continue with original aggregation
+      adjustedAggregation = aggregationResult;
+    }
+
     const newSnapshot = {
       ...currentSnapshot,
       raw: {
         ...currentSnapshot.raw,
-        aggregationResult: aggregationResult
+        aggregationResult: adjustedAggregation
       }
     };
     // Debug log to help trace why TimeSeries stat cards may not appear.
     // Logs aggregationResult keys and a small sample row if present.
     try {
-      console.debug('[fileStore] setAggregationResult called - keys:', Object.keys(aggregationResult || {}));
+      // console.debug('[fileStore] setAggregationResult called - keys:', Object.keys(aggregationResult || {}));
       const sampleRow =
         aggregationResult && aggregationResult.rowsWithDur && aggregationResult.rowsWithDur.length
           ? aggregationResult.rowsWithDur[0]
@@ -462,9 +487,9 @@ export function createFileStore() {
           : aggregationResult && aggregationResult.timeSeries && aggregationResult.timeSeries.length
           ? aggregationResult.timeSeries[0]
           : null;
-      console.debug('[fileStore] setAggregationResult sampleRow:', sampleRow);
+      // console.debug('[fileStore] setAggregationResult sampleRow:', sampleRow);
     } catch (e) {
-      console.debug('[fileStore] setAggregationResult logging failed:', e);
+      // console.debug('[fileStore] setAggregationResult logging failed:', e);
     }
     commit(newSnapshot);
   }

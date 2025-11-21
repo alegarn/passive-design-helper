@@ -51,15 +51,16 @@
   // Auto-select columns based on header names (with debug logging)
   $effect(() => {
     try {
-      console.debug('ProcessControls: received props', {
+      
+      /* console.debug('ProcessControls: received props', {
         file: file && file.name ? { name: file.name, type: file.type } : file,
         headerFields,
         sampleRows: (sampleRows && sampleRows.slice) ? sampleRows.slice(0,3) : sampleRows,
         dayFirst,
         dataSpanInfo
-      });
+      }); */
     } catch (dbgErr) {
-      console.debug('ProcessControls: props debug failed', dbgErr);
+      // console.debug('ProcessControls: props debug failed', dbgErr);
     }
 
     if (headerFields && headerFields.length > 0) {
@@ -92,7 +93,7 @@
       }
     } else {
       // no header fields for auto-selection
-      console.debug('ProcessControls: No header fields available for auto-selection');
+      // console.debug('ProcessControls: No header fields available for auto-selection');
     }
   });
 
@@ -150,7 +151,7 @@
       try {
         fileStore.setMapping({ timestamp: timeColumn, temperature: tempColumn, humidity: rhColumn });
       } catch (e) {
-        console.debug('ProcessControls: fileStore.setMapping failed:', e);
+        // console.debug('ProcessControls: fileStore.setMapping failed:', e);
       }
       
       // Create a custom classifier that uses the selected columns
@@ -173,7 +174,7 @@
           try {
             jsonPayload = JSON.parse(text);
           } catch (parseErr) {
-            console.debug('ProcessControls: JSON.parse failed for file.text():', parseErr);
+            // console.debug('ProcessControls: JSON.parse failed for file.text():', parseErr);
             jsonPayload = null;
           }
 
@@ -183,7 +184,7 @@
             // Convert JSON payload to CSV
             const csvContent = jsonToCsv(jsonPayload);
             fileToProcess = new File([csvContent], (file.name || 'remote_data').replace(/\.json$/i, '.csv'), { type: 'text/csv' });
-            console.debug('ProcessControls: converted JSON payload to CSV for processing', fileToProcess);
+            // console.debug('ProcessControls: converted JSON payload to CSV for processing', fileToProcess);
           } else if (headerFields && headerFields.length > 0 && Array.isArray(sampleRows) && sampleRows.length > 0) {
             // Build a minimal CSV from headerFields and sampleRows if JSON parsing failed.
             // This is a conservative fallback to allow processing when the store provided
@@ -196,7 +197,7 @@
             }
             const csvContent = lines.join('\n');
             fileToProcess = new File([csvContent], (file.name || 'remote_data').replace(/\.json$/i, '.csv'), { type: 'text/csv' });
-            console.debug('ProcessControls: built CSV from headerFields/sampleRows for processing', fileToProcess);
+            // console.debug('ProcessControls: built CSV from headerFields/sampleRows for processing', fileToProcess);
           } else {
             // Cannot convert safely — throw so caller sees clear error instead of
             // passing a JSON file to a CSV parser.
@@ -204,7 +205,7 @@
           }
         }
       } catch (convErr) {
-        console.debug('ProcessControls: JSON->CSV conversion failed:', convErr);
+        // console.debug('ProcessControls: JSON->CSV conversion failed:', convErr);
         throw convErr;
       }
       
@@ -232,9 +233,9 @@
       aggregationResult = { ...result, psychrometricData };
       
       // Debug: Log what we're creating
-      console.log('ProcessControls: Generated psychrometricData:', psychrometricData.slice(0, 5));
-      console.log('ProcessControls: aggregationResult keys:', Object.keys(aggregationResult));
-      console.log('ProcessControls: aggregationResult.psychrometricData length:', aggregationResult.psychrometricData?.length);
+      // console.log('ProcessControls: Generated psychrometricData:', psychrometricData.slice(0, 5));
+      // console.log('ProcessControls: aggregationResult keys:', Object.keys(aggregationResult));
+      // console.log('ProcessControls: aggregationResult.psychrometricData length:', aggregationResult.psychrometricData?.length);
       
       // Dispatch event to notify parent component
       dispatch('dataprocessed', { result: aggregationResult });

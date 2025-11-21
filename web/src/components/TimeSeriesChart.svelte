@@ -115,7 +115,7 @@
       datasetAveragesVal = typeof datasetAverages === 'function' ? datasetAverages() : datasetAverages;
       zoneTotalsVal = typeof zoneTotals === 'function' ? zoneTotals() : zoneTotals;
     } catch (e) {
-      console.debug('[TimeSeriesChart] failed to hydrate derived values:', e);
+      // console.debug('[TimeSeriesChart] failed to hydrate derived values:', e);
       datasetAveragesVal = [];
       zoneTotalsVal = [];
     }
@@ -383,8 +383,9 @@
     aggregatedData = aggregatedData.map(pt => {
       const t = pt.temp;
       const h = pt.rh;
-      // preserve explicitly provided zone if it's a non-empty string
-      if (pt.zone && typeof pt.zone === 'string' && pt.zone !== 'Unclassified') {
+      // preserve explicitly provided zone if it's a non-empty string except for 'Cold'
+      // Re-evaluate 'Cold' points as they may be assigned due to older classification logic
+      if (pt.zone && typeof pt.zone === 'string' && pt.zone !== 'Unclassified' && pt.zone !== 'Cold') {
         return pt;
       }
       if (t == null || h == null || isNaN(Number(t)) || isNaN(Number(h))) {
@@ -908,16 +909,16 @@
   // Debugging: log derived timeSeries and processed chart state to diagnose missing StatCards
   $effect(() => {
     try {
-      console.debug('[TimeSeriesChart] $timeSeries length:', $timeSeries?.length ?? 0);
+      // console.debug('[TimeSeriesChart] $timeSeries length:', $timeSeries?.length ?? 0);
       if ($timeSeries && $timeSeries.length > 0) {
-        console.debug('[TimeSeriesChart] $timeSeries sample:', $timeSeries[0]);
+        // console.debug('[TimeSeriesChart] $timeSeries sample:', $timeSeries[0]);
       }
-      console.debug('[TimeSeriesChart] processedChartState aggregatedData length:', processedChartState().aggregatedData?.length ?? 0);
-      console.debug('[TimeSeriesChart] processedChartState chartData datasets:', processedChartState().chartData?.datasets?.length ?? 0);
-      console.debug('[TimeSeriesChart] datasetAverages:', datasetAverages);
-      console.debug('[TimeSeriesChart] zoneTotals:', zoneTotals);
+      // console.debug('[TimeSeriesChart] processedChartState aggregatedData length:', processedChartState().aggregatedData?.length ?? 0);
+      // console.debug('[TimeSeriesChart] processedChartState chartData datasets:', processedChartState().chartData?.datasets?.length ?? 0);
+      // console.debug('[TimeSeriesChart] datasetAverages:', datasetAverages);
+      // console.debug('[TimeSeriesChart] zoneTotals:', zoneTotals);
     } catch (e) {
-      console.debug('[TimeSeriesChart] logging failed:', e);
+      // console.debug('[TimeSeriesChart] logging failed:', e);
     }
   });
 </script>

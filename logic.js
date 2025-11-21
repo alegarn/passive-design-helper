@@ -162,6 +162,7 @@ function printHelp() {
     { id: 'Cold', color: ZONE_COLORS['Cold'], poly: null, note: 'T < 23°C' },
     { id: 'Comfort', color: ZONE_COLORS['Comfort'], poly: [ p(23,20), p(23,80), p(25,80), p(28,67), p(29.5,50), p(29.5,20) ]},
     { id: 'Ventilation', color: ZONE_COLORS['Ventilation'], poly: [ p(23,80), p(23,100), p(29.5,100), p(34.5,50), p(34.5,20), p(29.5,20), p(29.5,50), p(28,67), p(25,80) ]},
+    { id: 'Active Solar Heating', color: ZONE_COLORS['Active Solar Heating'], poly: [ p(6.8,0), p(6.8,100), p(10.8,100), p(10.8,0) ], note: 'Active solar heating band (approx)' },
     { id: 'Mass Cooling', color: ZONE_COLORS['Mass Cooling'], poly: [ p(23,20), p(29.5,20), p(29.5,50), p(28,67), p(36,33), p(39.5,30), p(39.5,7) ]},
     { id: 'Evaporative Cooling', color: ZONE_COLORS['Evaporative Cooling'], poly: [ p(23,20), p(29.5,20), p(29.5,50), p(28,67), p(39,30), p(42.7,20), p(43.7,10), p(43.7,0), p(31.3,0) ]},
     { id: 'Air Conditioning + Dehumidifier', color: ZONE_COLORS['Air Conditioning + Dehumidifier'], poly: [ p('34.7+',45), p('34.7+',50), p('29.8+',100) ]},
@@ -187,7 +188,8 @@ function printHelp() {
   // classification with energy-priority tie-break (least energy consuming preferred)
   const ENERGY_PRIORITY = ['Comfort', 'Ventilation', 'Mass Cooling', 'Evaporative Cooling', 'Air Conditioning + Dehumidifier', 'Air Conditioning', 'Cold', 'Unclassified'];
   function classifyPoint(temp, rh) {
-    if (temp < 23) return 'Cold';
+    const T = Number(temp);
+    const H = Number(rh);
     const matches = [];
     for (let zi = 1; zi < ZONES.length; zi++) {
       const zone = ZONES[zi];
@@ -195,7 +197,9 @@ function printHelp() {
       if (pointInPoly(temp, rh, zone.poly)) matches.push(zone.id);
     }
     if (matches.length === 0) {
-      if (temp >= 43.7) return 'Air Conditioning';
+      // If no polygon matched, fall back to 'Cold' when T < 23
+      if (T < 23) return 'Cold';
+      if (T >= 43.7) return 'Air Conditioning';
       return 'Unclassified';
     }
     // pick match with highest priority (earliest in ENERGY_PRIORITY)

@@ -10,17 +10,17 @@ let psychrolib = null;
 (async () => {
   try {
     const spec = 'psychrolib';
-    console.debug('psychro:math attempting dynamic import with specifier ->', spec);
+    // console.debug('psychro:math attempting dynamic import with specifier ->', spec);
     // Use a static specifier so Vite can remap/bundle the dependency correctly.
     const mod = await import('psychrolib');
     psychrolib = mod.default || mod;
     if (psychrolib && typeof psychrolib.SetUnitSystem === 'function' && psychrolib.SI) {
       try { psychrolib.SetUnitSystem(psychrolib.SI); } catch (e) { /* ignore */ }
     }
-    console.debug('psychro:math loaded psychrolib successfully', !!psychrolib);
+    // console.debug('psychro:math loaded psychrolib successfully', !!psychrolib);
   } catch (e) {
     psychrolib = null;
-    console.debug('psychro:math psychrolib not available, using fallbacks', e);
+    // console.debug('psychro:math psychrolib not available, using fallbacks', e);
   }
 })();
 
@@ -167,5 +167,5 @@ if (typeof window !== 'undefined' && window.location.hostname === 'localhost') {
   const dp_20 = dewPoint_C_from_e(e_s_Pa(20) * 0.5);
   console.assert(dp_20 > -50 && dp_20 < 50, `dewPoint_C_from_e at 50% RH should be reasonable, got ${dp_20}`);
 
-  console.log('Psychrometric math module tests passed (with psychrolib if available)');
+  // console.log('Psychrometric math module tests passed (with psychrolib if available)');
 }
