@@ -51,20 +51,22 @@ function classifyPoint(temp, rh) {
   const T = Number(temp);
   const H = Number(rh);
 
+  // Very hot: Air Conditioning takes precedence
+  if (T > 43.5) return 'Air Conditioning';
+
+  // Very cold: Heating should be used even if polygons don't match
+  if (T < 0) return 'Heating';
+
   // Try to detect a preferred zone based on polygon membership and the
-  // preferredZoneForPoint tie-breaking rules. This will pick 'Heating',
-  // 'Passive Solar Heating', etc. even if T < 23°C when the point lies in
-  // those polygons.
+  // preferredZoneForPoint tie-breaking rules. This will pick 'Passive Solar',
+  // 'Mass Cooling', etc.
   const pref = preferredZoneForPoint(T, H);
   if (pref && pref.id) return pref.id;
 
-  // If no polygon matched, fall back to 'Cold' only when the temperature
-  // is below the threshold.
+  // If no polygon matched, fall back to 'Cold' only when the temperature is below threshold
   if (T < 23) return 'Cold';
 
-  // Fallback for very high temperatures
-  if (T >= 43.7) return 'Air Conditioning';
-
+  // Normal fallback
   return 'Unclassified';
 }
 

@@ -55,6 +55,11 @@ const ZONES = [
       p(25,80) 
     ]
   },
+  {
+    id: 'Heating',
+    color: '#f2a65a',
+    poly: [ p(0,0), p(0,100), p(6.8,100), p(6.8,0) ]
+  },
   { 
     id: 'Mass Cooling', 
     color: '#5e81ac', 
@@ -148,12 +153,15 @@ function isPointOnSegment(px, py, x1, y1, x2, y2) {
 }
 
 // === classify.js ===
-const ENERGY_PRIORITY = ['Comfort', 'Ventilation', 'Active Solar Heating', 'Mass Cooling', 'Evaporative Cooling', 'Air Conditioning + Dehumidifier', 'Air Conditioning', 'Cold', 'Unclassified'];
+const ENERGY_PRIORITY = ['Comfort', 'Ventilation', 'Heating', 'Active Solar Heating', 'Mass Cooling', 'Evaporative Cooling', 'Air Conditioning + Dehumidifier', 'Air Conditioning', 'Cold', 'Unclassified'];
 
 function classifyPoint(temp, rh) {
   const T = Number(temp);
   const H = Number(rh);
-  
+  // Threshold overrides
+  if (T > 43.5) return 'Air Conditioning';
+  if (T < 0) return 'Heating';
+
   const matches = [];
   for (let zi = 1; zi < ZONES.length; zi++) {
     const zone = ZONES[zi];
@@ -161,9 +169,9 @@ function classifyPoint(temp, rh) {
     if (pointInPoly(temp, rh, zone.poly)) matches.push(zone.id);
   }
   
-  if (matches.length === 0) {
+    if (matches.length === 0) {
     if (T < 23) return 'Cold';
-    if (T >= 43.7) return 'Air Conditioning';
+    if (T > 43.5) return 'Air Conditioning';
     return 'Unclassified';
   }
   

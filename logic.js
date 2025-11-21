@@ -186,10 +186,15 @@ function printHelp() {
     return inside;
   }
   // classification with energy-priority tie-break (least energy consuming preferred)
-  const ENERGY_PRIORITY = ['Comfort', 'Ventilation', 'Mass Cooling', 'Evaporative Cooling', 'Air Conditioning + Dehumidifier', 'Air Conditioning', 'Cold', 'Unclassified'];
+  const ENERGY_PRIORITY = ['Comfort', 'Ventilation', 'Heating', 'Mass Cooling', 'Evaporative Cooling', 'Air Conditioning + Dehumidifier', 'Air Conditioning', 'Cold', 'Unclassified'];
   function classifyPoint(temp, rh) {
     const T = Number(temp);
     const H = Number(rh);
+
+    // Thresholds first: AC (extreme hot) and Heating (extreme cold)
+    if (T > 43.5) return 'Air Conditioning';
+    if (T < 0) return 'Heating';
+
     const matches = [];
     for (let zi = 1; zi < ZONES.length; zi++) {
       const zone = ZONES[zi];
@@ -199,7 +204,6 @@ function printHelp() {
     if (matches.length === 0) {
       // If no polygon matched, fall back to 'Cold' when T < 23
       if (T < 23) return 'Cold';
-      if (T >= 43.7) return 'Air Conditioning';
       return 'Unclassified';
     }
     // pick match with highest priority (earliest in ENERGY_PRIORITY)
