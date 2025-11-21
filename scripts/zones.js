@@ -83,6 +83,13 @@ const ZONES = [
     note: 'Heating band (approx)'
   },
   {
+    id: "Active Solar Heating",
+    color: ZONE_COLORS['Active Solar Heating'],
+    type: 'mechanical',
+    poly: [ p(6.8,0), p(6.8,100), p(10.8,100), p(10.8,0) ],
+    note: 'Active solar heating band (approx)'
+  },
+  {
     id: 'Passive Solar Heating',
     color: ZONE_COLORS['Passive Solar Heating'],
     type: 'passive',
@@ -301,15 +308,17 @@ function zonesContainingPoint(temp, rh) {
   const t = Number(temp);
   const h = Number(rh);
   const found = [];
-
+  let coldZone = null;
   for (const z of ZONES) {
     if (!z.poly) {
-      // special Cold zone
-      if (z.id === 'Cold' && t < 23) found.push(z);
+      if (z.id === 'Cold') coldZone = z;
       continue;
     }
     if (pointInPoly(t, h, z.poly)) found.push(z);
   }
+
+  // Add 'Cold' only if no other polygon matched and temperature is below threshold
+  if (found.length === 0 && coldZone && t < 23) found.push(coldZone);
   return found;
 }
 

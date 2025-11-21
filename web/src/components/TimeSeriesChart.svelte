@@ -383,8 +383,9 @@
     aggregatedData = aggregatedData.map(pt => {
       const t = pt.temp;
       const h = pt.rh;
-      // preserve explicitly provided zone if it's a non-empty string
-      if (pt.zone && typeof pt.zone === 'string' && pt.zone !== 'Unclassified') {
+      // preserve explicitly provided zone if it's a non-empty string except for 'Cold'
+      // Re-evaluate 'Cold' points as they may be assigned due to older classification logic
+      if (pt.zone && typeof pt.zone === 'string' && pt.zone !== 'Unclassified' && pt.zone !== 'Cold') {
         return pt;
       }
       if (t == null || h == null || isNaN(Number(t)) || isNaN(Number(h))) {

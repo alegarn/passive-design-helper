@@ -141,7 +141,8 @@ function isPointOnSegment(px, py, x1, y1, x2, y2) {
 const ENERGY_PRIORITY = ['Comfort', 'Ventilation', 'Mass Cooling', 'Evaporative Cooling', 'Air Conditioning + Dehumidifier', 'Air Conditioning', 'Cold', 'Unclassified'];
 
 function classifyPoint(temp, rh) {
-  if (temp < 23) return 'Cold';
+  const T = Number(temp);
+  const H = Number(rh);
   
   const matches = [];
   for (let zi = 1; zi < ZONES.length; zi++) {
@@ -151,7 +152,8 @@ function classifyPoint(temp, rh) {
   }
   
   if (matches.length === 0) {
-    if (temp >= 43.7) return 'Air Conditioning';
+    if (T < 23) return 'Cold';
+    if (T >= 43.7) return 'Air Conditioning';
     return 'Unclassified';
   }
   

@@ -1,6 +1,8 @@
 import { writable, derived, readonly, get } from 'svelte/store';
 import { start as startRequest, cancel as cancelRequest } from './requestManager.js';
 import { normalizeOpenMeteoToFileData, parseCsvText, aggregateCsvStream } from '../utils/dataProcessor.js';
+import { preferredZoneForPoint, ZONES } from '../../../scripts/zones.js';
+import { ZONE_COLORS } from '../../../scripts/theme.js';
 
 /**
  * @typedef {Object} Snapshot
@@ -443,11 +445,34 @@ export function createFileStore() {
    */
   function setAggregationResult(aggregationResult) {
     const currentSnapshot = getSnapshot();
+    // If we received an aggregation result, recompute the `summary` using
+    // preferredZoneForPoint to avoid legacy 'Cold' labels from older CLI outputs
+    let adjustedAggregation = aggregationResult;
+    try {
+      if (aggregationResult && Array.isArray(aggregationResult.rowsWithDur)) {
+        const totals = {};
+        for (const r of aggregationResult.rowsWithDur) {
+          const t = Number(r.temp);
+          const h = Number(r.rh);
+          if (!Number.isFinite(t) || !Number.isFinite(h)) continue;
+          const z = preferredZoneForPoint(t, h);
+          const id = (z && z.id) || (r.zone || 'Unclassified');
+          totals[id] = (totals[id] || 0) + (r.dur || r.durMs || 0);
+        }
+        const totalMs = Object.values(totals).reduce((s, v) => s + v, 0) || 1;
+        const summary = Object.keys(totals).map(k => ({ zone: k, hours: Number((totals[k] / (1000*60*60)).toFixed(3)), percent: Number((totals[k] * 100 / totalMs).toFixed(2)), milliseconds: totals[k], color: ZONE_COLORS[k] || '#999999' })).sort((a,b) => b.hours - a.hours);
+        adjustedAggregation = { ...aggregationResult, summary };
+      }
+    } catch (e) {
+      // If re-computation fails, just continue with original aggregation
+      adjustedAggregation = aggregationResult;
+    }
+
     const newSnapshot = {
       ...currentSnapshot,
       raw: {
         ...currentSnapshot.raw,
-        aggregationResult: aggregationResult
+        aggregationResult: adjustedAggregation
       }
     };
     // Debug log to help trace why TimeSeries stat cards may not appear.
