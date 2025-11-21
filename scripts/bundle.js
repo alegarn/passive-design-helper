@@ -30,6 +30,16 @@ const ZONES = [
       p(29.5,20) 
     ]
   },
+  {
+    id: 'Active Solar Heating',
+    color: '#f7a35c',
+    poly: [
+      p(6.8, 0),
+      p(6.8, 100),
+      p(10.8, 100),
+      p(10.8, 0)
+    ]
+  },
   { 
     id: 'Ventilation', 
     color: '#ebcb8b', 
@@ -138,7 +148,7 @@ function isPointOnSegment(px, py, x1, y1, x2, y2) {
 }
 
 // === classify.js ===
-const ENERGY_PRIORITY = ['Comfort', 'Ventilation', 'Mass Cooling', 'Evaporative Cooling', 'Air Conditioning + Dehumidifier', 'Air Conditioning', 'Cold', 'Unclassified'];
+const ENERGY_PRIORITY = ['Comfort', 'Ventilation', 'Active Solar Heating', 'Mass Cooling', 'Evaporative Cooling', 'Air Conditioning + Dehumidifier', 'Air Conditioning', 'Cold', 'Unclassified'];
 
 function classifyPoint(temp, rh) {
   const T = Number(temp);
