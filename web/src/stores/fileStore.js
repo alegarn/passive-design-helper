@@ -148,13 +148,14 @@ export function createFileStore() {
             payload = await response.text();
           }
           const requestedOutputFormat = params.format || 'json';
-          
-          // Normalize the fetched payload using available normalizer
-          let normalizedData;
-          try {
-            // Try to use OpenMeteo normalizer first
-            const filename = `remote_data.${format}`;
-            normalizedData = normalizeOpenMeteoToFileData(payload, filename, format);
+           
+           // Normalize the fetched payload using available normalizer
+           let normalizedData;
+           try {
+             // Try to use OpenMeteo normalizer first
+             // Use requestedOutputFormat (was incorrectly using undefined `format`)
+             const filename = `remote_data.${requestedOutputFormat}`;
+             normalizedData = normalizeOpenMeteoToFileData(payload, filename, requestedOutputFormat);
 
             // Debug: show normalized keys so UI can inspect header detection
             try {
@@ -203,7 +204,13 @@ export function createFileStore() {
           }
           
           // Return the normalized data and raw payload for component use (download, preview)
-          return { currentRequestId, result: normalizedData.aggregationResult || normalizedData, rawPayload: payload };
+          // Prefer returning aggregationResult when available, otherwise return raw Open‑Meteo payload
+          // if it contains hourly data so callers expecting that shape still work.
+          const resultToReturn = normalizedData?.aggregationResult
+            ? normalizedData.aggregationResult
+            : (payload && payload.hourly ? payload : normalizedData);
+
+          return { currentRequestId, result: resultToReturn, rawPayload: payload };
         } catch (error) {
           // Get fresh snapshot for error handling
           const freshSnapshot = getSnapshot();

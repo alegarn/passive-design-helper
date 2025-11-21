@@ -48,9 +48,7 @@ async function fetchAndDownload() {
 
     // Use the new fileStore API - get the normalized data result
     const requestInfo = fileStore.fetchRemote(params);
-    console.debug('FetchOpenMeteo: requestInfo from fileStore.fetchRemote:', requestInfo);
     const { result, rawPayload } = await requestInfo;
-    console.debug('FetchOpenMeteo: result and rawPayload destructured from promise:', { result, rawPayload });
 
     // Generate filename for download (use selected output format)
     const filename = `open-meteo-${startDate}-${endDate}.${format}`;
@@ -80,7 +78,8 @@ async function fetchAndDownload() {
     document.body.removeChild(a);
     URL.revokeObjectURL(downloadUrl);
 
-    const recordCount = result?.hourly?.time?.length || 0;
+    // Prefer rawPayload for Open-Meteo hourly count; fallback to result for other shapes
+    const recordCount = rawPayload?.hourly?.time?.length ?? result?.hourly?.time?.length ?? 0;
     success = `Downloaded ${recordCount} records to ${filename}`;
 
   } catch (err) {
