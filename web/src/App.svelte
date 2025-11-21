@@ -4,110 +4,25 @@
   import PsychroChart from './components/PsychroChart.svelte';
   import TimeSeriesChart from './components/TimeSeriesChart.svelte';
   import FetchOpenMeteo from './components/FetchOpenMeteo.svelte';
-
-  // State to hold file data from UploadZone
-  let fileData = $state({
-    file: null,
-    headerFields: [],
-    sampleRows: [],
-    dayFirst: null,
-    dataSpanInfo: null
-  });
+  import { fileStore } from './stores/fileStore.js';
   
   // Handle fileparsed event from UploadZone
   function handleFileParsed(event) {
-    fileData = {
-      file: event.detail.file,
-      headerFields: event.detail.headerFields,
-      sampleRows: event.detail.sampleRows,
-      dayFirst: event.detail.dayFirst,
-      dataSpanInfo: event.detail.dataSpanInfo
-    };
+    // Stage parsed metadata already handled by UploadZone -> fileStore.setParsedRaw
+    console.log('File parsed (handled):', event.detail.file);
   }
   
   // Handle dataprocessed event from ProcessControls
   function handleDataProcessed(event) {
-    fileData = { ...fileData, aggregationResult: event.detail.result };
-  }
-  
-  // Handle datafetched event from FetchOpenMeteo
-  function handleDataFetched(event) {
-    // Convert fetched data to a format compatible with existing components
-    const { data, filename, format } = event.detail;
-    
-    // Create a mock file object
-    const file = new File([format === 'csv' ? jsonToCsv(data) : JSON.stringify(data, null, 2)], filename, {
-      type: format === 'csv' ? 'text/csv' : 'application/json'
-    });
-    
-    // Parse the data to extract header fields and sample rows
-    let headerFields = [];
-    let sampleRows = [];
-    
-    if (format === 'csv') {
-      const lines = jsonToCsv(data).split('\n');
-      if (lines.length > 0) {
-        headerFields = lines[0].split(',');
-        sampleRows = lines.slice(1, 6).map(line => line.split(','));
-      }
-    } else {
-      // For JSON, extract from hourly data
-      if (data.hourly) {
-        headerFields = ['time', ...Object.keys(data.hourly).filter(k => k !== 'time')];
-        const timeArray = data.hourly.time;
-        const numSamples = Math.min(5, timeArray.length);
-        for (let i = 0; i < numSamples; i++) {
-          const row = [timeArray[i]];
-          for (const key of headerFields.slice(1)) {
-            row.push(data.hourly[key] && data.hourly[key][i] !== null ? data.hourly[key][i] : '');
-          }
-          sampleRows.push(row);
-        }
-      }
+    // Commit aggregation result into fileStore so charts and exports react
+    const { result } = event.detail;
+    try {
+      fileStore.setAggregationResult(result);
+      console.log('Data processed and saved to fileStore:', result);
+    } catch (e) {
+      console.error('App.svelte: failed to save processed data to fileStore:', e);
     }
-    
-    fileData = {
-      file,
-      headerFields,
-      sampleRows,
-      dayFirst: false, // Open-Meteo uses ISO format
-      dataSpanInfo: {
-        totalRows: data.hourly?.time?.length || 0,
-        dateRange: data.hourly?.time ? {
-          start: data.hourly.time[0],
-          end: data.hourly.time[data.hourly.time.length - 1]
-        } : null
-      }
-    };
   }
-  
-  // Helper function to convert JSON to CSV (same as in FetchOpenMeteo)
-  function jsonToCsv(data) {
-    if (!data || !data.hourly || !data.hourly.time) {
-      return '';
-    }
-    
-    const variables = Object.keys(data.hourly).filter(k => k !== 'time');
-    const headers = ['time', ...variables];
-    const rows = [];
-    
-    rows.push(headers.join(','));
-    
-    const timeArray = data.hourly.time;
-    const numRecords = timeArray.length;
-    
-    for (let i = 0; i < numRecords; i++) {
-      const row = [timeArray[i]];
-      for (const key of variables) {
-        const value = data.hourly[key] && data.hourly[key][i] !== null ? data.hourly[key][i] : '';
-        row.push(value);
-      }
-      rows.push(row.join(','));
-    }
-    
-    return rows.join('\n');
-  }
-  
 </script>
 
 <header>
@@ -115,29 +30,33 @@
 </header>
 
 <main>
-  <FetchOpenMeteo on:datafetched={handleDataFetched} />
+  <FetchOpenMeteo />
   
   <UploadZone on:fileparsed={handleFileParsed} />
   
-  {#if fileData.file && fileData.headerFields}
+  {#if $fileStore.raw.file && $fileStore.raw.headerFields}
     <ProcessControls
-      file={fileData.file}
-      headerFields={fileData.headerFields}
-      sampleRows={fileData.sampleRows}
-      dayFirst={fileData.dayFirst}
-      dataSpanInfo={fileData.dataSpanInfo}
+      file={$fileStore.raw.file}
+      headerFields={$fileStore.raw.headerFields}
+      sampleRows={$fileStore.raw.sampleRows}
+      dayFirst={$fileStore.raw.dayFirst}
+      dataSpanInfo={$fileStore.raw.dataSpanInfo}
       on:dataprocessed={handleDataProcessed}
     />
   {/if}
   
-  {#if fileData.aggregationResult}
-    <PsychroChart summaryData={fileData.aggregationResult} />
+  {#if $fileStore.raw.aggregationResult}
+    <!-- Debug: Log what we're passing to PsychroChart -->
+    {#if typeof window !== 'undefined'}
+      {console.log('App.svelte: Passing aggregationResult to PsychroChart:', $fileStore.raw.aggregationResult)}
+    {/if}
+    <PsychroChart summaryData={$fileStore.raw.aggregationResult} />
     
     <!-- Time Series Chart -->
-    {#if fileData.aggregationResult.rowsWithDur}
+    {#if $fileStore.raw.aggregationResult.rowsWithDur}
       <!-- Example 1: Hourly average day with zones as threshold array -->
       <TimeSeriesChart
-        timeSeriesData={fileData.aggregationResult.rowsWithDur}
+        timeSeriesData={$fileStore.raw.aggregationResult.rowsWithDur}
         selectedPeriod="hourly"
         zones={[
           { threshold: 30, color: '#ff4444' },  // Hot: red
@@ -150,7 +69,7 @@
       
       <!-- Example 2: Daily chart with zones as function -->
       <TimeSeriesChart
-        timeSeriesData={fileData.aggregationResult.rowsWithDur}
+        timeSeriesData={$fileStore.raw.aggregationResult.rowsWithDur}
         selectedPeriod="daily"
         zones={(value) => {
           if (value > 28) return '#ff0000';  // Very hot

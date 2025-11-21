@@ -1,27 +1,22 @@
 <script>
-  import { createEventDispatcher } from 'svelte';
-  
-  const dispatch = createEventDispatcher();
+  import { fileStore, isLoading, lastError } from '../stores/fileStore.js';
   
   // Form state
-  let url = $state('https://archive-api.open-meteo.com/v1/archive?latitude=52.52&longitude=13.41&start_date=2025-11-03&end_date=2025-11-17&hourly=temperature_2m,relative_humidity_2m');
+  let url = $state('https://archive-api.open-meteo.com/v1/archive?latitude=52.52&longitude=13.41&start_date=2025-11-16&end_date=2025-11-17&hourly=temperature_2m,relative_humidity_2m');
   let lat = $state('52.52');
   let lon = $state('13.41');
-  let startDate = $state('2025-11-03');
+  let startDate = $state('2025-11-16');
   let endDate = $state('2025-11-17');
   let hourly = $state('temperature_2m,relative_humidity_2m');
   let format = $state('csv');
   let useParams = $state(false);
   
   // UI state
-  let loading = $state(false);
-  let error = $state('');
   let success = $state('');
   
   // Toggle between URL and parameters mode
   function toggleMode() {
     useParams = !useParams;
-    error = '';
     success = '';
   }
   
@@ -38,86 +33,61 @@
     return `${baseUrl}?${params.toString()}`;
   }
   
-  // Fetch data and trigger download
-  async function fetchAndDownload() {
-    loading = true;
-    error = '';
-    success = '';
-    
-    try {
-      const targetUrl = useParams ? buildUrl() : url;
-      
-      const response = await fetch(targetUrl);
-      if (!response.ok) {
-        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-      }
-      
-      const data = await response.json();
-      
-      let content;
-      let filename;
-      let mimeType;
-      
-      if (format === 'csv') {
-        content = jsonToCsv(data);
-        filename = `open-meteo-${startDate}-${endDate}.csv`;
-        mimeType = 'text/csv';
-      } else {
-        content = JSON.stringify(data, null, 2);
-        filename = `open-meteo-${startDate}-${endDate}.json`;
-        mimeType = 'application/json';
-      }
-      
-      // Create blob and trigger download
-      const blob = new Blob([content], { type: mimeType });
-      const downloadUrl = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = downloadUrl;
-      a.download = filename;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      URL.revokeObjectURL(downloadUrl);
-      
-      const recordCount = data.hourly?.time?.length || 0;
-      success = `Downloaded ${recordCount} records to ${filename}`;
-      
-      // Dispatch event with data for parent components
-      dispatch('datafetched', { data, filename, format });
-      
-    } catch (err) {
-      error = `Failed to fetch data: ${err.message}`;
-    } finally {
-      loading = false;
+async function fetchAndDownload() {
+  success = '';
+
+  try {
+    // Ensure we always pass a concrete URL to the store and request JSON from the API.
+    // The component still allows the user to download JSON or CSV, but the store
+    // needs a parsed JSON payload for column/header detection.
+    const finalUrl = useParams ? buildUrl() : url;
+    const params = {
+      url: finalUrl,
+      format: 'json' // always fetch JSON so normalizer can extract headers/samples
+    };
+
+    // Use the new fileStore API - get the normalized data result
+    const requestInfo = fileStore.fetchRemote(params);
+    const { result, rawPayload } = await requestInfo;
+
+    // Generate filename for download (use selected output format)
+    const filename = `open-meteo-${startDate}-${endDate}.${format}`;
+
+    // Prepare download content according to user's chosen format
+    let content;
+    let mimeType;
+
+    if (format === 'csv') {
+      // Convert the JSON payload to CSV for download, but keep the store working with JSON
+      const { jsonToCsv } = await import('../utils/dataProcessor.js');
+      content = jsonToCsv(rawPayload);
+      mimeType = 'text/csv';
+    } else {
+      content = JSON.stringify(rawPayload, null, 2);
+      mimeType = 'application/json';
     }
+
+    // Create blob and trigger download
+    const blob = new Blob([content], { type: mimeType });
+    const downloadUrl = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = downloadUrl;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(downloadUrl);
+
+    // Prefer rawPayload for Open-Meteo hourly count; fallback to result for other shapes
+    const recordCount = rawPayload?.hourly?.time?.length ?? result?.hourly?.time?.length ?? 0;
+    success = `Downloaded ${recordCount} records to ${filename}`;
+
+  } catch (err) {
+    // Error is already handled by the store, but we can add additional UI feedback if needed
+    console.error('Fetch error in component:', err);
   }
+}
   
-  // Convert Open-Meteo JSON to CSV
-  function jsonToCsv(data) {
-    if (!data || !data.hourly || !data.hourly.time) {
-      throw new Error('Invalid API response structure');
-    }
-    
-    const variables = Object.keys(data.hourly).filter(k => k !== 'time');
-    const headers = ['time', ...variables];
-    const rows = [];
-    
-    rows.push(headers.join(','));
-    
-    const timeArray = data.hourly.time;
-    const numRecords = timeArray.length;
-    
-    for (let i = 0; i < numRecords; i++) {
-      const row = [timeArray[i]];
-      for (const key of variables) {
-        const value = data.hourly[key] && data.hourly[key][i] !== null ? data.hourly[key][i] : '';
-        row.push(value);
-      }
-      rows.push(row.join(','));
-    }
-    
-    return rows.join('\n');
-  }
   
   // Update URL when parameters change (if in parameter mode)
   $effect(() => {
@@ -125,23 +95,39 @@
       url = buildUrl();
     }
   });
+  
+  // Auto-fetch when parameters change in parameter mode
+  function triggerFetch() {
+    if (useParams) {
+      const params = {
+        latitude: lat,
+        longitude: lon,
+        start_date: startDate,
+        end_date: endDate,
+        hourly: hourly,
+        format: format
+      };
+      fileStore.fetchRemote(params);
+    }
+  }
+  
 </script>
 
 <div class="fetch-container">
   <h2>Fetch Open-Meteo Weather Data</h2>
   
   <div class="mode-toggle">
-    <button 
-      type="button" 
+    <button
+      type="button"
       class="toggle-btn {!useParams ? 'active' : ''}"
-      on:click={toggleMode}
+      onclick={toggleMode}
     >
       Use URL
     </button>
-    <button 
-      type="button" 
+    <button
+      type="button"
       class="toggle-btn {useParams ? 'active' : ''}"
-      on:click={toggleMode}
+      onclick={toggleMode}
     >
       Use Parameters
     </button>
@@ -200,8 +186,8 @@
     </div>
     
     <div class="url-preview">
-      <label>Generated URL:</label>
-      <input type="url" value={url} readonly class="preview-url" />
+      <label for="previewUrl">Generated URL:</label>
+      <input id="previewUrl" type="url" value={url} readonly class="preview-url" />
     </div>
   {/if}
   
@@ -213,21 +199,21 @@
     </select>
   </div>
   
-  <button 
-    type="button" 
-    class="fetch-btn {loading ? 'loading' : ''}"
-    on:click={fetchAndDownload}
-    disabled={loading}
+  <button
+    type="button"
+    class="fetch-btn {$isLoading ? 'loading' : ''}"
+    onclick={fetchAndDownload}
+    disabled={$isLoading}
   >
-    {#if loading}
+    {#if $isLoading}
       Fetching...
     {:else}
       Fetch & Download
     {/if}
   </button>
   
-  {#if error}
-    <div class="error-message">{error}</div>
+  {#if $lastError}
+    <div class="error-message">{$lastError}</div>
   {/if}
   
   {#if success}

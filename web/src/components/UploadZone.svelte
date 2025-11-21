@@ -1,7 +1,8 @@
 <script>
   import { parseCsvStream } from '../utils/dataProcessor.js';
   import { createEventDispatcher } from 'svelte';
-
+  import { fileStore } from '../stores/fileStore.js';
+ 
   let { onFileParsed = null } = $props();
   const dispatch = createEventDispatcher();
   
@@ -71,15 +72,17 @@
         console.error('UploadZone: Error dispatching event:', error);
       }
       
-      // Call callback prop with parsed data (for backward compatibility)
-      if (typeof onFileParsed === 'function') {
-        onFileParsed({
+      // Stage parsed metadata into fileStore so ProcessControls can show mapping UI
+      try {
+        fileStore.setParsedRaw({
           file,
           headerFields,
           sampleRows,
           dayFirst: detectedDayFirst,
           dataSpanInfo
         });
+      } catch (e) {
+        console.error('UploadZone: setParsedRaw failed:', e);
       }
       
       // Call callback prop with parsed data (for backward compatibility)

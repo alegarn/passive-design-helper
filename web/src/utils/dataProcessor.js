@@ -8,8 +8,10 @@
 import { parseTimestampOrThrow, detectDayFirstFromSamples, normalizeToUTC } from '../../../scripts/dateParser.js';
 import { createAggregator, detectSampling } from '../../../scripts/aggregate.js';
 import { classifyPoint } from '../../../scripts/classify.js';
-import { ZONE_COLORS } from '../../../scripts/theme.js';
+import theme from '../../../scripts/theme.js';
 import { csvSplitLine } from '../../../scripts/csv.js';
+
+const { ZONE_COLORS } = theme;
 
 /**
  * Parse CSV stream to extract header and sample rows without reading entire file
@@ -393,8 +395,14 @@ export async function aggregateCsvStream(file, classifyRow, options = {}) {
     headerRowIndex = 0,
     treatAsUTC = false,
     filename = file.name,
-    preferDayFirst = null
+    preferDayFirst = null,
+    signal
   } = options;
+  
+  // Check for abort signal
+  if (signal?.aborted) {
+    throw new DOMException('Aborted', 'AbortError');
+  }
   
   // First pass: parse header and samples to detect configuration
   // Read entire file to get accurate min/max dates, not just samples
@@ -403,22 +411,70 @@ export async function aggregateCsvStream(file, classifyRow, options = {}) {
     headerRowIndex
   });
   
-  // Detect column indices
-  const timeCol = headerFields.findIndex(h =>
-    h.toLowerCase().includes('time') ||
-    h.toLowerCase().includes('date') ||
-    h.toLowerCase().includes('datetime')
-  );
-  const tempCol = headerFields.findIndex(h =>
-    h.toLowerCase().includes('temp') ||
-    h.toLowerCase().includes('temperature')
-  );
-  const rhCol = headerFields.findIndex(h =>
-    h.toLowerCase().includes('rh') ||
-    h.toLowerCase().includes('humidity')
-  );
+  // Detect column indices with support for caller-provided exact column names.
+  // Accept options.timeColumn / options.tempColumn / options.rhColumn as explicit overrides.
+  const userTimeColName = options.timeColumn || options.timeColumnName || null;
+  const userTempColName = options.tempColumn || options.tempColumnName || null;
+  const userRhColName = options.rhColumn || options.rhColumnName || null;
+  
+  function findHeaderIndexByName(headerName) {
+    if (!headerName) return -1;
+    const lower = headerName.toLowerCase();
+    // Try exact match first
+    let idx = headerFields.findIndex(h => h.toLowerCase() === lower);
+    if (idx !== -1) return idx;
+    // Fallback: contains match (preserve previous behavior)
+    idx = headerFields.findIndex(h => h.toLowerCase().includes(lower));
+    return idx;
+  }
+  
+  // Resolve time column
+  let timeCol = -1;
+  if (userTimeColName) {
+    timeCol = findHeaderIndexByName(userTimeColName);
+  }
+  if (timeCol === -1) {
+    timeCol = headerFields.findIndex(h =>
+      h.toLowerCase().includes('time') ||
+      h.toLowerCase().includes('date') ||
+      h.toLowerCase().includes('datetime')
+    );
+  }
+  
+  // Resolve temperature column
+  let tempCol = -1;
+  if (userTempColName) {
+    tempCol = findHeaderIndexByName(userTempColName);
+  }
+  if (tempCol === -1) {
+    tempCol = headerFields.findIndex(h =>
+      h.toLowerCase().includes('temp') ||
+      h.toLowerCase().includes('temperature')
+    );
+  }
+  
+  // Resolve humidity column
+  let rhCol = -1;
+  if (userRhColName) {
+    rhCol = findHeaderIndexByName(userRhColName);
+  }
+  if (rhCol === -1) {
+    rhCol = headerFields.findIndex(h =>
+      h.toLowerCase().includes('rh') ||
+      h.toLowerCase().includes('humidity')
+    );
+  }
   
   if (timeCol === -1 || tempCol === -1 || rhCol === -1) {
+    // Provide richer error for debugging
+    const found = {
+      timeCol: timeCol === -1 ? null : headerFields[timeCol],
+      tempCol: tempCol === -1 ? null : headerFields[tempCol],
+      rhCol: rhCol === -1 ? null : headerFields[rhCol]
+    };
+    console.debug('aggregateCsvStream: headerFields=', headerFields);
+    console.debug('aggregateCsvStream: user overrides=', { userTimeColName, userTempColName, userRhColName });
+    console.debug('aggregateCsvStream: resolved columns=', found);
     throw new Error('Required columns (time, temperature, humidity) not found in CSV');
   }
   
@@ -504,6 +560,11 @@ export async function aggregateCsvStream(file, classifyRow, options = {}) {
     
     // Function to process buffer and extract complete lines
     function processBuffer() {
+      // Check for abort signal
+      if (signal?.aborted) {
+        throw new DOMException('Aborted', 'AbortError');
+      }
+      
       const newLines = buffer.split(/\r?\n/);
       buffer = newLines.pop() || ''; // Keep incomplete line in buffer
       
@@ -591,6 +652,11 @@ export async function aggregateCsvStream(file, classifyRow, options = {}) {
     }
     
     function readChunk() {
+      // Check for abort signal before reading
+      if (signal?.aborted) {
+        throw new DOMException('Aborted', 'AbortError');
+      }
+      
       reader.read().then(({ done, value }) => {
         if (done) {
           // Process any remaining buffer content
@@ -1357,4 +1423,185 @@ export function buildDailyBuckets(sourceRows, valueSelector) {
   buckets.sort((a, b) => a.x - b.x);
   
   return buckets;
+}
+
+/**
+ * Convert JSON data to CSV format for Open-Meteo responses
+ *
+ * @param {Object} data - Open-Meteo JSON response data
+ * @returns {string} CSV formatted string
+ */
+export function jsonToCsv(data) {
+  if (!data || !data.hourly || !data.hourly.time) {
+    return '';
+  }
+  
+  const variables = Object.keys(data.hourly).filter(k => k !== 'time');
+  const headers = ['time', ...variables];
+  const rows = [];
+  
+  rows.push(headers.join(','));
+  
+  const timeArray = data.hourly.time;
+  const numRecords = timeArray.length;
+  
+  for (let i = 0; i < numRecords; i++) {
+    const row = [timeArray[i]];
+    for (const key of variables) {
+      const value = data.hourly[key] && data.hourly[key][i] !== null ? data.hourly[key][i] : '';
+      row.push(value);
+    }
+    rows.push(row.join(','));
+  }
+  
+  return rows.join('\n');
+}
+
+/**
+ * Normalize Open-Meteo API response to unified file data structure
+ *
+ * @param {Object} data - Open-Meteo JSON response data
+ * @param {string} filename - Filename for the File object
+ * @param {string} format - Output format ('csv' or 'json')
+ * @returns {Object} Normalized file data object with file, headerFields, sampleRows, dayFirst, and dataSpanInfo
+ */
+export function normalizeOpenMeteoToFileData(data, filename, format) {
+  // Create a mock file object
+  const content = format === 'csv' ? jsonToCsv(data) : JSON.stringify(data, null, 2);
+  const file = new File([content], filename, {
+    type: format === 'csv' ? 'text/csv' : 'application/json'
+  });
+  
+  // Parse the data to extract header fields and sample rows
+  let headerFields = [];
+  let sampleRows = [];
+  
+  if (format === 'csv') {
+    const lines = content.split('\n');
+    if (lines.length > 0) {
+      headerFields = lines[0].split(',');
+      sampleRows = lines.slice(1, 6).map(line => line.split(','));
+    }
+  } else {
+    // For JSON, extract from hourly data
+    if (data.hourly) {
+      headerFields = ['time', ...Object.keys(data.hourly).filter(k => k !== 'time')];
+      const timeArray = data.hourly.time;
+      const numSamples = Math.min(5, timeArray.length);
+      for (let i = 0; i < numSamples; i++) {
+        const row = [timeArray[i]];
+        for (const key of headerFields.slice(1)) {
+          row.push(data.hourly[key] && data.hourly[key][i] !== null ? data.hourly[key][i] : '');
+        }
+        sampleRows.push(row);
+      }
+    }
+  }
+  
+  // Build data span info
+  const dataSpanInfo = {
+    totalRows: data.hourly?.time?.length || 0,
+    dateRange: data.hourly?.time ? {
+      start: data.hourly.time[0],
+      end: data.hourly.time[data.hourly.time.length - 1]
+    } : null
+  };
+  
+  return {
+    file,
+    headerFields,
+    sampleRows,
+    dayFirst: false, // Open-Meteo uses ISO format (month-first)
+    dataSpanInfo
+  };
+}
+
+/**
+ * Extract header fields and sample rows from JSON hourly data payload
+ *
+ * @param {Object} data - Open-Meteo JSON response with hourly data
+ * @param {number} maxSamples - Maximum number of sample rows to extract (default: 5)
+ * @returns {Object} Object containing headerFields and sampleRows arrays
+ */
+export function extractHeaderAndSamplesFromJsonHourly(data, maxSamples = 5) {
+  if (!data || !data.hourly) {
+    return {
+      headerFields: [],
+      sampleRows: []
+    };
+  }
+  
+  const headerFields = ['time', ...Object.keys(data.hourly).filter(k => k !== 'time')];
+  const timeArray = data.hourly.time;
+  const numSamples = Math.min(maxSamples, timeArray.length);
+  const sampleRows = [];
+  
+  for (let i = 0; i < numSamples; i++) {
+    const row = [timeArray[i]];
+    for (const key of headerFields.slice(1)) {
+      row.push(data.hourly[key] && data.hourly[key][i] !== null ? data.hourly[key][i] : '');
+    }
+    sampleRows.push(row);
+  }
+  
+  return {
+    headerFields,
+    sampleRows
+  };
+}
+/**
+ * Parse CSV text to extract header and sample rows
+ *
+ * @param {string} text - CSV text content
+ * @param {Object} options - Parsing options
+ * @param {number} options.sampleRows - Number of sample rows to collect (default: 50)
+ * @param {number} options.headerRowIndex - Index of header row (default: 0)
+ * @param {string} options.encoding - Text encoding (default: 'utf-8')
+ * @param {AbortSignal} options.signal - AbortSignal for cancellation
+ * @returns {Promise<Object>} Object containing headerFields, sampleRows, dayFirst, and samplesUsed
+ */
+export async function parseCsvText(text, options = {}) {
+  const {
+    sampleRows = 50,
+    headerRowIndex = 0,
+    signal
+  } = options;
+  
+  // Check for abort signal
+  if (signal?.aborted) {
+    throw new DOMException('Aborted', 'AbortError');
+  }
+  
+  const lines = text.split(/\r?\n/);
+  const headerFields = lines[headerRowIndex] ? csvSplitLine(lines[headerRowIndex]) : [];
+  const samples = [];
+  let samplesUsed = 0;
+  
+  // Collect sample rows
+  for (let i = headerRowIndex + 1; i < lines.length && samplesUsed < sampleRows; i++) {
+    // Check for abort signal periodically
+    if (signal?.aborted) {
+      throw new DOMException('Aborted', 'AbortError');
+    }
+    
+    const line = lines[i].trim();
+    if (line) {
+      samples.push(csvSplitLine(line));
+      samplesUsed++;
+    }
+  }
+  
+  // Detect day-first format from samples (assuming first column is date)
+  const dateSamples = samples
+    .map(row => row[0] || '')
+    .filter(Boolean);
+  
+  const dayFirst = detectDayFirstFromSamples(dateSamples, 'csv_text');
+  
+  return {
+    headerFields,
+    sampleRows: samples,
+    dayFirst,
+    samplesUsed
+  };
 }
