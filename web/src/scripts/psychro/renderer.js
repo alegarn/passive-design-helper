@@ -15,7 +15,14 @@ export function createPsychroRenderer(containerEl, options = {}) {
 
   function init() {
     if (opts.canvasEl instanceof HTMLCanvasElement) { canvas = opts.canvasEl; if (canvas.parentElement !== containerEl) containerEl.appendChild(canvas); canvas.classList.add('psychro-canvas'); } else { canvas = document.createElement('canvas'); canvas.className = 'psychro-canvas'; containerEl.appendChild(canvas); }
-    const dpr = Math.min(window.devicePixelRatio || 1, opts.dprCap); resize(); ctx = canvas.getContext('2d'); if (!ctx) throw new Error('Failed to obtain 2D context from canvas');
+    const dpr = Math.min(window.devicePixelRatio || 1, opts.dprCap);
+
+    // Get contexts early so that resize can scale them
+    ctx = canvas.getContext('2d');
+    if (!ctx) throw new Error('Failed to obtain 2D context from canvas');
+
+    // Set initial size
+    resize();
     if (typeof OffscreenCanvas !== 'undefined') { offscreenCanvas = new OffscreenCanvas(width * dpr, height * dpr); offscreenCtx = offscreenCanvas.getContext('2d'); } else { offscreenCanvas = document.createElement('canvas'); offscreenCanvas.width = width * dpr; offscreenCanvas.height = height * dpr; offscreenCtx = offscreenCanvas.getContext('2d'); }
     window.addEventListener('resize', handleResize);
     renderBackground();
@@ -24,8 +31,18 @@ export function createPsychroRenderer(containerEl, options = {}) {
   function resize(w, h) { if (w !== undefined && h !== undefined) { width = w; height = h; } else { const rectSource = (canvas && canvas.getBoundingClientRect) ? canvas.getBoundingClientRect() : null; const rectContainer = (containerEl && containerEl.getBoundingClientRect) ? containerEl.getBoundingClientRect() : null; const rect = rectSource && rectSource.width > 0 ? rectSource : rectContainer; width = rect ? rect.width : 300; height = rect ? rect.height : 150; }
     const dpr = Math.min(window.devicePixelRatio || 1, opts.dprCap);
     canvas.width = width * dpr; canvas.height = height * dpr; canvas.style.width = `${width}px`; canvas.style.height = `${height}px`;
-    if (ctx) try { ctx.setTransform(1,0,0,1,0,0); } catch (e) {} ctx.scale(dpr, dpr);
-    if (offscreenCanvas) { offscreenCanvas.width = width * dpr; offscreenCanvas.height = height * dpr; } if (offscreenCtx) try { offscreenCtx.setTransform(1,0,0,1,0,0); } catch (e) {} offscreenCtx.scale(dpr, dpr);
+    if (ctx) {
+      try { ctx.setTransform(1,0,0,1,0,0); } catch (e) {}
+      ctx.scale(dpr, dpr);
+    }
+    if (offscreenCanvas) {
+      offscreenCanvas.width = width * dpr;
+      offscreenCanvas.height = height * dpr;
+    }
+    if (offscreenCtx) {
+      try { offscreenCtx.setTransform(1,0,0,1,0,0); } catch (e) {}
+      offscreenCtx.scale(dpr, dpr);
+    }
     curveCache.clear();
   }
   function psychroToCanvas(T, W) { let x = ((T - opts.Tmin) / (opts.Tmax - opts.Tmin)) * width; let y = height - (W / opts.Wmax) * height; if (!isFinite(x) || !isFinite(y)) { }
