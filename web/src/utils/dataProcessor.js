@@ -8,8 +8,10 @@
 import { parseTimestampOrThrow, detectDayFirstFromSamples, normalizeToUTC } from '../../../scripts/dateParser.js';
 import { createAggregator, detectSampling } from '../../../scripts/aggregate.js';
 import { classifyPoint } from '../../../scripts/classify.js';
-import { ZONE_COLORS } from '../../../scripts/theme.js';
+import theme from '../../../scripts/theme.js';
 import { csvSplitLine } from '../../../scripts/csv.js';
+
+const { ZONE_COLORS } = theme;
 
 /**
  * Parse CSV stream to extract header and sample rows without reading entire file
@@ -393,8 +395,14 @@ export async function aggregateCsvStream(file, classifyRow, options = {}) {
     headerRowIndex = 0,
     treatAsUTC = false,
     filename = file.name,
-    preferDayFirst = null
+    preferDayFirst = null,
+    signal
   } = options;
+  
+  // Check for abort signal
+  if (signal?.aborted) {
+    throw new DOMException('Aborted', 'AbortError');
+  }
   
   // First pass: parse header and samples to detect configuration
   // Read entire file to get accurate min/max dates, not just samples
@@ -504,6 +512,11 @@ export async function aggregateCsvStream(file, classifyRow, options = {}) {
     
     // Function to process buffer and extract complete lines
     function processBuffer() {
+      // Check for abort signal
+      if (signal?.aborted) {
+        throw new DOMException('Aborted', 'AbortError');
+      }
+      
       const newLines = buffer.split(/\r?\n/);
       buffer = newLines.pop() || ''; // Keep incomplete line in buffer
       
@@ -591,6 +604,11 @@ export async function aggregateCsvStream(file, classifyRow, options = {}) {
     }
     
     function readChunk() {
+      // Check for abort signal before reading
+      if (signal?.aborted) {
+        throw new DOMException('Aborted', 'AbortError');
+      }
+      
       reader.read().then(({ done, value }) => {
         if (done) {
           // Process any remaining buffer content
@@ -1481,5 +1499,61 @@ export function extractHeaderAndSamplesFromJsonHourly(data, maxSamples = 5) {
   return {
     headerFields,
     sampleRows
+  };
+}
+/**
+ * Parse CSV text to extract header and sample rows
+ *
+ * @param {string} text - CSV text content
+ * @param {Object} options - Parsing options
+ * @param {number} options.sampleRows - Number of sample rows to collect (default: 50)
+ * @param {number} options.headerRowIndex - Index of header row (default: 0)
+ * @param {string} options.encoding - Text encoding (default: 'utf-8')
+ * @param {AbortSignal} options.signal - AbortSignal for cancellation
+ * @returns {Promise<Object>} Object containing headerFields, sampleRows, dayFirst, and samplesUsed
+ */
+export async function parseCsvText(text, options = {}) {
+  const {
+    sampleRows = 50,
+    headerRowIndex = 0,
+    signal
+  } = options;
+  
+  // Check for abort signal
+  if (signal?.aborted) {
+    throw new DOMException('Aborted', 'AbortError');
+  }
+  
+  const lines = text.split(/\r?\n/);
+  const headerFields = lines[headerRowIndex] ? csvSplitLine(lines[headerRowIndex]) : [];
+  const samples = [];
+  let samplesUsed = 0;
+  
+  // Collect sample rows
+  for (let i = headerRowIndex + 1; i < lines.length && samplesUsed < sampleRows; i++) {
+    // Check for abort signal periodically
+    if (signal?.aborted) {
+      throw new DOMException('Aborted', 'AbortError');
+    }
+    
+    const line = lines[i].trim();
+    if (line) {
+      samples.push(csvSplitLine(line));
+      samplesUsed++;
+    }
+  }
+  
+  // Detect day-first format from samples (assuming first column is date)
+  const dateSamples = samples
+    .map(row => row[0] || '')
+    .filter(Boolean);
+  
+  const dayFirst = detectDayFirstFromSamples(dateSamples, 'csv_text');
+  
+  return {
+    headerFields,
+    sampleRows: samples,
+    dayFirst,
+    samplesUsed
   };
 }

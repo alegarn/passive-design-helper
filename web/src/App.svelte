@@ -4,16 +4,20 @@
   import PsychroChart from './components/PsychroChart.svelte';
   import TimeSeriesChart from './components/TimeSeriesChart.svelte';
   import FetchOpenMeteo from './components/FetchOpenMeteo.svelte';
-  import { fileData, loadFile, updateAggregationResult } from './stores/fileStore.js';
+  import { fileStore } from './stores/fileStore.js';
   
   // Handle fileparsed event from UploadZone
   function handleFileParsed(event) {
-    loadFile(event.detail.file);
+    // TODO: Implement loadFromCsv when available
+    console.log('File parsed:', event.detail.file);
+    // For now, we'll handle this through the fetchRemote functionality
   }
   
   // Handle dataprocessed event from ProcessControls
   function handleDataProcessed(event) {
-    updateAggregationResult(event.detail.result);
+    // For now, just log the processed data
+    // TODO: This will be handled properly when loadFromCsv is implemented
+    console.log('Data processed:', event.detail.result);
   }
 </script>
 
@@ -26,29 +30,29 @@
   
   <UploadZone on:fileparsed={handleFileParsed} />
   
-  {#if $fileData.file && $fileData.headerFields}
+  {#if $fileStore.raw.file && $fileStore.raw.headerFields}
     <ProcessControls
-      file={$fileData.file}
-      headerFields={$fileData.headerFields}
-      sampleRows={$fileData.sampleRows}
-      dayFirst={$fileData.dayFirst}
-      dataSpanInfo={$fileData.dataSpanInfo}
+      file={$fileStore.raw.file}
+      headerFields={$fileStore.raw.headerFields}
+      sampleRows={$fileStore.raw.sampleRows}
+      dayFirst={$fileStore.raw.dayFirst}
+      dataSpanInfo={$fileStore.raw.dataSpanInfo}
       on:dataprocessed={handleDataProcessed}
     />
   {/if}
   
-  {#if $fileData.aggregationResult}
+  {#if $fileStore.raw.aggregationResult}
     <!-- Debug: Log what we're passing to PsychroChart -->
     {#if typeof window !== 'undefined'}
-      {console.log('App.svelte: Passing aggregationResult to PsychroChart:', $fileData.aggregationResult)}
+      {console.log('App.svelte: Passing aggregationResult to PsychroChart:', $fileStore.raw.aggregationResult)}
     {/if}
-    <PsychroChart summaryData={$fileData.aggregationResult} />
+    <PsychroChart summaryData={$fileStore.raw.aggregationResult} />
     
     <!-- Time Series Chart -->
-    {#if $fileData.aggregationResult.rowsWithDur}
+    {#if $fileStore.raw.aggregationResult.rowsWithDur}
       <!-- Example 1: Hourly average day with zones as threshold array -->
       <TimeSeriesChart
-        timeSeriesData={$fileData.aggregationResult.rowsWithDur}
+        timeSeriesData={$fileStore.raw.aggregationResult.rowsWithDur}
         selectedPeriod="hourly"
         zones={[
           { threshold: 30, color: '#ff4444' },  // Hot: red
@@ -61,7 +65,7 @@
       
       <!-- Example 2: Daily chart with zones as function -->
       <TimeSeriesChart
-        timeSeriesData={$fileData.aggregationResult.rowsWithDur}
+        timeSeriesData={$fileStore.raw.aggregationResult.rowsWithDur}
         selectedPeriod="daily"
         zones={(value) => {
           if (value > 28) return '#ff0000';  // Very hot

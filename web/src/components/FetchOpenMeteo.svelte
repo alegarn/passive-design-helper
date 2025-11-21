@@ -1,5 +1,5 @@
 <script>
-  import { fetchOpenMeteo, loading, error } from '../stores/fileStore.js';
+  import { fileStore } from '../stores/fileStore.js';
   
   // Form state
   let url = $state('https://archive-api.open-meteo.com/v1/archive?latitude=52.52&longitude=13.41&start_date=2025-11-16&end_date=2025-11-17&hourly=temperature_2m,relative_humidity_2m');
@@ -51,7 +51,7 @@
         format: format
       };
       
-      await fetchOpenMeteo(params);
+      await fileStore.fetchRemote(params);
       
       // Generate filename for download
       const filename = `open-meteo-${startDate}-${endDate}.${format}`;
@@ -101,34 +101,9 @@
     }
   });
   
-  // Track individual previous parameters to detect changes
-  let prevLat = $state(lat);
-  let prevLon = $state(lon);
-  let prevStartDate = $state(startDate);
-  let prevEndDate = $state(endDate);
-  let prevHourly = $state(hourly);
-  let prevFormat = $state(format);
-  let initialLoad = $state(true);
-  
   // Auto-fetch when parameters change in parameter mode
-  $effect(() => {
-    if (useParams && !initialLoad && (
-      prevLat !== lat ||
-      prevLon !== lon ||
-      prevStartDate !== startDate ||
-      prevEndDate !== endDate ||
-      prevHourly !== hourly ||
-      prevFormat !== format
-    )) {
-      // Update previous parameters
-      prevLat = lat;
-      prevLon = lon;
-      prevStartDate = startDate;
-      prevEndDate = endDate;
-      prevHourly = hourly;
-      prevFormat = format;
-      
-      // Trigger fetch with new parameters
+  function triggerFetch() {
+    if (useParams) {
       const params = {
         latitude: lat,
         longitude: lon,
@@ -137,15 +112,9 @@
         hourly: hourly,
         format: format
       };
-      
-      fetchOpenMeteo(params);
+      fileStore.fetchRemote(params);
     }
-    
-    // Set initialLoad to false after first run
-    if (initialLoad) {
-      initialLoad = false;
-    }
-  });
+  }
   
 </script>
 
@@ -153,17 +122,17 @@
   <h2>Fetch Open-Meteo Weather Data</h2>
   
   <div class="mode-toggle">
-    <button 
-      type="button" 
+    <button
+      type="button"
       class="toggle-btn {!useParams ? 'active' : ''}"
-      on:click={toggleMode}
+      onclick={toggleMode}
     >
       Use URL
     </button>
-    <button 
-      type="button" 
+    <button
+      type="button"
       class="toggle-btn {useParams ? 'active' : ''}"
-      on:click={toggleMode}
+      onclick={toggleMode}
     >
       Use Parameters
     </button>
@@ -222,8 +191,8 @@
     </div>
     
     <div class="url-preview">
-      <label>Generated URL:</label>
-      <input type="url" value={url} readonly class="preview-url" />
+      <label for="previewUrl">Generated URL:</label>
+      <input id="previewUrl" type="url" value={url} readonly class="preview-url" />
     </div>
   {/if}
   
@@ -237,19 +206,19 @@
   
   <button
     type="button"
-    class="fetch-btn {$loading ? 'loading' : ''}"
-    on:click={fetchAndDownload}
-    disabled={$loading}
+    class="fetch-btn {$fileStore.meta.loadingCount > 0 ? 'loading' : ''}"
+    onclick={fetchAndDownload}
+    disabled={$fileStore.meta.loadingCount > 0}
   >
-    {#if $loading}
+    {#if $fileStore.meta.loadingCount > 0}
       Fetching...
     {:else}
       Fetch & Download
     {/if}
   </button>
   
-  {#if $error}
-    <div class="error-message">{$error}</div>
+  {#if $fileStore.meta.lastError}
+    <div class="error-message">{$fileStore.meta.lastError}</div>
   {/if}
   
   {#if success}
