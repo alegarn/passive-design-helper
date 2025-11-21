@@ -103,6 +103,24 @@
     }
   });
   
+  // Local cached values of the derived stores so template can consume plain arrays.
+  // The project's custom $derived returns a callable store, so referencing the store
+  // directly in the template yields the store function instead of its value.
+  // Use these local variables (updated via $effect) to drive the StatCard rendering.
+  let datasetAveragesVal = $state([]);
+  let zoneTotalsVal = $state([]);
+  
+  $effect(() => {
+    try {
+      datasetAveragesVal = typeof datasetAverages === 'function' ? datasetAverages() : datasetAverages;
+      zoneTotalsVal = typeof zoneTotals === 'function' ? zoneTotals() : zoneTotals;
+    } catch (e) {
+      console.debug('[TimeSeriesChart] failed to hydrate derived values:', e);
+      datasetAveragesVal = [];
+      zoneTotalsVal = [];
+    }
+  });
+  
   // Calculate zone totals for passive design zones - reactive to aggregatedData/timeSeries and currentPeriod
   // For hourly (average-day) view we scale each hourly-average point by number of days
   // in source range so cards reflect total hours across selected period (consistent
@@ -886,6 +904,22 @@
     chartOptions = state.chartOptions;
     sourceDateRange = state.sourceDateRange;
   });
+  
+  // Debugging: log derived timeSeries and processed chart state to diagnose missing StatCards
+  $effect(() => {
+    try {
+      console.debug('[TimeSeriesChart] $timeSeries length:', $timeSeries?.length ?? 0);
+      if ($timeSeries && $timeSeries.length > 0) {
+        console.debug('[TimeSeriesChart] $timeSeries sample:', $timeSeries[0]);
+      }
+      console.debug('[TimeSeriesChart] processedChartState aggregatedData length:', processedChartState().aggregatedData?.length ?? 0);
+      console.debug('[TimeSeriesChart] processedChartState chartData datasets:', processedChartState().chartData?.datasets?.length ?? 0);
+      console.debug('[TimeSeriesChart] datasetAverages:', datasetAverages);
+      console.debug('[TimeSeriesChart] zoneTotals:', zoneTotals);
+    } catch (e) {
+      console.debug('[TimeSeriesChart] logging failed:', e);
+    }
+  });
 </script>
 
 <div class="time-series-chart">
@@ -935,11 +969,11 @@
   {/if}
 
   <!-- Dataset Statistics (replaces Chart.js dataset legend) -->
-  {#if datasetAverages && datasetAverages.length > 0}
+  {#if datasetAveragesVal && datasetAveragesVal.length > 0}
     <div class="dataset-stats" role="list">
       <h4>Dataset Averages</h4>
       <div class="dataset-stats__grid">
-        {#each datasetAverages as dataset (dataset.label)}
+        {#each datasetAveragesVal as dataset (dataset.label)}
           {#if dataset.value > 0}
             <StatCard
               label={dataset.label}
@@ -954,11 +988,11 @@
   {/if}
 
   <!-- Passive Design Zone StatCards (replaced custom zone legend at lines ~862-873) -->
-  {#if zoneTotals && zoneTotals.length > 0}
+  {#if zoneTotalsVal && zoneTotalsVal.length > 0}
     <div class="zone-stats" role="list">
       <h4>Passive Design Zones (Hours)</h4>
       <div class="zone-stats__grid">
-        {#each zoneTotals as zone (zone.id)}
+        {#each zoneTotalsVal as zone (zone.id)}
           <StatCard
             role="listitem"
             aria-label={`Zone ${zone.name}: ${Math.round(zone.value)} hours`}

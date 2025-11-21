@@ -378,6 +378,22 @@ export function createFileStore() {
         aggregationResult: aggregationResult
       }
     };
+    // Debug log to help trace why TimeSeries stat cards may not appear.
+    // Logs aggregationResult keys and a small sample row if present.
+    try {
+      console.debug('[fileStore] setAggregationResult called - keys:', Object.keys(aggregationResult || {}));
+      const sampleRow =
+        aggregationResult && aggregationResult.rowsWithDur && aggregationResult.rowsWithDur.length
+          ? aggregationResult.rowsWithDur[0]
+          : aggregationResult && aggregationResult.rows && aggregationResult.rows.length
+          ? aggregationResult.rows[0]
+          : aggregationResult && aggregationResult.timeSeries && aggregationResult.timeSeries.length
+          ? aggregationResult.timeSeries[0]
+          : null;
+      console.debug('[fileStore] setAggregationResult sampleRow:', sampleRow);
+    } catch (e) {
+      console.debug('[fileStore] setAggregationResult logging failed:', e);
+    }
     commit(newSnapshot);
   }
  
