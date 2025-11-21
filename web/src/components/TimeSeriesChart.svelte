@@ -2,9 +2,9 @@
   import { Chart as ChartJS, CategoryScale, LinearScale, PointElement, LineElement, Title, Tooltip, Legend, TimeScale } from 'chart.js';
   import { Line } from 'svelte5-chartjs';
   import { onDestroy } from 'svelte';
-  import { ZONE_COLORS } from '../../../scripts/theme.js';
-  import { ZONES, preferredZoneForPoint } from '../../../scripts/zones.js';
-  import { classifyPoint } from '../../../scripts/classify.js';
+  import { ZONE_COLORS } from '../scripts/theme.js';
+  import { ZONES, preferredZoneForPoint } from '../scripts/zones.js';
+  import { classifyPoint } from '../scripts/classify.js';
   import {
     aggregateByHour,
     aggregateByDay,

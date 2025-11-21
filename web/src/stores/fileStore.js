@@ -1,9 +1,9 @@
 import { writable, derived, readonly, get } from 'svelte/store';
 import { start as startRequest, cancel as cancelRequest } from './requestManager.js';
 import { normalizeOpenMeteoToFileData, parseCsvText, aggregateCsvStream } from '../utils/dataProcessor.js';
-import { preferredZoneForPoint, ZONES } from '../../../scripts/zones.js';
-import { classifyPoint } from '../../../scripts/classify.js';
-import { ZONE_COLORS } from '../../../scripts/theme.js';
+import { preferredZoneForPoint, ZONES } from '../scripts/zones.js';
+import { classifyPoint } from '../scripts/classify.js';
+import { ZONE_COLORS } from '../scripts/theme.js';
 
 /**
  * @typedef {Object} Snapshot

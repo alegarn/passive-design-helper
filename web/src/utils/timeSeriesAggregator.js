@@ -4,7 +4,7 @@
  */
 
 // Import ZONE_COLORS for use in dataset averages
-import { ZONE_COLORS } from '../../../scripts/theme.js';
+import { ZONE_COLORS } from '../scripts/theme.js';
 
 /**
  * Group data by a specified time period and calculate averages
