@@ -55,7 +55,7 @@
 
 
       // Dynamic import of the psychro renderer
-      const { createPsychroRenderer } = await import('../../../scripts/psychro/index.js');
+      const { createPsychroRenderer } = await import('../scripts/psychro/index.js');
       
       
       if (!canvasElement) {

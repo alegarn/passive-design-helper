@@ -59,6 +59,8 @@ async function fetchAndDownload() {
 
     if (format === 'csv') {
       // Convert the JSON payload to CSV for download, but keep the store working with JSON
+      // Use static import to prevent duplicate chunks
+      // eslint-disable-next-line no-unused-vars
       const { jsonToCsv } = await import('../utils/dataProcessor.js');
       content = jsonToCsv(rawPayload);
       mimeType = 'text/csv';

@@ -1,9 +1,9 @@
 <script>
   import { createEventDispatcher } from 'svelte';
   import { aggregateCsvStream, exportAllFiles, buildTimeSeriesCsv, buildSummaryJson, buildSummaryMd, downloadBlob, detectDataSpan } from '../utils/dataProcessor.js';
-  import { W_from_RH_T } from '../../../scripts/psychro/math.js';
-  import { classifyPoint } from '../../../scripts/classify.js';
-  import { getZoneColor } from '../../../scripts/ui-bridge.js';
+  import { W_from_RH_T } from '../scripts/psychro/math.js';
+  import { classifyPoint } from '../scripts/classify.js';
+  import { getZoneColor } from '../scripts/ui-bridge.js';
 
   const dispatch = createEventDispatcher();
 
@@ -511,17 +511,6 @@
           Process Data
         {/if}
       </button>
-      
-      <!-- Button to process remotely fetched data -->
-      {#if $fileStore.raw.file}
-        <button
-          class="btn btn-primary"
-          onclick={handleProcessData}
-          disabled={!timeColumn || !tempColumn || !rhColumn}
-        >
-          Process Remote Data
-        </button>
-      {/if}
       
       <!-- Error Message -->
       {#if processingError}

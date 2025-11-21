@@ -79,14 +79,14 @@ export function createPsychroRenderer(containerEl, options = {}) {
     // Get DPR (device pixel ratio) with cap
     const dpr = Math.min(window.devicePixelRatio || 1, opts.dprCap);
 
-    // Set initial size
-    resize();
-
-    // Get contexts
+    // Get contexts early so that resize can scale them
     ctx = canvas.getContext('2d');
     if (!ctx) {
       throw new Error('Failed to obtain 2D context from canvas');
     }
+
+    // Set initial size
+    resize();
 
     // Create offscreen canvas
     if (typeof OffscreenCanvas !== 'undefined') {

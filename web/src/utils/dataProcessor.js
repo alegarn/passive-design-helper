@@ -5,11 +5,11 @@
  * raw CSV data according to column mappings and preparing it for visualization.
  */
 
-import { parseTimestampOrThrow, detectDayFirstFromSamples, normalizeToUTC } from '../../../scripts/dateParser.js';
-import { createAggregator, detectSampling } from '../../../scripts/aggregate.js';
-import { classifyPoint } from '../../../scripts/classify.js';
-import theme from '../../../scripts/theme.js';
-import { csvSplitLine } from '../../../scripts/csv.js';
+import { parseTimestampOrThrow, detectDayFirstFromSamples, normalizeToUTC } from '../scripts/dateParser.js';
+import { createAggregator, detectSampling } from '../scripts/aggregate.js';
+import { classifyPoint } from '../scripts/classify.js';
+import theme from '../scripts/theme.js';
+import { csvSplitLine } from '../scripts/csv.js';
 
 const { ZONE_COLORS } = theme;
 
