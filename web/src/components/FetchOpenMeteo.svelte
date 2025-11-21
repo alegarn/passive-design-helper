@@ -13,14 +13,15 @@
   let endDate = $state('2025-11-17');
   let hourly = $state('temperature_2m,relative_humidity_2m');
   let format = $state('csv');
-  let useParams = $state(false);
+  // mode: 'url' | 'params' | 'map'
+  let mode = $state('url');
   
   // UI state
   let success = $state('');
   
   // Toggle between URL and parameters mode
-  function toggleMode() {
-    useParams = !useParams;
+  function setMode(newMode) {
+    mode = newMode;
     success = '';
   }
   
@@ -44,7 +45,7 @@ async function fetchAndDownload() {
     // Ensure we always pass a concrete URL to the store and request JSON from the API.
     // The component still allows the user to download JSON or CSV, but the store
     // needs a parsed JSON payload for column/header detection.
-    const finalUrl = useParams ? buildUrl() : url;
+    const finalUrl = (mode === 'params' || mode === 'map') ? buildUrl() : url;
     const params = {
       url: finalUrl,
       format: 'json' // always fetch JSON so normalizer can extract headers/samples
@@ -97,14 +98,15 @@ async function fetchAndDownload() {
   
   // Update URL when parameters change (if in parameter mode)
   $effect(() => {
-    if (useParams) {
+    // Keep the generated URL in sync when we're using parameters or map mode
+    if (mode === 'params' || mode === 'map') {
       url = buildUrl();
     }
   });
   
   // Auto-fetch when parameters change in parameter mode
   function triggerFetch() {
-    if (useParams) {
+    if (mode === 'params') {
       const params = {
         latitude: lat,
         longitude: lon,
@@ -127,7 +129,7 @@ async function fetchAndDownload() {
       lon = String(Number(city.lon).toFixed(6));
       selectedCity = city;
       // If we are in params mode, automatically update the URL preview
-      if (useParams) url = buildUrl();
+      if (mode === 'params') url = buildUrl();
     }
   }
 
@@ -163,21 +165,28 @@ async function fetchAndDownload() {
   <div class="mode-toggle">
     <button
       type="button"
-      class="toggle-btn {!useParams ? 'active' : ''}"
-      onclick={toggleMode}
+      class="toggle-btn {mode === 'url' ? 'active' : ''}"
+      onclick={() => setMode('url')}
     >
       Use URL
     </button>
     <button
       type="button"
-      class="toggle-btn {useParams ? 'active' : ''}"
-      onclick={toggleMode}
+      class="toggle-btn {mode === 'params' ? 'active' : ''}"
+      onclick={() => setMode('params')}
     >
       Use Parameters
     </button>
+    <button
+      type="button"
+      class="toggle-btn {mode === 'map' ? 'active' : ''}"
+      onclick={() => setMode('map')}
+    >
+      Use Map
+    </button>
   </div>
   
-  {#if !useParams}
+  {#if mode === 'url'}
     <div class="form-group">
       <label for="url">API URL:</label>
       <input 
@@ -188,7 +197,7 @@ async function fetchAndDownload() {
         class="url-input"
       />
     </div>
-  {:else}
+  {:else if mode === 'params'}
     <div class="params-grid">
       <div class="form-group">
         <label for="lat">Latitude:</label>
@@ -224,15 +233,7 @@ async function fetchAndDownload() {
         />
       </div>
 
-      <div class="form-group">
-        <label for="citySelect">City (choose to update coordinates):</label>
-        <select id="citySelect" bind:value={selectedCityName} onchange={selectCity}>
-          <option value="">-- Custom / Select city --</option>
-          {#each cities as city}
-            <option value={city.name}>{city.name}</option>
-          {/each}
-        </select>
-      </div>
+      <!-- City selection moved to Use Map mode -->
       
       <div class="form-group">
         <label for="format">Format:</label>
@@ -247,9 +248,43 @@ async function fetchAndDownload() {
       <label for="previewUrl">Generated URL:</label>
       <input id="previewUrl" type="url" value={url} readonly class="preview-url" />
     </div>
+  {:else if mode === 'map'}
+    <div class="map-mode">
+      <div class="form-group">
+        <label for="citySelect">City (choose to update coordinates):</label>
+        <select id="citySelect" bind:value={selectedCityName} onchange={selectCity}>
+          <option value="">-- Select city --</option>
+          {#each cities as city}
+            <option value={city.name}>{city.name}</option>
+          {/each}
+        </select>
+      </div>
+
+      <div class="form-group">
+        <div class="field-label">Coordinates</div>
+        <div class="coords-summary">
+          <span>Latitude: {lat}</span>
+          <span style="margin-left: 1rem;">Longitude: {lon}</span>
+        </div>
+      </div>
+
+      <div class="form-group">
+        <div class="field-label">Map</div>
+        <div class="map-preview">
+          <iframe
+            title="OpenStreetMap preview"
+            src={`https://www.openstreetmap.org/export/embed.html?bbox=${Number(lon) - 0.6},${Number(lat) - 0.3},${Number(lon) + 0.6},${Number(lat) + 0.3}&layer=mapnik&marker=${lat},${lon}`}
+            width="100%"
+            height="350"
+            frameborder="0"
+            style="border: 1px solid var(--border-color, #dee2e6); border-radius: 4px;"
+          ></iframe>
+        </div>
+      </div>
+    </div>
   {/if}
 
-  {#if showMap}
+  {#if showMap && mode === 'params'}
     <div class="map-preview">
       <div class="map-header">
         <div>Map preview — centered on: {lat}, {lon}</div>
@@ -365,6 +400,13 @@ async function fetchAndDownload() {
     grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
     gap: 1rem;
     margin-bottom: 1rem;
+  }
+
+  .field-label {
+    display: block;
+    margin-bottom: 0.25rem;
+    font-weight: 500;
+    color: var(--text-color, #333);
   }
   
   .url-preview {
