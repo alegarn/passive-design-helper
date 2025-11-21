@@ -10,12 +10,6 @@ export const rawData = writable([]);
  * Column mapping configuration
  * @type {import('svelte/store').Writable<Object>}
  */
-export const mapping = writable({
-  timestamp: null,
-  temperature: null,
-  humidity: null,
-  // Add other mappings as needed
-});
 
 /**
  * Analysis results
@@ -49,18 +43,11 @@ export function setRawData(data, resetResults = true) {
  * Helper function to set mapping configuration
  * @param {Object} mappingConfig - The mapping configuration object
  */
-export function setMapping(mappingConfig) {
-  mapping.set(mappingConfig);
-}
 
 /**
  * Derived store to check if mapping is complete
  * @type {import('svelte/store').Derived<boolean>}
  */
-export const isMappingComplete = derived(
-  mapping,
-  $mapping => $mapping && $mapping.timestamp && $mapping.temperature && $mapping.humidity
-);
 
 /**
  * Helper function to set results
@@ -86,9 +73,7 @@ export const hasResults = derived(
 // Export a combined store object for backward compatibility
 export const uiStore = {
   rawData,
-  mapping,
   results,
   setRawData,
-  setMapping,
   setResults
 };

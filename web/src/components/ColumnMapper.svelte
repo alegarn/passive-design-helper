@@ -1,6 +1,5 @@
 <script>
-  import { mapping, setMapping } from '../stores/uiStore.js';
-  import { fileStore } from '../stores/fileStore.js';
+  import { fileStore, mapping } from '../stores/fileStore.js';
   // Define the required fields that need mapping
   const requiredFields = ['timestamp', 'temperature', 'humidity'];
 
@@ -23,7 +22,7 @@
   // Apply the mapping to the store
   function applyMapping() {
     if (isMappingComplete) {
-      setMapping(tempMapping);
+      fileStore.setMapping(tempMapping);
     }
   }
   

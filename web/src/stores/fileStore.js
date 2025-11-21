@@ -30,6 +30,11 @@ function makeInitialState() {
       sampleRows: [],
       dayFirst: null,
       dataSpanInfo: null,
+      mapping: {
+        timestamp: null,
+        temperature: null,
+        humidity: null
+      },
       aggregationResult: null
     },
     meta: {
@@ -43,7 +48,8 @@ function makeInitialState() {
 
 /**
  * Factory function to create a file store
- * @returns {Object} A file store object with methods and Svelte store interface
+      setAggregationResult,
+      setMapping
  */
 export function createFileStore() {
   // Internal writable store to hold the canonical snapshot
@@ -427,6 +433,25 @@ export function createFileStore() {
     }
     commit(newSnapshot);
   }
+
+  /**
+   * Set column mapping configuration on the file store
+   * @param {Object} mappingConfig - e.g. { timestamp, temperature, humidity }
+   */
+  function setMapping(mappingConfig = {}) {
+    const currentSnapshot = getSnapshot();
+    const newSnapshot = {
+      ...currentSnapshot,
+      raw: {
+        ...currentSnapshot.raw,
+        mapping: {
+          ...(currentSnapshot.raw.mapping || {}),
+          ...(mappingConfig || {})
+        }
+      }
+    };
+    commit(newSnapshot);
+  }
  
   // Return the store object with Svelte store interface and methods
   return {
@@ -441,6 +466,8 @@ export function createFileStore() {
     cancel,
     setParsedRaw,
     setAggregationResult
+    ,
+    setMapping
   };
 }
 
@@ -490,6 +517,18 @@ export const isLoading = readonly(_isLoading);
  */
 const _lastError = derived(fileStore, $s => $s?.meta?.lastError ?? null);
 export const lastError = readonly(_lastError);
+
+/**
+ * Current mapping configuration derived store
+ */
+const _mapping = derived(fileStore, $s => $s?.raw?.mapping || { timestamp: null, temperature: null, humidity: null });
+export const mapping = readonly(_mapping);
+
+/**
+ * Derived boolean for mapping complete
+ */
+const _isMappingComplete = derived(mapping, $m => Boolean($m && $m.timestamp && $m.temperature && $m.humidity));
+export const isMappingComplete = readonly(_isMappingComplete);
 
 // Test hook for unit tests - only available in development
 /**

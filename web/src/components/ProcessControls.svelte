@@ -12,7 +12,7 @@
   
   // Import fileStore to check for remotely fetched data
   import { fileStore } from '../stores/fileStore.js';
-  import { mapping, setMapping } from '../stores/uiStore.js';
+  import { mapping } from '../stores/fileStore.js';
 
   // Local state variables using $state
   let isProcessing = $state(false);
@@ -96,7 +96,7 @@
     }
   });
 
-    // Hydrate local mapping values from global uiStore.mapping when available
+    // Hydrate local mapping values from global fileStore.mapping when available
     $effect(() => {
       if ($mapping) {
         if (!$mapping.timestamp && !$mapping.temperature && !$mapping.humidity) return;
@@ -146,11 +146,11 @@
     try {
       isProcessing = true;
       processingError = null;
-      // Persist user's mapping selection to uiStore mapping for ColumnMapper compatibility
+      // Persist user's mapping selection to fileStore mapping for ColumnMapper compatibility
       try {
-        setMapping({ timestamp: timeColumn, temperature: tempColumn, humidity: rhColumn });
+        fileStore.setMapping({ timestamp: timeColumn, temperature: tempColumn, humidity: rhColumn });
       } catch (e) {
-        console.debug('ProcessControls: setMapping failed:', e);
+        console.debug('ProcessControls: fileStore.setMapping failed:', e);
       }
       
       // Create a custom classifier that uses the selected columns
