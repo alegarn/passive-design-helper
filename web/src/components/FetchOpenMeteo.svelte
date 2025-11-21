@@ -128,8 +128,8 @@ async function fetchAndDownload() {
       lat = String(Number(city.lat).toFixed(6));
       lon = String(Number(city.lon).toFixed(6));
       selectedCity = city;
-      // If we are in params mode, automatically update the URL preview
-      if (mode === 'params') url = buildUrl();
+      // If we are in params or map mode, automatically update the URL preview
+      if (mode === 'params' || mode === 'map') url = buildUrl();
     }
   }
 
@@ -250,36 +250,55 @@ async function fetchAndDownload() {
     </div>
   {:else if mode === 'map'}
     <div class="map-mode">
-      <div class="form-group">
-        <label for="citySelect">City (choose to update coordinates):</label>
-        <select id="citySelect" bind:value={selectedCityName} onchange={selectCity}>
-          <option value="">-- Select city --</option>
-          {#each cities as city}
-            <option value={city.name}>{city.name}</option>
-          {/each}
-        </select>
-      </div>
+      <div class="map-controls">
+        <div class="form-group">
+          <label for="citySelect">City:</label>
+          <select id="citySelect" bind:value={selectedCityName} onchange={selectCity}>
+            <option value="">-- Select city --</option>
+            {#each cities as city}
+              <option value={city.name}>{city.name}</option>
+            {/each}
+          </select>
+        </div>
 
-      <div class="form-group">
-        <div class="field-label">Coordinates</div>
-        <div class="coords-summary">
-          <span>Latitude: {lat}</span>
-          <span style="margin-left: 1rem;">Longitude: {lon}</span>
+        <div class="form-group">
+          <label for="latMap">Latitude:</label>
+          <input id="latMap" type="number" step="any" bind:value={lat} oninput={handleManualCoordinateChange} />
+        </div>
+
+        <div class="form-group">
+          <label for="lonMap">Longitude:</label>
+          <input id="lonMap" type="number" step="any" bind:value={lon} oninput={handleManualCoordinateChange} />
+        </div>
+
+        <div class="form-group">
+          <label for="startDateMap">Start Date:</label>
+          <input id="startDateMap" type="date" bind:value={startDate} />
+        </div>
+
+        <div class="form-group">
+          <label for="endDateMap">End Date:</label>
+          <input id="endDateMap" type="date" bind:value={endDate} />
+        </div>
+
+        <div class="form-group">
+          <label for="hourlyMap">Hourly Variables:</label>
+          <input id="hourlyMap" type="text" bind:value={hourly} placeholder="temperature_2m,relative_humidity_2m" />
         </div>
       </div>
 
-      <div class="form-group">
-        <div class="field-label">Map</div>
-        <div class="map-preview">
-          <iframe
-            title="OpenStreetMap preview"
-            src={`https://www.openstreetmap.org/export/embed.html?bbox=${Number(lon) - 0.6},${Number(lat) - 0.3},${Number(lon) + 0.6},${Number(lat) + 0.3}&layer=mapnik&marker=${lat},${lon}`}
-            width="100%"
-            height="350"
-            frameborder="0"
-            style="border: 1px solid var(--border-color, #dee2e6); border-radius: 4px;"
-          ></iframe>
+      <div class="map-preview">
+        <div class="map-header">
+          <div>Map preview — centered on: {lat}, {lon}</div>
         </div>
+        <iframe
+          title="OpenStreetMap preview"
+          src={`https://www.openstreetmap.org/export/embed.html?bbox=${Number(lon) - 0.6},${Number(lat) - 0.3},${Number(lon) + 0.6},${Number(lat) + 0.3}&layer=mapnik&marker=${lat},${lon}`}
+          width="100%"
+          height="350"
+          frameborder="0"
+          style="border: 1px solid var(--border-color, #dee2e6); border-radius: 4px;"
+        ></iframe>
       </div>
     </div>
   {/if}
@@ -402,12 +421,16 @@ async function fetchAndDownload() {
     margin-bottom: 1rem;
   }
 
-  .field-label {
-    display: block;
-    margin-bottom: 0.25rem;
-    font-weight: 500;
-    color: var(--text-color, #333);
+  .map-controls {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 1rem;
+    margin-bottom: 1rem;
   }
+
+  /* no additional coordinates summary styles required */
+
+  /* no longer used — keep for compatibility if we later convert to field labels */
   
   .url-preview {
     margin-bottom: 1rem;
