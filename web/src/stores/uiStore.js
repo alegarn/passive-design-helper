@@ -4,7 +4,9 @@ import { writable, derived } from 'svelte/store';
  * Raw data from CSV files - array of row objects
  * @type {import('svelte/store').Writable<Array<Object>>}
  */
-export const rawData = writable([]);
+// `rawData` migrated to `fileStore` as the canonical store for file data
+// Keep an alias for compatibility only if explicitly required elsewhere.
+// export const rawData = writable([]);
 
 /**
  * Column mapping configuration
@@ -26,18 +28,13 @@ export const results = writable({
  * @param {Array<Object>} data - The parsed CSV data
  * @param {boolean} resetResults - Whether to reset results when setting data (default: true)
  */
-export function setRawData(data, resetResults = true) {
-  rawData.set(data);
-  
-  // Optionally reset results when new data is loaded
-  if (resetResults) {
-    results.set({
-      psychrometricData: null,
-      comfortZones: null,
-      tactics: null
-    });
-  }
-}
+// `setRawData` moved to `fileStore`. Components should call `fileStore.setRawData` instead.
+// export function setRawData(data, resetResults = true) {
+//   rawData.set(data);
+//   if (resetResults) {
+//     results.set({ psychrometricData: null, comfortZones: null, tactics: null });
+//   }
+// }
 
 /**
  * Helper function to set mapping configuration
@@ -72,8 +69,6 @@ export const hasResults = derived(
 
 // Export a combined store object for backward compatibility
 export const uiStore = {
-  rawData,
   results,
-  setRawData,
   setResults
 };

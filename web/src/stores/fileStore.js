@@ -27,6 +27,7 @@ function makeInitialState() {
     raw: {
       file: null,
       headerFields: [],
+      rawData: [],
       sampleRows: [],
       dayFirst: null,
       dataSpanInfo: null,
@@ -50,6 +51,7 @@ function makeInitialState() {
  * Factory function to create a file store
       setAggregationResult,
       setMapping
+      setRawData
  */
 export function createFileStore() {
   // Internal writable store to hold the canonical snapshot
@@ -401,6 +403,23 @@ export function createFileStore() {
   }
 
   /**
+   * Set full parsed CSV as row objects in the store
+   * @param {Array<Object>} data - Parsed rows
+   * @param {boolean} resetResults - Whether to reset results (optional)
+   */
+  function setRawData(data = [], resetResults = true) {
+    const currentSnapshot = getSnapshot();
+    const newSnapshot = {
+      ...currentSnapshot,
+      raw: {
+        ...currentSnapshot.raw,
+        rawData: Array.isArray(data) ? data : []
+      }
+    };
+    commit(newSnapshot);
+  }
+
+  /**
    * Commit aggregation result produced by ProcessControls into the store.
    * This will make the charts and exports react to the processed data.
    *
@@ -491,6 +510,13 @@ const _timeSeries = derived(fileStore, $s => {
   return [];
 });
 export const timeSeries = readonly(_timeSeries);
+
+/**
+ * Raw parsed rows (array of objects) derived from fileStore snapshot.
+ * This mirrors previous uiStore.rawData store.
+ */
+const _rawData = derived(fileStore, $s => $s?.raw?.rawData || []);
+export const rawData = readonly(_rawData);
 
 /**
  * Lightweight aggregation summary (counts, min/max) derived from aggregationResult.
