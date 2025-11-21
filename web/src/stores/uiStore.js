@@ -1,4 +1,5 @@
 import { writable, derived } from 'svelte/store';
+import { results as fileStoreResults, setResults as fileSetResults } from './fileStore.js';
 
 /**
  * Raw data from CSV files - array of row objects
@@ -17,11 +18,7 @@ import { writable, derived } from 'svelte/store';
  * Analysis results
  * @type {import('svelte/store').Writable<Object>}
  */
-export const results = writable({
-  psychrometricData: null,
-  comfortZones: null,
-  tactics: null
-});
+export const results = fileStoreResults;
 
 /**
  * Helper function to set raw data and optionally reset results
@@ -50,8 +47,12 @@ export const results = writable({
  * Helper function to set results
  * @param {Object} resultsData - The results data object
  */
+// `setResults` migrated to `fileStore.setResults`
+// For backwards compatibility, export a function that forwards to fileStore.setResults when available
 export function setResults(resultsData) {
-  results.set(resultsData);
+  if (typeof fileSetResults === 'function') {
+    fileSetResults(resultsData);
+  }
 }
 
 /**

@@ -47,6 +47,7 @@ function makeInitialState() {
   };
 }
 
+
 /**
  * Factory function to create a file store
       setAggregationResult,
@@ -420,6 +421,21 @@ export function createFileStore() {
   }
 
   /**
+   * UI ephemeral state container (migrated from uiStore)
+   */
+  function setResults(resultsData) {
+    const currentSnapshot = getSnapshot();
+    const newSnapshot = {
+      ...currentSnapshot,
+      ui: {
+        ...currentSnapshot.ui,
+        results: resultsData
+      }
+    };
+    commit(newSnapshot);
+  }
+
+  /**
    * Commit aggregation result produced by ProcessControls into the store.
    * This will make the charts and exports react to the processed data.
    *
@@ -484,9 +500,9 @@ export function createFileStore() {
     loadFromCsv,
     cancel,
     setParsedRaw,
-    setAggregationResult
-    ,
-    setMapping
+    setAggregationResult,
+    setMapping,
+    setResults,
   };
 }
 
@@ -517,6 +533,12 @@ export const timeSeries = readonly(_timeSeries);
  */
 const _rawData = derived(fileStore, $s => $s?.raw?.rawData || []);
 export const rawData = readonly(_rawData);
+
+/**
+ * UI ephemeral results derived from fileStore.ui.results
+ */
+const _results = derived(fileStore, $s => $s?.ui?.results || { psychrometricData: null, comfortZones: null, tactics: null });
+export const results = readonly(_results);
 
 /**
  * Lightweight aggregation summary (counts, min/max) derived from aggregationResult.
