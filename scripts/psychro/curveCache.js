@@ -128,5 +128,5 @@ if (typeof window !== 'undefined' && window.location.hostname === 'localhost') {
   
   console.assert(objValue === 'objValue', 'Object keys should work');
   
-  console.log('CurveCache module tests passed');
+  // console.log('CurveCache module tests passed');
 }

@@ -9,6 +9,10 @@
 
   // Props from parent component
   let { file, headerFields, sampleRows, dayFirst, dataSpanInfo } = $props();
+  
+  // Import fileStore to check for remotely fetched data
+  import { fileStore } from '../stores/fileStore.js';
+  import { mapping } from '../stores/fileStore.js';
 
   // Local state variables using $state
   let isProcessing = $state(false);
@@ -44,8 +48,21 @@
   });
   
   
-  // Auto-select columns based on header names
+  // Auto-select columns based on header names (with debug logging)
   $effect(() => {
+    try {
+      
+      /* console.debug('ProcessControls: received props', {
+        file: file && file.name ? { name: file.name, type: file.type } : file,
+        headerFields,
+        sampleRows: (sampleRows && sampleRows.slice) ? sampleRows.slice(0,3) : sampleRows,
+        dayFirst,
+        dataSpanInfo
+      }); */
+    } catch (dbgErr) {
+      // console.debug('ProcessControls: props debug failed', dbgErr);
+    }
+
     if (headerFields && headerFields.length > 0) {
       // Auto-select time column
       const timeCol = headerFields.find(h =>
@@ -76,9 +93,19 @@
       }
     } else {
       // no header fields for auto-selection
-      console.log('ProcessControls: No header fields available for auto-selection');
+      // console.debug('ProcessControls: No header fields available for auto-selection');
     }
   });
+
+    // Hydrate local mapping values from global fileStore.mapping when available
+    $effect(() => {
+      if ($mapping) {
+        if (!$mapping.timestamp && !$mapping.temperature && !$mapping.humidity) return;
+        if (!timeColumn && $mapping.timestamp) timeColumn = $mapping.timestamp;
+        if (!tempColumn && $mapping.temperature) tempColumn = $mapping.temperature;
+        if (!rhColumn && $mapping.humidity) rhColumn = $mapping.humidity;
+      }
+    });
   
   // Calculate detailed data span when dataSpanInfo changes
   $effect(() => {
@@ -120,6 +147,12 @@
     try {
       isProcessing = true;
       processingError = null;
+      // Persist user's mapping selection to fileStore mapping for ColumnMapper compatibility
+      try {
+        fileStore.setMapping({ timestamp: timeColumn, temperature: tempColumn, humidity: rhColumn });
+      } catch (e) {
+        // console.debug('ProcessControls: fileStore.setMapping failed:', e);
+      }
       
       // Create a custom classifier that uses the selected columns
       let customClassifyRow;
@@ -129,21 +162,68 @@
         console.error('Failed to import classifyPoint, falling back to stub:', error);
         customClassifyRow = (temp, rh) => 'ZoneA';
       }
+
+      // If the fetched file is JSON (Open-Meteo), convert it to CSV before passing
+      // to aggregateCsvStream which expects CSV content. This preserves the
+      // UI header detection done by the store while allowing streaming aggregation.
+      let fileToProcess = file;
+      try {
+        if (file && (file.type === 'application/json' || /\.json$/i.test(file.name || ''))) {
+          const text = await file.text();
+          let jsonPayload = null;
+          try {
+            jsonPayload = JSON.parse(text);
+          } catch (parseErr) {
+            // console.debug('ProcessControls: JSON.parse failed for file.text():', parseErr);
+            jsonPayload = null;
+          }
+
+          const { jsonToCsv } = await import('../utils/dataProcessor.js');
+
+          if (jsonPayload) {
+            // Convert JSON payload to CSV
+            const csvContent = jsonToCsv(jsonPayload);
+            fileToProcess = new File([csvContent], (file.name || 'remote_data').replace(/\.json$/i, '.csv'), { type: 'text/csv' });
+            // console.debug('ProcessControls: converted JSON payload to CSV for processing', fileToProcess);
+          } else if (headerFields && headerFields.length > 0 && Array.isArray(sampleRows) && sampleRows.length > 0) {
+            // Build a minimal CSV from headerFields and sampleRows if JSON parsing failed.
+            // This is a conservative fallback to allow processing when the store provided
+            // parsed headers/samples.
+            const lines = [];
+            lines.push(headerFields.join(','));
+            for (const row of sampleRows) {
+              // sampleRows entries may be arrays of values
+              lines.push(row.map(v => (v === null || v === undefined) ? '' : String(v)).join(','));
+            }
+            const csvContent = lines.join('\n');
+            fileToProcess = new File([csvContent], (file.name || 'remote_data').replace(/\.json$/i, '.csv'), { type: 'text/csv' });
+            // console.debug('ProcessControls: built CSV from headerFields/sampleRows for processing', fileToProcess);
+          } else {
+            // Cannot convert safely — throw so caller sees clear error instead of
+            // passing a JSON file to a CSV parser.
+            throw new Error('Cannot convert remote JSON file to CSV: missing JSON payload and no header/sample fallback available');
+          }
+        }
+      } catch (convErr) {
+        // console.debug('ProcessControls: JSON->CSV conversion failed:', convErr);
+        throw convErr;
+      }
       
-      // Process the data using the streaming API
-      const result = await aggregateCsvStream(file, customClassifyRow, {
+      // Process the data using the streaming API.
+      // Pass user-selected column names as explicit overrides so aggregateCsvStream
+      // can honor manual mapping when available.
+      const result = await aggregateCsvStream(fileToProcess, customClassifyRow, {
         timelineUnit,
         treatAsUTC,
         capMultiplier,
         preferDayFirst: dayFirst,
-        // Override column detection with user selections
-        timeColumn,
-        tempColumn,
-        rhColumn
+        timeColumn: timeColumn || undefined,
+        tempColumn: tempColumn || undefined,
+        rhColumn: rhColumn || undefined
       });
       
       // Generate psychrometric data points
-      const psychrometricData = result.rowsWithDur.map(row => ({
+      const psychrometricData = (result.rowsWithDur || []).map(row => ({
         T: row.temp,
         W: W_from_RH_T(row.rh / 100, row.temp),
         zone: row.zone,
@@ -152,8 +232,20 @@
       
       aggregationResult = { ...result, psychrometricData };
       
+      // Debug: Log what we're creating
+      // console.log('ProcessControls: Generated psychrometricData:', psychrometricData.slice(0, 5));
+      // console.log('ProcessControls: aggregationResult keys:', Object.keys(aggregationResult));
+      // console.log('ProcessControls: aggregationResult.psychrometricData length:', aggregationResult.psychrometricData?.length);
+      
       // Dispatch event to notify parent component
       dispatch('dataprocessed', { result: aggregationResult });
+      
+      // Commit aggregation result into shared fileStore so charts update
+      try {
+        fileStore.setAggregationResult(aggregationResult);
+      } catch (e) {
+        console.error('ProcessControls: Failed to setAggregationResult on fileStore:', e);
+      }
       
       // Lightweight internal sample (no console output)
       if (result && result.rowsWithDur && result.rowsWithDur.length > 0) {
@@ -419,6 +511,17 @@
           Process Data
         {/if}
       </button>
+      
+      <!-- Button to process remotely fetched data -->
+      {#if $fileStore.raw.file}
+        <button
+          class="btn btn-primary"
+          onclick={handleProcessData}
+          disabled={!timeColumn || !tempColumn || !rhColumn}
+        >
+          Process Remote Data
+        </button>
+      {/if}
       
       <!-- Error Message -->
       {#if processingError}

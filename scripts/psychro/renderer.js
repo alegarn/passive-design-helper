@@ -67,13 +67,13 @@ export function createPsychroRenderer(containerEl, options = {}) {
 
     // debug: log canvas insertion and computed style
     try {
-      console.debug('psychro:init canvas appended', {
+      /* console.debug('psychro:init canvas appended', {
         containerRect: containerEl.getBoundingClientRect ? containerEl.getBoundingClientRect() : null,
         canvasClass: canvas.className,
         canvasStyle: window.getComputedStyle ? window.getComputedStyle(canvas) : null
-      });
+      }); */
     } catch (e) {
-      console.debug('psychro:init debug failed', e);
+      // console.debug('psychro:init debug failed', e);
     }
 
     // Get DPR (device pixel ratio) with cap
@@ -156,6 +156,8 @@ export function createPsychroRenderer(containerEl, options = {}) {
       offscreenCanvas.height = height * dpr;
     }
     if (offscreenCtx) {
+      // Reset transform to avoid cumulative scaling on repeated resizes
+      try { offscreenCtx.setTransform(1, 0, 0, 1, 0, 0); } catch (e) { /* ignore */ }
       offscreenCtx.scale(dpr, dpr);
     }
 
@@ -170,8 +172,15 @@ export function createPsychroRenderer(containerEl, options = {}) {
    * @returns {Object} Canvas coordinates {x, y}
    */
   function psychroToCanvas(T, W) {
-    const x = ((T - opts.Tmin) / (opts.Tmax - opts.Tmin)) * width;
-    const y = height - (W / opts.Wmax) * height;
+    let x = ((T - opts.Tmin) / (opts.Tmax - opts.Tmin)) * width;
+    let y = height - (W / opts.Wmax) * height;
+    
+    if (!isFinite(x) || !isFinite(y)) {
+    }
+    // clamp to pixel bounds with 0.5px padding
+    x = Math.max(0.5, Math.min(x, width - 0.5));
+    y = Math.max(0.5, Math.min(y, height - 0.5));
+    
     return { x, y };
   }
 
@@ -216,14 +225,14 @@ export function createPsychroRenderer(containerEl, options = {}) {
       const T = opts.Tmin + (opts.Tmax - opts.Tmin) * (i / opts.samplingN);
       const W = W_from_RH_T(RH, T, opts.p);
       
-      if (W <= opts.Wmax) {
-        const point = psychroToCanvas(T, W);
-        if (firstPoint) {
-          path.moveTo(point.x, point.y);
-          firstPoint = false;
-        } else {
-          path.lineTo(point.x, point.y);
-        }
+      // Clamp W to avoid mapping outside viewport
+      const Wclamped = Math.min(W, opts.Wmax * 1.000001); // tiny epsilon to avoid fp issues
+      const point = psychroToCanvas(T, Wclamped);
+      if (firstPoint) {
+        path.moveTo(point.x, point.y);
+        firstPoint = false;
+      } else {
+        path.lineTo(point.x, point.y);
       }
     }
     return path;
@@ -244,8 +253,10 @@ export function createPsychroRenderer(containerEl, options = {}) {
       // Solve for W from enthalpy equation: h = 1.006*T + W*(2501 + 1.86*T)
       const W = (h - 1.006 * T) / (2501 + 1.86 * T);
       
-      if (W > 0 && W <= opts.Wmax) {
-        const point = psychroToCanvas(T, W);
+      if (W > 0) {
+        // Clamp W to avoid mapping outside viewport
+        const Wclamped = Math.min(W, opts.Wmax * 1.000001); // tiny epsilon to avoid fp issues
+        const point = psychroToCanvas(T, Wclamped);
         if (firstPoint) {
           path.moveTo(point.x, point.y);
           firstPoint = false;
@@ -281,7 +292,12 @@ export function createPsychroRenderer(containerEl, options = {}) {
             const W = (typeof W_from_RH_T === 'function') ? W_from_RH_T(RH / 100, T, opts.p) : null;
             // If conversion failed, treat second value as W-like (but zones store RH)
             // We map using psychroToCanvas which expects T and W (humidity ratio)
-            const canvasPt = (typeof W === 'number' && Number.isFinite(W)) ? psychroToCanvas(T, W) : psychroToCanvas(T, Math.max(0, opts.Wmax * 0.5));
+            // clamp zone W values to viewport W range to avoid path coordinates outside canvas
+            const Wclamped = (typeof W === 'number' && Number.isFinite(W)) ? Math.min(W, opts.Wmax * 1.000001) : null;
+            if (typeof W === 'number' && Wclamped !== null && W > opts.Wmax) {
+              // warn for zone definition exceeding viewport W and being clamped
+            }
+            const canvasPt = (Wclamped !== null) ? psychroToCanvas(T, Wclamped) : psychroToCanvas(T, Math.max(0, opts.Wmax * 0.5));
             if (first) {
               path.moveTo(canvasPt.x, canvasPt.y);
               first = false;
@@ -308,12 +324,12 @@ export function createPsychroRenderer(containerEl, options = {}) {
             offscreenCtx.stroke(path);
           } catch (e) {
             // ignore drawing errors per-zone
-            console.debug('psychro:zone draw failed for', zone && zone.id, e);
+            // console.debug('psychro:zone draw failed for', zone && zone.id, e);
           }
         }
         offscreenCtx.restore();
       } catch (e) {
-        console.debug('psychro:drawZones failed', e);
+        // console.debug('psychro:drawZones failed', e);
       }
 
     // Set styles
@@ -362,7 +378,7 @@ export function createPsychroRenderer(containerEl, options = {}) {
     try {
       ctx.drawImage(offscreenCanvas, 0, 0, width, height);
     } catch (e) {
-      console.debug('psychro:drawImage failed', e);
+      // console.debug('psychro:drawImage failed', e);
     }
     
     // Draw labels on the visible canvas
@@ -376,7 +392,7 @@ export function createPsychroRenderer(containerEl, options = {}) {
     // debug: log that labels routine is running and key values
     try {
       const debugInfo = { dpr: window.devicePixelRatio || 1, width, height, Tmin: opts.Tmin, Tmax: opts.Tmax, Wmax: opts.Wmax };
-      console.debug('psychro:drawLabels start', debugInfo);
+      // console.debug('psychro:drawLabels start', debugInfo);
 
       // compute a few sample positions to verify psychroToCanvas mapping
       const sampleT1 = Math.ceil(opts.Tmin/5)*5;
@@ -384,9 +400,9 @@ export function createPsychroRenderer(containerEl, options = {}) {
       const p1 = psychroToCanvas(sampleT1, sampleW);
       const sampleTn = Math.max(opts.Tmin, opts.Tmax - 2);
       const sampleWrh = (typeof W_from_RH_T === 'function') ? W_from_RH_T(0.9, sampleTn, opts.p) : null;
-      console.debug('psychro:drawLabels samplePositions', { sampleT1, p1, sampleTn, sampleWrh });
+      // console.debug('psychro:drawLabels samplePositions', { sampleT1, p1, sampleTn, sampleWrh });
     } catch (e) {
-      console.debug('psychro:drawLabels debug failed', e);
+      // console.debug('psychro:drawLabels debug failed', e);
     }
 
     const dpr = Math.max(1, window.devicePixelRatio || 1);
@@ -409,7 +425,7 @@ export function createPsychroRenderer(containerEl, options = {}) {
       const p = psychroToCanvas(T, sampleW);
       const labelY = Math.min(height - 8 * dpr, Math.max(8 * dpr, p.y + 10 * dpr));
       if (T === Math.ceil(opts.Tmin/5)*5) {
-        console.debug('psychro:label temp sample', { T, x: p.x, y: p.y, labelY });
+        // console.debug('psychro:label temp sample', { T, x: p.x, y: p.y, labelY });
       }
       ctx.lineWidth = Math.max(2, Math.round(3 * dpr));
       ctx.strokeText(`${T}°C`, p.x, labelY);
@@ -460,7 +476,7 @@ export function createPsychroRenderer(containerEl, options = {}) {
       const p = psychroToCanvas(sampleT, sampleW);
       const ox = Math.min(width - 6 * dpr, p.x + 6 * dpr);
       if (Math.abs(rh - 0.1) < 1e-12) {
-        console.debug('psychro:label RH sample', { rh, sampleT, sampleW, p, ox });
+        // console.debug('psychro:label RH sample', { rh, sampleT, sampleW, p, ox });
       }
       const label = `${Math.round(rh * 100)}%`;
       ctx.lineWidth = Math.max(2, Math.round(3 * dpr));
@@ -480,17 +496,55 @@ export function createPsychroRenderer(containerEl, options = {}) {
 
   // If incoming points contain W values > current opts.Wmax, expand Wmax and re-render background
   try {
+    // Log all data points to understand what we're working with
+    
+    // Check for any points that exceed current Wmax directly
+    const pointsExceedingWmax = dataPoints.filter(p => p && typeof p.W === 'number' && p.W > opts.Wmax);
     const maxWInPoints = dataDataMaxW(dataPoints);
-    if (maxWInPoints > opts.Wmax) {
-      // bump Wmax a bit above the observed maximum to provide margin
-      opts.Wmax = Math.max(opts.Wmax, maxWInPoints * 1.1);
+    
+    // Log a few sample W values to understand the data
+    if (dataPoints.length > 0) {
+      const sampleWs = dataPoints.slice(0, 5).map(p => p.W);
+    }
+    
+    // Use the maximum of both calculations to ensure we catch all high W values
+    const actualMaxW = Math.max(maxWInPoints, pointsExceedingWmax.length > 0 ? Math.max(...pointsExceedingWmax.map(p => p.W)) : 0);
+    const targetWmax = Math.max(opts.Wmax, actualMaxW * 1.2);
+    
+    if (targetWmax > opts.Wmax) {
+      const oldWmax = opts.Wmax;
+      opts.Wmax = targetWmax;
       // clear cache so curves are re-generated with new Wmax
       curveCache.clear();
       renderBackground();
+    } else {
     }
   } catch (e) {
-    console.debug('psychro:renderDataPoints Wmax adjust failed', e);
+    // console.debug('psychro:renderDataPoints Wmax adjust failed', e);
   }
+
+    // Also consider auto-scaling for temperature range if points go outside current Tmin/Tmax
+    try {
+      const validTs = dataPoints.filter(p => p && typeof p.T === 'number' && Number.isFinite(p.T)).map(p => p.T);
+      if (validTs.length > 0) {
+        const minT = Math.min(...validTs);
+        const maxT = Math.max(...validTs);
+        // add a small margin to avoid points sitting exactly at the edge
+        const marginT = (opts.Tmax - opts.Tmin) * 0.05;
+        const desiredTmin = Math.min(opts.Tmin, minT - marginT);
+        const desiredTmax = Math.max(opts.Tmax, maxT + marginT);
+        if (desiredTmin !== opts.Tmin || desiredTmax !== opts.Tmax) {
+          const oldTmin = opts.Tmin, oldTmax = opts.Tmax;
+          opts.Tmin = desiredTmin;
+          opts.Tmax = desiredTmax;
+          curveCache.clear();
+          renderBackground();
+        }
+      }
+    } catch (e) {
+      // don't let temperature autoscale failure break rendering
+      // console.debug('psychro:autoscale Tmin/Tmax failed', e);
+    }
 
   // Throttle based on point count
   const useThrottle = dataPoints.length > opts.rafThrottleThreshold;
@@ -498,6 +552,10 @@ export function createPsychroRenderer(containerEl, options = {}) {
   const frameInterval = 1000 / targetFPS;
 
   const render = (timestamp) => {
+    // Support being called without a timestamp (manual call path) by using current time
+    if (typeof timestamp !== 'number' || !isFinite(timestamp)) {
+      timestamp = performance && typeof performance.now === 'function' ? performance.now() : Date.now();
+    }
     if (timestamp - lastFrameTime >= frameInterval) {
       // Redraw background
       ctx.clearRect(0, 0, width, height);
@@ -508,16 +566,29 @@ export function createPsychroRenderer(containerEl, options = {}) {
 
       // Draw points (skip points outside visible W range)
       ctx.fillStyle = '#ff4444';
-      dataPoints.forEach(point => {
-        if (!point || typeof point.T !== 'number' || typeof point.W !== 'number') return;
-        if (!Number.isFinite(point.W) || point.W < 0) return;
-        // skip points that would be outside the visible area (defensive)
-        if (point.W > opts.Wmax) return;
-        const canvasPoint = psychroToCanvas(point.T, point.W);
+      dataPoints.forEach((point, i) => {
+        if (!point || typeof point.T !== 'number' || typeof point.W !== 'number') {
+          return;
+        }
+        if (!Number.isFinite(point.W) || point.W < 0) {
+          return;
+        }
+        
+        // Log all points to understand the data
+        
+        // Note: clamp W instead of dropping points to avoid hiding valid cold/high-RH points
+        // Do not drop points — clamp W to visible range to avoid mapping outside viewport.
+        const Wclamped = Math.min(point.W, opts.Wmax * 1.000001); // tiny epsilon to avoid fp issues
+        const canvasPoint = psychroToCanvas(point.T, Wclamped);
+        const { x, y } = canvasPoint;
+        const rSafe = (typeof r !== 'undefined' && r > 0) ? r : 2; // guarantee visible size
+        const fillSafe = (typeof fill !== 'undefined' && fill) ? fill : '#333';
+        const opacitySafe = (typeof opacity !== 'undefined') ? opacity : 1;
+        const className = 'data-point';
         // ensure point is inside canvas bounds
         if (canvasPoint.x < -10 || canvasPoint.x > width + 10 || canvasPoint.y < -10 || canvasPoint.y > height + 10) return;
         ctx.beginPath();
-        ctx.arc(canvasPoint.x, canvasPoint.y, 4, 0, 2 * Math.PI);
+        ctx.arc(canvasPoint.x, canvasPoint.y, rSafe, 0, 2 * Math.PI);
         ctx.fill();
       });
 
@@ -537,7 +608,9 @@ export function createPsychroRenderer(containerEl, options = {}) {
   if (useThrottle) {
     rafId = requestAnimationFrame(render);
   } else {
-    render(0);
+    // Call render immediately with a proper high-resolution timestamp so the
+    // initial draw is executed (guard for the timestamp check inside render).
+    render(performance && typeof performance.now === 'function' ? performance.now() : Date.now());
   }
 }
 

@@ -66,7 +66,9 @@ Key components:
 - [`web/src/components/TimeSeriesChart.svelte`](web/src/components/TimeSeriesChart.svelte:1) — Time-series charts
 - [`web/src/utils/dataProcessor.js`](web/src/utils/dataProcessor.js:1) — Streaming CSV parsing & aggregation logic
 - [`web/src/utils/timeSeriesAggregator.js`](web/src/utils/timeSeriesAggregator.js:1) — Aggregation helpers
-- [`web/src/stores/uiStore.js`](web/src/stores/uiStore.js:1) — App state stores
++ [`web/src/stores/fileStore.js`](web/src/stores/fileStore.js:1) — Canonical file and UI store
+  
+> Note: The app now uses `fileStore` as the single source-of-truth for file data, parsed rows, mapping configuration, and results. Any previous reference to `uiStore` has been removed and code should import from `fileStore` instead.
 
 ## CSV expectations
 - A timestamp column (auto-detected by names containing "time", "date", "datetime")
