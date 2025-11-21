@@ -1,192 +1,177 @@
-import { writable, derived } from 'svelte/store';
-import { normalizeOpenMeteoToFileData, parseCsvStream } from '../utils/dataProcessor.js';
+import { writable, derived, readonly, get } from 'svelte/store';
 
 /**
- * Initial state for file data
+ * @typedef {Object} Snapshot
+ * @property {Object} raw - Raw file data
+ * @property {File|null} raw.file - The uploaded file object
+ * @property {string[]} raw.headerFields - Array of column header names
+ * @property {any[]} raw.sampleRows - Sample rows from the file
+ * @property {boolean|null} raw.dayFirst - Whether dates are in day-first format
+ * @property {any|null} raw.dataSpanInfo - Information about data span/range
+ * @property {any|null} raw.aggregationResult - Result of data aggregation
+ * @property {Object} meta - Metadata about the state
+ * @property {string[]} meta.requestIds - Array of active request IDs
+ * @property {number} meta.loadingCount - Number of active loading operations
+ * @property {any|null} meta.lastError - Last error that occurred
+ * @property {any} [derived] - Optional place for cached derived values
  */
-const initialState = {
-  file: null,
-  headerFields: [],
-  sampleRows: [],
-  dayFirst: null,
-  dataSpanInfo: null,
-  aggregationResult: null
-};
 
 /**
- * Writable store for file data
- * @type {import('svelte/store').Writable<Object>}
+ * Creates a fresh initial state for the file store
+ * @returns {Snapshot} A new snapshot object with initial state
  */
-export const fileData = writable(initialState);
+function makeInitialState() {
+  return {
+    raw: {
+      file: null,
+      headerFields: [],
+      sampleRows: [],
+      dayFirst: null,
+      dataSpanInfo: null,
+      aggregationResult: null
+    },
+    meta: {
+      requestIds: [],
+      loadingCount: 0,
+      lastError: null
+    },
+    derived: undefined // Optional place for cached derived values
+  };
+}
 
 /**
- * Writable store for loading state
- * @type {import('svelte/store').Writable<boolean>}
+ * Factory function to create a file store
+ * @returns {Object} A file store object with methods and Svelte store interface
  */
-export const loading = writable(false);
+export function createFileStore() {
+  // Internal writable store to hold the canonical snapshot
+  const internalStore = writable(makeInitialState());
 
-/**
- * Writable store for error state
- * @type {import('svelte/store').Writable<string>}
- */
-export const error = writable('');
+  /**
+   * Internal helper to atomically update the snapshot
+   * @param {Snapshot} newSnapshot - The new snapshot to set
+   */
+  function commit(newSnapshot) {
+    internalStore.set(newSnapshot);
+  }
 
-/**
- * Derived store to check if file data is available
- * @type {import('svelte/store').Derived<boolean>}
- */
-export const hasFileData = derived(
-  fileData,
-  $fileData => $fileData && $fileData.file && $fileData.headerFields && $fileData.headerFields.length > 0
+  /**
+   * Gets the current snapshot synchronously
+   * @returns {Snapshot} The current snapshot
+   */
+  function getSnapshot() {
+    return get(internalStore);
+  }
+
+  /**
+   * Resets the store to a fresh initial state
+   */
+  function reset() {
+    commit(makeInitialState());
+  }
+
+  /**
+   * Fetches remote data - placeholder implementation
+   * @param {...any} args - Arguments for the fetch operation
+   * @returns {Promise<never>} Promise that rejects with "Not implemented in PR2"
+   */
+  async function fetchRemote(...args) {
+    return Promise.reject(new Error('fetchRemote: Not implemented in PR2'));
+  }
+
+  /**
+   * Loads data from CSV - placeholder implementation
+   * @param {...any} args - Arguments for the CSV loading operation
+   * @returns {Promise<never>} Promise that rejects with "Not implemented in PR2"
+   */
+  async function loadFromCsv(...args) {
+    return Promise.reject(new Error('loadFromCsv: Not implemented in PR2'));
+  }
+
+  /**
+   * Cancels a request - placeholder implementation
+   * @param {string} requestId - The ID of the request to cancel
+   * @returns {boolean} Always returns false in this placeholder implementation
+   */
+  function cancel(requestId) {
+    return false;
+  }
+
+  // Return the store object with Svelte store interface and methods
+  return {
+    // Svelte store interface
+    subscribe: internalStore.subscribe,
+    
+    // Methods
+    getSnapshot,
+    reset,
+    fetchRemote,
+    loadFromCsv,
+    cancel
+  };
+}
+
+// Create the default shared instance
+export const fileStore = createFileStore();
+
+// Legacy shims with deprecation warnings
+let fileDataWarned = false;
+let loadingWarned = false;
+let errorWarned = false;
+
+// Legacy fileData shim - readonly derived store pointing to snapshot.raw
+export const fileData = readonly(
+  derived(
+    fileStore,
+    ($fileStore) => {
+      if (!fileDataWarned) {
+        console.warn('fileData is deprecated. Use fileStore.getSnapshot().raw instead.');
+        fileDataWarned = true;
+      }
+      return $fileStore.raw;
+    }
+  )
 );
 
-/**
- * Derived store to check if aggregation result is available
- * @type {import('svelte/store').Derived<boolean>}
- */
-export const hasAggregationResult = derived(
-  fileData,
-  $fileData => $fileData && $fileData.aggregationResult
+// Legacy loading shim - readonly derived store pointing to snapshot.meta.loadingCount > 0
+export const loading = readonly(
+  derived(
+    fileStore,
+    ($fileStore) => {
+      if (!loadingWarned) {
+        console.warn('loading is deprecated. Use fileStore.getSnapshot().meta.loadingCount > 0 instead.');
+        loadingWarned = true;
+      }
+      return $fileStore.meta.loadingCount > 0;
+    }
+  )
 );
 
-/**
- * Fetch data from Open-Meteo API and normalize it
- * @param {Object} params - Parameters for the API call
- * @param {string} params.url - Direct API URL (optional if using other params)
- * @param {number} params.latitude - Latitude (optional if using url)
- * @param {number} params.longitude - Longitude (optional if using url)
- * @param {string} params.start_date - Start date in YYYY-MM-DD format (optional if using url)
- * @param {string} params.end_date - End date in YYYY-MM-DD format (optional if using url)
- * @param {string} params.hourly - Comma-separated list of hourly variables (optional if using url)
- * @param {string} params.format - Output format ('csv' or 'json', default: 'csv')
- * @returns {Promise<void>}
- */
-export async function fetchOpenMeteo(params) {
-  loading.set(true);
-  error.set('');
-  
-  try {
-    let targetUrl;
-    
-    if (params.url) {
-      targetUrl = params.url;
-    } else {
-      // Build URL from parameters
-      const baseUrl = 'https://archive-api.open-meteo.com/v1/archive';
-      const urlParams = new URLSearchParams({
-        latitude: params.latitude,
-        longitude: params.longitude,
-        start_date: params.start_date,
-        end_date: params.end_date,
-        hourly: params.hourly
-      });
-      targetUrl = `${baseUrl}?${urlParams.toString()}`;
+// Legacy error shim - readonly derived store pointing to snapshot.meta.lastError
+export const error = readonly(
+  derived(
+    fileStore,
+    ($fileStore) => {
+      if (!errorWarned) {
+        console.warn('error is deprecated. Use fileStore.getSnapshot().meta.lastError instead.');
+        errorWarned = true;
+      }
+      return $fileStore.meta.lastError;
     }
-    
-    const response = await fetch(targetUrl);
-    if (!response.ok) {
-      throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-    }
-    
-    const data = await response.json();
-    
-    // Generate filename based on date range
-    const startDate = params.start_date || data.hourly?.time?.[0]?.split('T')?.[0] || 'unknown';
-    const endDate = params.end_date || data.hourly?.time?.[data.hourly.time.length - 1]?.split('T')?.[0] || 'unknown';
-    const format = params.format || 'csv';
-    const filename = `open-meteo-${startDate}-${endDate}.${format}`;
-    
-    // Normalize the data using the utility function
-    const normalizedData = normalizeOpenMeteoToFileData(data, filename, format);
-    
-    // Update file data store
-    fileData.update(current => ({
-      ...current,
-      ...normalizedData
-    }));
-    
-    // TODO: Implement caching for repeated requests with same parameters
-    
-  } catch (err) {
-    error.set(`Failed to fetch data: ${err.message}`);
-    console.error('Open-Meteo fetch error:', err);
-  } finally {
-    loading.set(false);
+  )
+);
+
+// Test hook for unit tests - only available in development
+/**
+ * Test hook to directly commit a snapshot for testing purposes
+ * @param {Snapshot} snapshot - The snapshot to commit
+ * @private This should only be used in tests
+ */
+export function commitForTest(snapshot) {
+  if (process.env.NODE_ENV === 'development') {
+    const internalStore = writable(makeInitialState());
+    internalStore.set(snapshot);
+    return internalStore;
   }
+  throw new Error('commitForTest is only available in development mode');
 }
-
-/**
- * Load and parse a file from the UploadZone component
- * @param {File} file - File object from file input
- * @returns {Promise<void>}
- */
-export async function loadFile(file) {
-  loading.set(true);
-  error.set('');
-  
-  try {
-    // Parse the CSV file to extract header and sample data
-    const { headerFields, sampleRows, dayFirst, minDate, maxDate, totalDays } = await parseCsvStream(file, {
-      sampleRows: 50,
-      headerRowIndex: 0
-    });
-    
-    // Build data span info
-    const dataSpanInfo = {
-      totalRows: totalDays ? Math.round(totalDays * 24) : 0, // Estimate based on days
-      dateRange: minDate && maxDate ? {
-        start: minDate.toISOString(),
-        end: maxDate.toISOString()
-      } : null
-    };
-    
-    // Update file data store
-    fileData.update(current => ({
-      ...current,
-      file,
-      headerFields,
-      sampleRows,
-      dayFirst,
-      dataSpanInfo
-    }));
-    
-    // TODO: Implement file parsing for JSON files if needed
-    
-  } catch (err) {
-    error.set(`Failed to load file: ${err.message}`);
-    console.error('File load error:', err);
-  } finally {
-    loading.set(false);
-  }
-}
-
-/**
- * Update aggregation result in the file data store
- * @param {Object} result - Aggregation result from ProcessControls
- */
-export function updateAggregationResult(result) {
-  console.log('fileStore: updateAggregationResult called with:', result);
-  console.log('fileStore: psychrometricData length:', result?.psychrometricData?.length);
-  fileData.update(current => ({
-    ...current,
-    aggregationResult: result
-  }));
-}
-
-/**
- * Reset the file data store to initial state
- */
-export function resetFileData() {
-  fileData.set(initialState);
-  error.set('');
-}
-
-/**
- * TODO: Implement caching mechanism for API requests
- * This could use a Map or IndexedDB to store responses by URL/parameters
- */
-
-/**
- * TODO: Implement retry mechanism for failed requests
- * This could use exponential backoff and configurable retry limits
- */
