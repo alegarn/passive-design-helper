@@ -1,10 +1,14 @@
 <script>
   import { fileStore, isLoading, lastError } from '../stores/fileStore.js';
+  import { cities } from '../data/cities.js';
   
   // Form state
   let url = $state('https://archive-api.open-meteo.com/v1/archive?latitude=52.52&longitude=13.41&start_date=2025-11-16&end_date=2025-11-17&hourly=temperature_2m,relative_humidity_2m');
   let lat = $state('52.52');
   let lon = $state('13.41');
+  let selectedCity = $state('');
+  let selectedCityName = $state('');
+  let showMap = $state(false);
   let startDate = $state('2025-11-16');
   let endDate = $state('2025-11-17');
   let hourly = $state('temperature_2m,relative_humidity_2m');
@@ -112,6 +116,44 @@ async function fetchAndDownload() {
       fileStore.fetchRemote(params);
     }
   }
+
+  // When a city is selected, update the lat/lon fields
+  function selectCity() {
+    if (!selectedCityName) return;
+    const city = cities.find(c => c.name === selectedCityName);
+    if (city) {
+      // store lat/lon as strings to preserve exact input format and binding behavior
+      lat = String(Number(city.lat).toFixed(6));
+      lon = String(Number(city.lon).toFixed(6));
+      selectedCity = city;
+      // If we are in params mode, automatically update the URL preview
+      if (useParams) url = buildUrl();
+    }
+  }
+
+  function openInMap() {
+    const mapLat = encodeURIComponent(lat || 0);
+    const mapLon = encodeURIComponent(lon || 0);
+    const url = `https://www.openstreetmap.org/?mlat=${mapLat}&mlon=${mapLon}#map=10/${mapLat}/${mapLon}`;
+    window.open(url, '_blank');
+  }
+
+  function toggleMap() {
+    showMap = !showMap;
+  }
+
+  // Clear selected city when user manually edits lat/lon inputs (avoids $effect and keeps logic local)
+  function handleManualCoordinateChange() {
+    if (!selectedCity) return;
+    const currentLat = lat ? Number(lat).toFixed(6) : '';
+    const currentLon = lon ? Number(lon).toFixed(6) : '';
+    const cityLat = selectedCity && selectedCity.lat ? Number(selectedCity.lat).toFixed(6) : '';
+    const cityLon = selectedCity && selectedCity.lon ? Number(selectedCity.lon).toFixed(6) : '';
+    if (currentLat !== cityLat || currentLon !== cityLon) {
+      selectedCityName = '';
+      selectedCity = '';
+    }
+  }
   
 </script>
 
@@ -150,12 +192,16 @@ async function fetchAndDownload() {
     <div class="params-grid">
       <div class="form-group">
         <label for="lat">Latitude:</label>
-        <input id="lat" type="number" step="any" bind:value={lat} />
+        <input id="lat" type="number" step="any" bind:value={lat} oninput={handleManualCoordinateChange} />
+        <button type="button" class="map-inline-btn" onclick={openInMap} title="Open lat/lon in OpenStreetMap">Open in map</button>
+        <button type="button" class="map-inline-btn" onclick={toggleMap} title="Toggle inline map preview">Preview map</button>
       </div>
       
       <div class="form-group">
         <label for="lon">Longitude:</label>
-        <input id="lon" type="number" step="any" bind:value={lon} />
+        <input id="lon" type="number" step="any" bind:value={lon} oninput={handleManualCoordinateChange} />
+        <button type="button" class="map-inline-btn" onclick={openInMap} title="Open lat/lon in OpenStreetMap">Open in map</button>
+        <button type="button" class="map-inline-btn" onclick={toggleMap} title="Toggle inline map preview">Preview map</button>
       </div>
       
       <div class="form-group">
@@ -177,6 +223,16 @@ async function fetchAndDownload() {
           placeholder="temperature_2m,relative_humidity_2m"
         />
       </div>
+
+      <div class="form-group">
+        <label for="citySelect">City (choose to update coordinates):</label>
+        <select id="citySelect" bind:value={selectedCityName} onchange={selectCity}>
+          <option value="">-- Custom / Select city --</option>
+          {#each cities as city}
+            <option value={city.name}>{city.name}</option>
+          {/each}
+        </select>
+      </div>
       
       <div class="form-group">
         <label for="format">Format:</label>
@@ -190,6 +246,23 @@ async function fetchAndDownload() {
     <div class="url-preview">
       <label for="previewUrl">Generated URL:</label>
       <input id="previewUrl" type="url" value={url} readonly class="preview-url" />
+    </div>
+  {/if}
+
+  {#if showMap}
+    <div class="map-preview">
+      <div class="map-header">
+        <div>Map preview — centered on: {lat}, {lon}</div>
+        <button type="button" class="map-inline-btn" onclick={toggleMap}>Close</button>
+      </div>
+      <iframe
+        title="OpenStreetMap preview"
+        src={`https://www.openstreetmap.org/export/embed.html?bbox=${Number(lon) - 0.6},${Number(lat) - 0.3},${Number(lon) + 0.6},${Number(lat) + 0.3}&layer=mapnik&marker=${lat},${lon}`}
+        width="100%"
+        height="350"
+        frameborder="0"
+        style="border: 1px solid var(--border-color, #dee2e6); border-radius: 4px;"
+      ></iframe>
     </div>
   {/if}
   
@@ -327,6 +400,17 @@ async function fetchAndDownload() {
   .fetch-btn.loading {
     background: var(--secondary-color, #6c757d);
   }
+
+  .map-inline-btn {
+    margin-top: 0.4rem;
+    margin-left: 0.5rem;
+    padding: 0.35rem 0.45rem;
+    font-size: 0.8rem;
+    border-radius: 4px;
+    border: 1px solid var(--border-color, #dee2e6);
+    background: var(--button-bg, #f8f9fa);
+    cursor: pointer;
+  }
   
   .error-message {
     background: #f8d7da;
@@ -344,5 +428,16 @@ async function fetchAndDownload() {
     border-radius: 4px;
     margin-top: 1rem;
     border: 1px solid #c3e6cb;
+  }
+
+  .map-preview {
+    margin-top: 1rem;
+  }
+
+  .map-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 0.5rem;
   }
 </style>
