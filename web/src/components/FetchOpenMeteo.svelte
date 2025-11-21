@@ -33,65 +33,61 @@
     return `${baseUrl}?${params.toString()}`;
   }
   
-  // Fetch data and trigger download
-  async function fetchAndDownload() {
-    success = '';
-    
-    try {
-      const params = useParams ? {
-        latitude: lat,
-        longitude: lon,
-        start_date: startDate,
-        end_date: endDate,
-        hourly: hourly,
-        format: format
-      } : {
-        url: url,
-        format: format
-      };
-      
-      // Use the new fileStore API - get the normalized data result
-      const requestInfo = fileStore.fetchRemote(params);
-      console.debug('FetchOpenMeteo: requestInfo from fileStore.fetchRemote:', requestInfo);
-      const { result, rawPayload } = await requestInfo;
-      console.debug('FetchOpenMeteo: result and rawPayload destructured from promise:', { result, rawPayload });
-      
-      // Generate filename for download
-      const filename = `open-meteo-${startDate}-${endDate}.${format}`;
-      
-      // Use the raw payload from the store result for download
-      let content;
-      let mimeType;
-      
-      if (format === 'csv') {
-        // Import jsonToCsv from dataProcessor
-        const { jsonToCsv } = await import('../utils/dataProcessor.js');
-        content = jsonToCsv(rawPayload);
-        mimeType = 'text/csv';
-      } else {
-        content = JSON.stringify(rawPayload, null, 2);
-        mimeType = 'application/json';
-      }
-      
-      // Create blob and trigger download
-      const blob = new Blob([content], { type: mimeType });
-      const downloadUrl = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = downloadUrl;
-      a.download = filename;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      URL.revokeObjectURL(downloadUrl);
-      
-      const recordCount = result.hourly?.time?.length || 0;
-      success = `Downloaded ${recordCount} records to ${filename}`;
-      
-    } catch (err) {
-      // Error is already handled by the store, but we can add additional UI feedback if needed
-      console.error('Fetch error in component:', err);
+async function fetchAndDownload() {
+  success = '';
+
+  try {
+    // Ensure we always pass a concrete URL to the store and request JSON from the API.
+    // The component still allows the user to download JSON or CSV, but the store
+    // needs a parsed JSON payload for column/header detection.
+    const finalUrl = useParams ? buildUrl() : url;
+    const params = {
+      url: finalUrl,
+      format: 'json' // always fetch JSON so normalizer can extract headers/samples
+    };
+
+    // Use the new fileStore API - get the normalized data result
+    const requestInfo = fileStore.fetchRemote(params);
+    console.debug('FetchOpenMeteo: requestInfo from fileStore.fetchRemote:', requestInfo);
+    const { result, rawPayload } = await requestInfo;
+    console.debug('FetchOpenMeteo: result and rawPayload destructured from promise:', { result, rawPayload });
+
+    // Generate filename for download (use selected output format)
+    const filename = `open-meteo-${startDate}-${endDate}.${format}`;
+
+    // Prepare download content according to user's chosen format
+    let content;
+    let mimeType;
+
+    if (format === 'csv') {
+      // Convert the JSON payload to CSV for download, but keep the store working with JSON
+      const { jsonToCsv } = await import('../utils/dataProcessor.js');
+      content = jsonToCsv(rawPayload);
+      mimeType = 'text/csv';
+    } else {
+      content = JSON.stringify(rawPayload, null, 2);
+      mimeType = 'application/json';
     }
+
+    // Create blob and trigger download
+    const blob = new Blob([content], { type: mimeType });
+    const downloadUrl = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = downloadUrl;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(downloadUrl);
+
+    const recordCount = result?.hourly?.time?.length || 0;
+    success = `Downloaded ${recordCount} records to ${filename}`;
+
+  } catch (err) {
+    // Error is already handled by the store, but we can add additional UI feedback if needed
+    console.error('Fetch error in component:', err);
   }
+}
   
   
   // Update URL when parameters change (if in parameter mode)

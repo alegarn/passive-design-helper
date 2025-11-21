@@ -135,14 +135,19 @@ export function createFileStore() {
             throw new Error(`HTTP ${response.status}: ${response.statusText}`);
           }
           
-          // Parse response based on format
+          // Parse response as JSON (Open-Meteo returns JSON).
+          // We always parse JSON so the normalizer gets structured data,
+          // but we allow the caller to request the normalized file format
+          // (csv or json) via params.format.
           let payload;
-          const format = params.format || 'json';
-          if (format === 'json') {
+          try {
             payload = await response.json();
-          } else {
+          } catch (parseErr) {
+            // If parsing fails, fall back to text to preserve raw payload for debugging
+            console.debug('fileStore.fetchRemote: response.json() failed, falling back to text:', parseErr);
             payload = await response.text();
           }
+          const requestedOutputFormat = params.format || 'json';
           
           // Normalize the fetched payload using available normalizer
           let normalizedData;
@@ -150,6 +155,16 @@ export function createFileStore() {
             // Try to use OpenMeteo normalizer first
             const filename = `remote_data.${format}`;
             normalizedData = normalizeOpenMeteoToFileData(payload, filename, format);
+
+            // Debug: show normalized keys so UI can inspect header detection
+            try {
+              console.debug('fileStore.fetchRemote: normalizedData keys:', Object.keys(normalizedData || {}));
+              console.debug('fileStore.fetchRemote: normalizedData.headerFields:', normalizedData.headerFields);
+              console.debug('fileStore.fetchRemote: normalizedData.sampleRows (first 3):', (normalizedData.sampleRows || []).slice(0,3));
+              console.debug('fileStore.fetchRemote: normalizedData.file:', normalizedData.file && { name: normalizedData.file.name, type: normalizedData.file.type });
+            } catch (dbgErr) {
+              console.debug('fileStore.fetchRemote: debug logging failed:', dbgErr);
+            }
           } catch (e) {
             // Fallback: use raw payload as aggregationResult
             console.debug('Normalizer failed, using raw payload:', e);
@@ -177,6 +192,15 @@ export function createFileStore() {
             }
           };
           commit(successSnapshot);
+
+          // Debug: confirm what was committed so ProcessControls can rely on it
+          try {
+            console.debug('fileStore.fetchRemote: committed successSnapshot.raw.headerFields:', successSnapshot.raw.headerFields);
+            console.debug('fileStore.fetchRemote: committed successSnapshot.raw.file:', successSnapshot.raw.file && { name: successSnapshot.raw.file.name, type: successSnapshot.raw.file.type });
+            console.debug('fileStore.fetchRemote: committed successSnapshot.raw.sampleRows (first 2):', (successSnapshot.raw.sampleRows || []).slice(0,2));
+          } catch (dbgErr) {
+            console.debug('fileStore.fetchRemote: post-commit debug failed:', dbgErr);
+          }
           
           // Return the normalized data and raw payload for component use (download, preview)
           return { currentRequestId, result: normalizedData.aggregationResult || normalizedData, rawPayload: payload };

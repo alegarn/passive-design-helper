@@ -411,22 +411,70 @@ export async function aggregateCsvStream(file, classifyRow, options = {}) {
     headerRowIndex
   });
   
-  // Detect column indices
-  const timeCol = headerFields.findIndex(h =>
-    h.toLowerCase().includes('time') ||
-    h.toLowerCase().includes('date') ||
-    h.toLowerCase().includes('datetime')
-  );
-  const tempCol = headerFields.findIndex(h =>
-    h.toLowerCase().includes('temp') ||
-    h.toLowerCase().includes('temperature')
-  );
-  const rhCol = headerFields.findIndex(h =>
-    h.toLowerCase().includes('rh') ||
-    h.toLowerCase().includes('humidity')
-  );
+  // Detect column indices with support for caller-provided exact column names.
+  // Accept options.timeColumn / options.tempColumn / options.rhColumn as explicit overrides.
+  const userTimeColName = options.timeColumn || options.timeColumnName || null;
+  const userTempColName = options.tempColumn || options.tempColumnName || null;
+  const userRhColName = options.rhColumn || options.rhColumnName || null;
+  
+  function findHeaderIndexByName(headerName) {
+    if (!headerName) return -1;
+    const lower = headerName.toLowerCase();
+    // Try exact match first
+    let idx = headerFields.findIndex(h => h.toLowerCase() === lower);
+    if (idx !== -1) return idx;
+    // Fallback: contains match (preserve previous behavior)
+    idx = headerFields.findIndex(h => h.toLowerCase().includes(lower));
+    return idx;
+  }
+  
+  // Resolve time column
+  let timeCol = -1;
+  if (userTimeColName) {
+    timeCol = findHeaderIndexByName(userTimeColName);
+  }
+  if (timeCol === -1) {
+    timeCol = headerFields.findIndex(h =>
+      h.toLowerCase().includes('time') ||
+      h.toLowerCase().includes('date') ||
+      h.toLowerCase().includes('datetime')
+    );
+  }
+  
+  // Resolve temperature column
+  let tempCol = -1;
+  if (userTempColName) {
+    tempCol = findHeaderIndexByName(userTempColName);
+  }
+  if (tempCol === -1) {
+    tempCol = headerFields.findIndex(h =>
+      h.toLowerCase().includes('temp') ||
+      h.toLowerCase().includes('temperature')
+    );
+  }
+  
+  // Resolve humidity column
+  let rhCol = -1;
+  if (userRhColName) {
+    rhCol = findHeaderIndexByName(userRhColName);
+  }
+  if (rhCol === -1) {
+    rhCol = headerFields.findIndex(h =>
+      h.toLowerCase().includes('rh') ||
+      h.toLowerCase().includes('humidity')
+    );
+  }
   
   if (timeCol === -1 || tempCol === -1 || rhCol === -1) {
+    // Provide richer error for debugging
+    const found = {
+      timeCol: timeCol === -1 ? null : headerFields[timeCol],
+      tempCol: tempCol === -1 ? null : headerFields[tempCol],
+      rhCol: rhCol === -1 ? null : headerFields[rhCol]
+    };
+    console.debug('aggregateCsvStream: headerFields=', headerFields);
+    console.debug('aggregateCsvStream: user overrides=', { userTimeColName, userTempColName, userRhColName });
+    console.debug('aggregateCsvStream: resolved columns=', found);
     throw new Error('Required columns (time, temperature, humidity) not found in CSV');
   }
   

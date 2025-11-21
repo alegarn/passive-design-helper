@@ -32,7 +32,7 @@
 <main>
   <FetchOpenMeteo />
   
-  <UploadZone on:fileparsed={handleFileParsed} on:processremotedata={handleProcessRemoteData} />
+  <UploadZone on:fileparsed={handleFileParsed} />
   
   {#if $fileStore.raw.file && $fileStore.raw.headerFields}
     <ProcessControls
