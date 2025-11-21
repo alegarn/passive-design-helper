@@ -43,7 +43,7 @@ function updateInFlightStore() {
  * Start a new request with optional deduplication
  * @param {Object} options - Request options
  * @param {string} [options.dedupeKey] - Optional key for deduplication
- * @param {Function} options.executor - Function that receives AbortSignal and returns Promise
+ * @param {Function} options.executor - Function that receives AbortSignal and requestId and returns Promise
  * @returns {Object} { requestId: string, promise: Promise<any> }
  */
 export function start({ dedupeKey, executor }) {
@@ -65,10 +65,17 @@ export function start({ dedupeKey, executor }) {
   const startedAt = new Date().toISOString();
 
   // Create the promise that will execute the user's executor
-  const promise = new Promise(async (resolve, reject) => {
+  const promise = new Promise((resolve, reject) => {
     try {
-      const result = await executor(controller.signal);
-      resolve(result);
+      const result = executor(controller.signal, requestId);
+      // Handle both sync and async executors
+      if (result && typeof result.then === 'function') {
+        // Async executor - wait for result
+        result.then(resolve).catch(reject);
+      } else {
+        // Sync executor - resolve immediately
+        resolve(result);
+      }
     } catch (error) {
       reject(error);
     } finally {

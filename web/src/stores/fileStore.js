@@ -387,6 +387,49 @@ export const error = readonly(
   )
 );
 
+// PR5 Step A: New readonly derived selectors
+
+/**
+ * Readonly time series for charts derived from fileStore snapshot.
+ * Returns an array of { ts, value, ... } points or an empty array.
+ */
+const _timeSeries = derived(fileStore, $s => {
+  const agg = $s?.raw?.aggregationResult;
+  if (!agg) return [];
+  // Safe fallback: expect agg.timeSeries or agg.rowsWithDur
+  if (Array.isArray(agg.timeSeries)) return agg.timeSeries;
+  if (Array.isArray(agg.rowsWithDur)) return agg.rowsWithDur;
+  if (Array.isArray(agg.rows)) return agg.rows.map(r => ({ ts: r[0], value: r[1] }));
+  return [];
+});
+export const timeSeries = readonly(_timeSeries);
+
+/**
+ * Lightweight aggregation summary (counts, min/max) derived from aggregationResult.
+ */
+const _aggregationSummary = derived(fileStore, $s => {
+  const agg = $s?.raw?.aggregationResult;
+  if (!agg) return null;
+  // Safe fallback: provide basic counts if agg.rowsWithDur or agg.summary present
+  if (Array.isArray(agg.summary)) return agg.summary;
+  if (Array.isArray(agg.rowsWithDur)) return { rows: agg.rowsWithDur.length };
+  if (Array.isArray(agg.rows)) return { rows: agg.rows.length };
+  return { present: true };
+});
+export const aggregationSummary = readonly(_aggregationSummary);
+
+/**
+ * isLoading derived from meta.loadingCount
+ */
+const _isLoading = derived(fileStore, $s => Boolean($s?.meta?.loadingCount > 0));
+export const isLoading = readonly(_isLoading);
+
+/**
+ * lastError derived from meta.lastError
+ */
+const _lastError = derived(fileStore, $s => $s?.meta?.lastError ?? null);
+export const lastError = readonly(_lastError);
+
 // Test hook for unit tests - only available in development
 /**
  * Test hook to directly commit a snapshot for testing purposes
