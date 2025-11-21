@@ -4,6 +4,7 @@
   import { onDestroy } from 'svelte';
   import { ZONE_COLORS } from '../../../scripts/theme.js';
   import { ZONES, preferredZoneForPoint } from '../../../scripts/zones.js';
+  import { classifyPoint } from '../../../scripts/classify.js';
   import {
     aggregateByHour,
     aggregateByDay,
@@ -139,7 +140,7 @@
         agg.forEach(point => {
           const t = point.temp, h = point.rh;
           if (t == null || h == null) return;
-          const zone = preferredZoneForPoint(t, h);
+          const zone = classifyPoint ? ({ id: classifyPoint(t, h) }) : preferredZoneForPoint(t, h);
           if (!zone) return;
           totals[zone.id] = (totals[zone.id] || 0) + 1;
         });
@@ -148,7 +149,7 @@
         raw.forEach(r => {
           const t = r.temp, h = r.rh;
           if (t == null || h == null) return;
-          const zone = preferredZoneForPoint(t, h);
+          const zone = classifyPoint ? ({ id: classifyPoint(t, h) }) : preferredZoneForPoint(t, h);
           if (!zone) return;
           const hours = r.dur ? r.dur / 3600000 : 1;
           totals[zone.id] = (totals[zone.id] || 0) + hours;
@@ -161,7 +162,7 @@
       agg.forEach(point => {
         const t = point.temp, h = point.rh;
         if (t == null || h == null) return;
-        const zone = preferredZoneForPoint(t, h);
+        const zone = classifyPoint ? ({ id: classifyPoint(t, h) }) : preferredZoneForPoint(t, h);
         if (!zone) return;
         // prefer explicit duration in aggregated point (dur_hours), else estimate by period
         let hours = point.dur_hours || point.dur || 0;
@@ -259,9 +260,9 @@
   
   // Helper function to get zone color based on both temperature and humidity
   function getPassiveDesignZoneColor(temp, rh) {
-    const zone = preferredZoneForPoint(temp, rh);
-    if (zone && zone.color) {
-      return zone.color;
+    const zoneId = classifyPoint ? classifyPoint(temp, rh) : (preferredZoneForPoint(temp, rh) && preferredZoneForPoint(temp, rh).id);
+    if (zoneId && ZONE_COLORS[zoneId]) {
+      return ZONE_COLORS[zoneId];
     }
     return ZONE_COLORS['Unclassified'] || '#999999';
   }
@@ -383,17 +384,13 @@
     aggregatedData = aggregatedData.map(pt => {
       const t = pt.temp;
       const h = pt.rh;
-      // preserve explicitly provided zone if it's a non-empty string except for 'Cold'
-      // Re-evaluate 'Cold' points as they may be assigned due to older classification logic
-      if (pt.zone && typeof pt.zone === 'string' && pt.zone !== 'Unclassified' && pt.zone !== 'Cold') {
-        return pt;
-      }
+      // Recompute zone using classifyPoint to ensure thresholds (Heating <0°C, AC >43.5°C) are respected
       if (t == null || h == null || isNaN(Number(t)) || isNaN(Number(h))) {
         // keep as Unclassified when values are missing
         return { ...pt, zone: 'Unclassified' };
       }
-      const z = preferredZoneForPoint(t, h);
-      return { ...pt, zone: z ? z.id : 'Unclassified' };
+      const zId = classifyPoint ? classifyPoint(t, h) : (preferredZoneForPoint(t, h) && preferredZoneForPoint(t, h).id);
+      return { ...pt, zone: zId || 'Unclassified' };
     });
 
     // Log processed data length for debugging

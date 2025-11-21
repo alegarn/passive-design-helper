@@ -2,6 +2,7 @@ import { writable, derived, readonly, get } from 'svelte/store';
 import { start as startRequest, cancel as cancelRequest } from './requestManager.js';
 import { normalizeOpenMeteoToFileData, parseCsvText, aggregateCsvStream } from '../utils/dataProcessor.js';
 import { preferredZoneForPoint, ZONES } from '../../../scripts/zones.js';
+import { classifyPoint } from '../../../scripts/classify.js';
 import { ZONE_COLORS } from '../../../scripts/theme.js';
 
 /**
@@ -455,8 +456,7 @@ export function createFileStore() {
           const t = Number(r.temp);
           const h = Number(r.rh);
           if (!Number.isFinite(t) || !Number.isFinite(h)) continue;
-          const z = preferredZoneForPoint(t, h);
-          const id = (z && z.id) || (r.zone || 'Unclassified');
+          const id = classifyPoint ? classifyPoint(t, h) : (r.zone || 'Unclassified');
           totals[id] = (totals[id] || 0) + (r.dur || r.durMs || 0);
         }
         const totalMs = Object.values(totals).reduce((s, v) => s + v, 0) || 1;
