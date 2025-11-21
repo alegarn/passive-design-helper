@@ -156,22 +156,30 @@ export function createFileStore() {
             normalizedData = { aggregationResult: payload };
           }
           
-          // Commit successful result
+          // Commit file-level metadata (file, headers, samples) but do NOT set aggregationResult.
+          // This makes the fetched file available to ProcessControls for user verification and
+          // explicit processing, without triggering charts automatically.
           const successSnapshot = {
             ...stagingSnapshot,
             raw: {
               ...currentSnapshot.raw,
-              aggregationResult: normalizedData.aggregationResult || normalizedData
+              file: normalizedData.file || currentSnapshot.raw.file,
+              headerFields: normalizedData.headerFields || currentSnapshot.raw.headerFields,
+              sampleRows: normalizedData.sampleRows || currentSnapshot.raw.sampleRows,
+              dayFirst: normalizedData.dayFirst ?? currentSnapshot.raw.dayFirst,
+              dataSpanInfo: normalizedData.dataSpanInfo || currentSnapshot.raw.dataSpanInfo,
+              aggregationResult: currentSnapshot.raw.aggregationResult // keep existing aggregationResult (do not overwrite)
             },
             meta: {
               ...stagingSnapshot.meta,
-              loadingCount: stagingSnapshot.meta.loadingCount - 1,
+              loadingCount: Math.max(0, stagingSnapshot.meta.loadingCount - 1),
               lastError: null
             }
           };
           commit(successSnapshot);
           
-          return { currentRequestId, result: normalizedData.aggregationResult || normalizedData };
+          // Return the normalized data and raw payload for component use (download, preview)
+          return { currentRequestId, result: normalizedData.aggregationResult || normalizedData, rawPayload: payload };
         } catch (error) {
           // Get fresh snapshot for error handling
           const freshSnapshot = getSnapshot();
@@ -207,8 +215,9 @@ export function createFileStore() {
       }
     });
     
-    // Return the request info
-    return promise.then(result => ({ requestId, result }));
+    // Return the request info (the promise from startRequest is already correctly structured)
+    console.debug('fileStore.fetchRemote: returning promise:', promise);
+    return promise;
   }
 
   /**
@@ -311,7 +320,7 @@ export function createFileStore() {
     });
     
     // Return request info
-    return promise.then(result => ({ requestId, result }));
+    return promise;
   }
 
   /**
@@ -322,18 +331,69 @@ export function createFileStore() {
   function cancel(requestId) {
     return cancelRequest(requestId);
   }
+ 
+  /**
+   * Commit parsed file metadata (without running full aggregation).
+   * This allows UploadZone to parse headers/samples and let the user
+   * verify/change column mapping in ProcessControls before processing.
+   *
+   * @param {Object} parsed - Parsed metadata from UploadZone
+   * @param {File} [parsed.file]
+   * @param {string[]} [parsed.headerFields]
+   * @param {any[]} [parsed.sampleRows]
+   * @param {boolean|null} [parsed.dayFirst]
+   * @param {any|null} [parsed.dataSpanInfo]
+   */
+  function setParsedRaw(parsed = {}) {
+    const { file, headerFields, sampleRows, dayFirst, dataSpanInfo } = parsed;
+    const currentSnapshot = getSnapshot();
+    const newSnapshot = {
+      ...currentSnapshot,
+      raw: {
+        ...currentSnapshot.raw,
+        file: file ?? currentSnapshot.raw.file,
+        headerFields: headerFields ?? currentSnapshot.raw.headerFields,
+        sampleRows: sampleRows ?? currentSnapshot.raw.sampleRows,
+        dayFirst: dayFirst ?? currentSnapshot.raw.dayFirst,
+        dataSpanInfo: dataSpanInfo ?? currentSnapshot.raw.dataSpanInfo,
+        // preserve any existing aggregationResult (do not overwrite)
+        aggregationResult: currentSnapshot.raw.aggregationResult
+      }
+    };
+    commit(newSnapshot);
+  }
 
+  /**
+   * Commit aggregation result produced by ProcessControls into the store.
+   * This will make the charts and exports react to the processed data.
+   *
+   * @param {Object} aggregationResult - Result object returned by processing
+   */
+  function setAggregationResult(aggregationResult) {
+    const currentSnapshot = getSnapshot();
+    const newSnapshot = {
+      ...currentSnapshot,
+      raw: {
+        ...currentSnapshot.raw,
+        aggregationResult: aggregationResult
+      }
+    };
+    commit(newSnapshot);
+  }
+ 
   // Return the store object with Svelte store interface and methods
   return {
     // Svelte store interface
     subscribe: internalStore.subscribe,
-    
+     
     // Methods
     getSnapshot,
     reset,
     fetchRemote,
     loadFromCsv,
-    cancel
+    cancel,
+    setParsedRaw,
+    setAggregationResult
   };
 }
 

@@ -9,6 +9,9 @@
 
   // Props from parent component
   let { file, headerFields, sampleRows, dayFirst, dataSpanInfo } = $props();
+  
+  // Import fileStore to check for remotely fetched data
+  import { fileStore } from '../stores/fileStore.js';
 
   // Local state variables using $state
   let isProcessing = $state(false);
@@ -159,6 +162,13 @@
       
       // Dispatch event to notify parent component
       dispatch('dataprocessed', { result: aggregationResult });
+      
+      // Commit aggregation result into shared fileStore so charts update
+      try {
+        fileStore.setAggregationResult(aggregationResult);
+      } catch (e) {
+        console.error('ProcessControls: Failed to setAggregationResult on fileStore:', e);
+      }
       
       // Lightweight internal sample (no console output)
       if (result && result.rowsWithDur && result.rowsWithDur.length > 0) {
@@ -424,6 +434,17 @@
           Process Data
         {/if}
       </button>
+      
+      <!-- Button to process remotely fetched data -->
+      {#if $fileStore.raw.file}
+        <button
+          class="btn btn-primary"
+          onclick={() => dispatch('processremotedata')}
+          disabled={!timeColumn || !tempColumn || !rhColumn}
+        >
+          Process Remote Data
+        </button>
+      {/if}
       
       <!-- Error Message -->
       {#if processingError}

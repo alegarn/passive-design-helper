@@ -8,16 +8,20 @@
   
   // Handle fileparsed event from UploadZone
   function handleFileParsed(event) {
-    // TODO: Implement loadFromCsv when available
-    console.log('File parsed:', event.detail.file);
-    // For now, we'll handle this through the fetchRemote functionality
+    // Stage parsed metadata already handled by UploadZone -> fileStore.setParsedRaw
+    console.log('File parsed (handled):', event.detail.file);
   }
   
   // Handle dataprocessed event from ProcessControls
   function handleDataProcessed(event) {
-    // For now, just log the processed data
-    // TODO: This will be handled properly when loadFromCsv is implemented
-    console.log('Data processed:', event.detail.result);
+    // Commit aggregation result into fileStore so charts and exports react
+    const { result } = event.detail;
+    try {
+      fileStore.setAggregationResult(result);
+      console.log('Data processed and saved to fileStore:', result);
+    } catch (e) {
+      console.error('App.svelte: failed to save processed data to fileStore:', e);
+    }
   }
 </script>
 
@@ -28,7 +32,7 @@
 <main>
   <FetchOpenMeteo />
   
-  <UploadZone on:fileparsed={handleFileParsed} />
+  <UploadZone on:fileparsed={handleFileParsed} on:processremotedata={handleProcessRemoteData} />
   
   {#if $fileStore.raw.file && $fileStore.raw.headerFields}
     <ProcessControls

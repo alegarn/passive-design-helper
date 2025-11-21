@@ -1,5 +1,5 @@
 <script>
-  import { fileStore, fetchRemote, isLoading, lastError } from '../stores/fileStore.js';
+  import { fileStore, isLoading, lastError } from '../stores/fileStore.js';
   
   // Form state
   let url = $state('https://archive-api.open-meteo.com/v1/archive?latitude=52.52&longitude=13.41&start_date=2025-11-16&end_date=2025-11-17&hourly=temperature_2m,relative_humidity_2m');
@@ -51,23 +51,25 @@
       };
       
       // Use the new fileStore API - get the normalized data result
-      const { requestId, promise } = fetchRemote(params);
-      const { result } = await promise;
+      const requestInfo = fileStore.fetchRemote(params);
+      console.debug('FetchOpenMeteo: requestInfo from fileStore.fetchRemote:', requestInfo);
+      const { result, rawPayload } = await requestInfo;
+      console.debug('FetchOpenMeteo: result and rawPayload destructured from promise:', { result, rawPayload });
       
       // Generate filename for download
       const filename = `open-meteo-${startDate}-${endDate}.${format}`;
       
-      // Use the normalized data from the store result instead of fetching again
+      // Use the raw payload from the store result for download
       let content;
       let mimeType;
       
       if (format === 'csv') {
         // Import jsonToCsv from dataProcessor
         const { jsonToCsv } = await import('../utils/dataProcessor.js');
-        content = jsonToCsv(result);
+        content = jsonToCsv(rawPayload);
         mimeType = 'text/csv';
       } else {
-        content = JSON.stringify(result, null, 2);
+        content = JSON.stringify(rawPayload, null, 2);
         mimeType = 'application/json';
       }
       
@@ -110,7 +112,7 @@
         hourly: hourly,
         format: format
       };
-      fetchRemote(params);
+      fileStore.fetchRemote(params);
     }
   }
   
