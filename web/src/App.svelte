@@ -26,7 +26,7 @@
 </script>
 
 <header>
-  <h1>Passive Design Tactics</h1>
+  <h1>Passive Design Tactics (@ 28°C median)</h1>
 </header>
 
 <main>

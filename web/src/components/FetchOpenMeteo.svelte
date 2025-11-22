@@ -273,7 +273,8 @@ async function fetchAndDownload() {
     <button type="button" class="toggle-btn {showLeafletMap ? 'active' : ''}" onclick={() => { if (!mapModuleLoaded) openLeafletPreview(); else showLeafletMap = !showLeafletMap; }}>
       {#if showLeafletMap}Close Map Preview{:else}Open Map Preview{/if}
     </button>
-    <button id="geolocate" type="button" class="toggle-btn mode-locate-btn" onclick={geolocateMe} disabled={geolocLoading} aria-disabled={geolocLoading} title="Use your device's location" aria-label="Use your current location">
+    <div class="tooltip-wrap">
+      <button id="geolocate" type="button" class="toggle-btn mode-locate-btn" onclick={geolocateMe} disabled={geolocLoading} aria-disabled={geolocLoading} title="Use your device's location — Only used to construct the Open‑Meteo API query; not stored or shared." aria-label="Use your current location" aria-describedby="geolocate-tooltip">
       {#if geolocLoading}
         <span class="spinner" aria-hidden="true"></span>
         <span class="btn-text" style="margin-left:0.35rem;">Locating…</span>
@@ -289,10 +290,12 @@ async function fetchAndDownload() {
         {/if}
         <span class="btn-text" style="margin-left:0.35rem;">Locate me</span>
       {/if}
-    </button>
-    {#if geolocSuccess}
-      <span class="geoloc-badge" role="status" aria-live="polite">Location accepted</span>
-    {/if}
+      </button>
+      <div id="geolocate-tooltip" class="privacy-tooltip" role="tooltip">Only used to construct the Open‑Meteo API query; not stored or shared.</div>
+      {#if geolocSuccess}
+        <span class="geoloc-badge" role="status" aria-live="polite">Location accepted</span>
+      {/if}
+    </div>
   </div>
   
   <div class="form-group">
@@ -476,6 +479,9 @@ async function fetchAndDownload() {
     cursor: pointer;
     border-radius: 4px;
     transition: all 0.2s ease;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
   }
   
   .toggle-btn:hover {
@@ -576,12 +582,59 @@ async function fetchAndDownload() {
     min-height: 36px;
   }
 
+  /* Ensure Locate me uses the same padding and behaviour as other toggle buttons; allow icon + text */
   .mode-toggle .mode-locate-btn {
-    display: inline-flex;
-    align-items: center;
     gap: 0.5rem;
-    padding: 0.4rem 0.75rem;
-    font-size: 0.875rem;
+  }
+
+  /* Make toggle buttons share available space so three toggles fit on a single line on small screens */
+  .mode-toggle .toggle-btn { flex: 1 1 0; min-width: 0; }
+
+  /* Keep icon and text visible on larger screens, hide text on very small screens but maintain touch target */
+  .mode-toggle .toggle-btn .btn-text { display: inline; }
+  @media (max-width: 420px) {
+    .mode-toggle .toggle-btn .btn-text { display: none; }
+  }
+
+  /* Tooltip wrapper for locate-me button; allow it to expand in the mode-toggle flex row */
+  .tooltip-wrap {
+    position: relative;
+    display: block;
+  }
+  .mode-toggle .tooltip-wrap { flex: 1 1 0; min-width: 0; }
+  .mode-toggle .tooltip-wrap .toggle-btn { width: 100%; height: 100%; }
+
+  .privacy-tooltip {
+    position: absolute;
+    bottom: calc(100% + 8px);
+    left: 50%;
+    transform: translateX(-50%) translateY(6px);
+    background: var(--tooltip-bg, #222);
+    color: var(--tooltip-fg, #fff);
+    font-size: 0.75rem;
+    line-height: 1;
+    padding: 0.35rem 0.5rem;
+    border-radius: 4px;
+    white-space: nowrap;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 120ms ease, transform 120ms ease;
+    z-index: 9999;
+  }
+  .privacy-tooltip::after {
+    content: '';
+    position: absolute;
+    top: 100%;
+    left: 50%;
+    transform: translateX(-50%);
+    border: 6px solid transparent;
+    border-top-color: var(--tooltip-bg, #222);
+  }
+  .tooltip-wrap:hover .privacy-tooltip,
+  .tooltip-wrap:focus-within .privacy-tooltip {
+    opacity: 1;
+    transform: translateX(-50%) translateY(0);
+    pointer-events: auto;
   }
 
   .geoloc-badge {
@@ -591,19 +644,21 @@ async function fetchAndDownload() {
     padding: 0.2rem 0.5rem;
     border-radius: 999px;
     font-size: 0.75rem;
-    margin-left: 0.4rem;
-    align-self: center;
+    position: absolute;
+    top: 50%;
+    right: -8px;
+    transform: translateY(-50%);
   }
 
   .geo-controls .geo-stack { display:flex; flex-direction:column; gap:0.5rem; }
   .geo-controls .map-inline-btn { min-width: 120px; }
 
-  .map-inline-btn .icon {
+  .toggle-btn .icon {
     display:inline-block; vertical-align:middle; margin-right:0.25rem;
     color: var(--primary-color, #007bff);
   }
-  .map-inline-btn .icon--success { color: var(--success-color, #28a745); }
-  .map-inline-btn .spinner {
+  .toggle-btn .icon--success { color: var(--success-color, #28a745); }
+  .toggle-btn .spinner {
     display:inline-block; width:14px; height:14px; border-radius:50%; border:2px solid currentColor; border-right-color:transparent; box-sizing:border-box; vertical-align:middle;
     animation: _pdt_spin 0.75s linear infinite;
   }
@@ -615,10 +670,6 @@ async function fetchAndDownload() {
   }
 
   /* Responsive: hide text on smaller screens to conserve space */
-  .map-inline-btn .btn-text { display: inline; }
-  @media (max-width: 420px) {
-    .map-inline-btn .btn-text { display: none; }
-  }
 
   /* Input flash animation */
   .flash {
