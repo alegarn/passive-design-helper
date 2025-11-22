@@ -15,6 +15,7 @@
     "vite": "^6.0.0"
   },
   "dependencies": {
+    "leaflet": "^1.9.4",
     "chart.js": "^4.5.1",
     "chartjs-adapter-date-fns": "^3.0.0",
     "psychrolib": "^1.1.1",

@@ -1,23 +1,53 @@
 <script>
   import { fileStore, isLoading, lastError } from '../stores/fileStore.js';
+  import { cities } from '../data/cities.js';
   
   // Form state
   let url = $state('https://archive-api.open-meteo.com/v1/archive?latitude=52.52&longitude=13.41&start_date=2025-11-16&end_date=2025-11-17&hourly=temperature_2m,relative_humidity_2m');
   let lat = $state('52.52');
   let lon = $state('13.41');
+  let selectedCity = $state('');
+  let selectedCityName = $state('');
+  let showMap = $state(false);
   let startDate = $state('2025-11-16');
   let endDate = $state('2025-11-17');
   let hourly = $state('temperature_2m,relative_humidity_2m');
   let format = $state('csv');
-  let useParams = $state(false);
+  // show/hide sections
+  let showParameters = $state(false);
+  let showLeafletMap = $state(false);
+  import LeafletMap from './LeafletMap.svelte';
+  import CityAutocomplete from './CityAutocomplete.svelte';
+  let mapModuleLoaded = $state(true);
   
   // UI state
   let success = $state('');
+  // Transient state to animate input flash when coords are updated
+  let coordsUpdated = $state(false);
+  // Geolocation UI state
+  let geolocLoading = $state(false);
+  let geolocSuccess = $state(false);
   
-  // Toggle between URL and parameters mode
-  function toggleMode() {
-    useParams = !useParams;
+  // Toggle showing parameters map UI
+  function toggleParameters() {
+    showParameters = !showParameters;
     success = '';
+    if (showParameters) {
+      url = builtUrl();
+      scheduleUploadDebounced();
+    }
+  }
+
+  // Toggle showing Leaflet map component (lazy loaded)
+  async function openLeafletPreview() {
+    // We already import LeafletMap statically for now — open preview
+    showLeafletMap = true;
+    url = builtUrl();
+    scheduleUploadDebounced();
+  }
+
+  function closeLeafletPreview() {
+    showLeafletMap = false;
   }
   
   // Build URL from parameters
@@ -40,9 +70,9 @@ async function fetchAndDownload() {
     // Ensure we always pass a concrete URL to the store and request JSON from the API.
     // The component still allows the user to download JSON or CSV, but the store
     // needs a parsed JSON payload for column/header detection.
-    const finalUrl = useParams ? buildUrl() : url;
+    const final = finalUrl();
     const params = {
-      url: finalUrl,
+      url: final,
       format: 'json' // always fetch JSON so normalizer can extract headers/samples
     };
 
@@ -91,26 +121,146 @@ async function fetchAndDownload() {
 }
   
   
-  // Update URL when parameters change (if in parameter mode)
-  $effect(() => {
-    if (useParams) {
-      url = buildUrl();
-    }
-  });
+  // Derived URL from parameters (computed, doesn't overwrite manual input unless we explicitly copy)
+  const builtUrl = $derived(() => buildUrl());
+  // Final URL used for all uploads and network calls: if parameters or map UI active, use builtUrl, otherwise manual `url` value.
+  const finalUrl = $derived(() => (showParameters || showLeafletMap) ? builtUrl() : url);
   
-  // Auto-fetch when parameters change in parameter mode
+  // Auto-fetch when parameters change (only active when `Choose parameters` or Map preview are open)
   function triggerFetch() {
-    if (useParams) {
-      const params = {
-        latitude: lat,
-        longitude: lon,
-        start_date: startDate,
-        end_date: endDate,
-        hourly: hourly,
-        format: format
-      };
+    const urlToUse = finalUrl();
+    const params = { url: urlToUse, format: format };
+    fileStore.fetchRemote(params);
+  }
+
+  // Debounced upload helpers
+  let uploadDebounceTimer = null;
+  const UPLOAD_DEBOUNCE_MS = 450;
+
+  function scheduleUploadDebounced() {
+    if (uploadDebounceTimer) clearTimeout(uploadDebounceTimer);
+    uploadDebounceTimer = setTimeout(() => {
+      const urlToUse = finalUrl();
+      const params = { url: urlToUse, format: 'json' };
       fileStore.fetchRemote(params);
+    }, UPLOAD_DEBOUNCE_MS);
+  }
+
+  function scheduleUploadImmediate() {
+    if (uploadDebounceTimer) clearTimeout(uploadDebounceTimer);
+    const urlToUse = finalUrl();
+    const params = { url: urlToUse, format: 'json' };
+    fileStore.fetchRemote(params);
+  }
+
+  // When a city is selected, update the lat/lon fields
+  function selectCity() {
+    if (!selectedCityName) return;
+    const city = cities.find(c => c.name === selectedCityName);
+    if (city) {
+      // store lat/lon as strings to preserve exact input format and binding behavior
+      lat = String(Number(city.lat).toFixed(6));
+      lon = String(Number(city.lon).toFixed(6));
+      selectedCity = city;
+      // If parameters or map UI is visible, update the URL and schedule a fetch
+      if (showParameters || showLeafletMap) {
+        url = builtUrl();
+        scheduleUploadDebounced();
+      }
     }
+  }
+
+  function handleCitySelected(city) {
+    if (!city) return;
+    lat = String(Number(city.lat).toFixed(6));
+    lon = String(Number(city.lon).toFixed(6));
+    selectedCity = city;
+    selectedCityName = city.name;
+    if (showParameters || showLeafletMap) {
+      url = finalUrl();
+      scheduleUploadDebounced();
+    }
+  }
+
+  function openInMap() {
+    const mapLat = encodeURIComponent(lat || 0);
+    const mapLon = encodeURIComponent(lon || 0);
+    const url = `https://www.openstreetmap.org/?mlat=${mapLat}&mlon=${mapLon}#map=10/${mapLat}/${mapLon}`;
+    window.open(url, '_blank');
+  }
+
+  function toggleMap() {
+    showMap = !showMap;
+  }
+
+  // Clear selected city when user manually edits lat/lon inputs (avoids $effect and keeps logic local)
+  function handleManualCoordinateChange() {
+    const currentLat = lat ? Number(lat).toFixed(6) : '';
+    const currentLon = lon ? Number(lon).toFixed(6) : '';
+    const cityLat = selectedCity && selectedCity.lat ? Number(selectedCity.lat).toFixed(6) : '';
+    const cityLon = selectedCity && selectedCity.lon ? Number(selectedCity.lon).toFixed(6) : '';
+    if (currentLat !== cityLat || currentLon !== cityLon) {
+      selectedCityName = '';
+      selectedCity = '';
+      scheduleUploadDebounced();
+    }
+    // Always schedule upload for manual coordinate edits
+    scheduleUploadDebounced();
+  }
+
+  function handleParameterChange() {
+    // Keep the URL preview in sync and schedule an upload each time a parameter changes
+    url = builtUrl();
+    scheduleUploadDebounced();
+  }
+
+  function handleMapSelect(e) {
+    if (!e || !e.detail) return;
+    const { lat: newLat, lon: newLon } = e.detail;
+    lat = String(Number(newLat).toFixed(6));
+    lon = String(Number(newLon).toFixed(6));
+    // selecting via the map is a 'manual coordinate' update: clear selected city
+    selectedCityName = '';
+    selectedCity = '';
+    url = builtUrl();
+    scheduleUploadDebounced();
+  }
+
+  function geolocateMe() {
+    // Clear any prior success or error messages
+    success = '';
+    // Clear global store error to ensure the geolocation flow starts clean
+    fileStore.setMetaLastError(null);
+    geolocSuccess = false;
+    if (!navigator.geolocation) {
+      fileStore.setMetaLastError('Geolocation is not supported by your browser');
+      return;
+    }
+    geolocLoading = true;
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        const { latitude, longitude } = pos.coords;
+        // Keep the same formatting as other coordinate handling
+        lat = String(Number(latitude).toFixed(6));
+        lon = String(Number(longitude).toFixed(6));
+        selectedCityName = '';
+        selectedCity = '';
+        url = builtUrl();
+        scheduleUploadDebounced();
+        success = 'Updated coordinates from your device location';
+        coordsUpdated = true;
+        setTimeout(() => { coordsUpdated = false; }, 650);
+        fileStore.setMetaLastError(null);
+        geolocSuccess = true;
+        setTimeout(() => { geolocSuccess = false; }, 2000);
+        geolocLoading = false;
+      },
+      (err) => {
+        geolocLoading = false;
+        fileStore.setMetaLastError(err?.message || 'Unable to determine location');
+      },
+      { enableHighAccuracy: true, timeout: 10000, maximumAge: 60000 }
+    );
   }
   
 </script>
@@ -119,53 +269,77 @@ async function fetchAndDownload() {
   <h2>Fetch Open-Meteo Weather Data</h2>
   
   <div class="mode-toggle">
-    <button
-      type="button"
-      class="toggle-btn {!useParams ? 'active' : ''}"
-      onclick={toggleMode}
-    >
-      Use URL
+    <button type="button" class="toggle-btn {showParameters ? 'active' : ''}" onclick={() => { showParameters = !showParameters; }}>Choose parameters</button>
+    <button type="button" class="toggle-btn {showLeafletMap ? 'active' : ''}" onclick={() => { if (!mapModuleLoaded) openLeafletPreview(); else showLeafletMap = !showLeafletMap; }}>
+      {#if showLeafletMap}Close Map Preview{:else}Open Map Preview{/if}
     </button>
-    <button
-      type="button"
-      class="toggle-btn {useParams ? 'active' : ''}"
-      onclick={toggleMode}
-    >
-      Use Parameters
-    </button>
+    <div class="tooltip-wrap">
+      <button id="geolocate" type="button" class="toggle-btn mode-locate-btn" onclick={geolocateMe} disabled={geolocLoading} aria-disabled={geolocLoading} title="Use your device's location — Only used to construct the Open‑Meteo API query; not stored or shared." aria-label="Use your current location" aria-describedby="geolocate-tooltip">
+      {#if geolocLoading}
+        <span class="spinner" aria-hidden="true"></span>
+        <span class="btn-text" style="margin-left:0.35rem;">Locating…</span>
+      {:else}
+        {#if geolocSuccess}
+          <svg class="icon icon--success" viewBox="0 0 24 24" width="14" height="14" aria-hidden="true">
+            <path fill="currentColor" d="M9 16.2L4.8 12l-1.4 1.4L9 19 21 7l-1.4-1.4z" />
+          </svg>
+        {:else}
+          <svg class="icon icon--pin" viewBox="0 0 24 24" width="14" height="14" aria-hidden="true">
+            <path fill="currentColor" d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5a2.5 2.5 0 110-5 2.5 2.5 0 010 5z" />
+          </svg>
+        {/if}
+        <span class="btn-text" style="margin-left:0.35rem;">Locate me</span>
+      {/if}
+      </button>
+      <div id="geolocate-tooltip" class="privacy-tooltip" role="tooltip">Only used to construct the Open‑Meteo API query; not stored or shared.</div>
+      {#if geolocSuccess}
+        <span class="geoloc-badge" role="status" aria-live="polite">Location accepted</span>
+      {/if}
+    </div>
   </div>
   
-  {#if !useParams}
-    <div class="form-group">
-      <label for="url">API URL:</label>
-      <input 
-        id="url"
-        type="url" 
-        bind:value={url} 
-        placeholder="https://archive-api.open-meteo.com/v1/archive?..."
-        class="url-input"
-      />
-    </div>
-  {:else}
+  <div class="form-group">
+    <label for="url">API URL:</label>
+    <input 
+      id="url" 
+      type="url" 
+      bind:value={url} 
+      placeholder="https://archive-api.open-meteo.com/v1/archive?..."
+      class="url-input"
+      oninput={() => { // when user manually edits URL, automatically upload the custom URL after a brief debounce
+        scheduleUploadDebounced();
+      }}
+    />
+  </div>
+
+  {#if showParameters}
     <div class="params-grid">
-      <div class="form-group">
-        <label for="lat">Latitude:</label>
-        <input id="lat" type="number" step="any" bind:value={lat} />
-      </div>
+        <div class="form-group geo-controls" role="group" aria-labelledby="geoControlsLabel">
+          <div id="geoControlsLabel" class="sr-only">Geolocation actions</div>
+          <div class="geo-stack">
+            <button id="resetCoordinates" type="button" class="map-inline-btn" onclick={() => { selectedCityName=''; selectedCity=''; url=builtUrl(); scheduleUploadDebounced(); fileStore.setMetaLastError(null); geolocSuccess = false; geolocLoading = false; coordsUpdated = false; }} title="Reset to URL coordinates" aria-label="Reset coordinates to URL values">Reset my location</button>
+            <button id="openMap" type="button" class="map-inline-btn" onclick={openInMap} title="Open lat/lon in OpenStreetMap" aria-label="Open coordinates in OpenStreetMap">Open in map</button>
+          </div>
+        </div>
+        <div class="form-group">
+          <label for="lat">Latitude:</label>
+          <input id="lat" type="number" step="any" bind:value={lat} oninput={handleManualCoordinateChange} class:flash={coordsUpdated} />
+        </div>
       
-      <div class="form-group">
-        <label for="lon">Longitude:</label>
-        <input id="lon" type="number" step="any" bind:value={lon} />
-      </div>
+        <div class="form-group">
+          <label for="lon">Longitude:</label>
+          <input id="lon" type="number" step="any" bind:value={lon} oninput={handleManualCoordinateChange} class:flash={coordsUpdated} />
+        </div>
+
       
       <div class="form-group">
         <label for="startDate">Start Date:</label>
-        <input id="startDate" type="date" bind:value={startDate} />
+        <input id="startDate" type="date" bind:value={startDate} onchange={handleParameterChange} />
       </div>
       
       <div class="form-group">
         <label for="endDate">End Date:</label>
-        <input id="endDate" type="date" bind:value={endDate} />
+        <input id="endDate" type="date" bind:value={endDate} onchange={handleParameterChange} />
       </div>
       
       <div class="form-group">
@@ -175,27 +349,80 @@ async function fetchAndDownload() {
           type="text" 
           bind:value={hourly} 
           placeholder="temperature_2m,relative_humidity_2m"
+          oninput={handleParameterChange}
         />
       </div>
+
+      <!-- City selection moved to Use Map mode -->
       
-      <div class="form-group">
-        <label for="format">Format:</label>
-        <select id="format" bind:value={format}>
-          <option value="json">JSON</option>
-          <option value="csv">CSV</option>
-        </select>
-      </div>
+      <!-- Output format is below (global control) -->
     </div>
     
-    <div class="url-preview">
-      <label for="previewUrl">Generated URL:</label>
-      <input id="previewUrl" type="url" value={url} readonly class="preview-url" />
+    <!-- URL preview removed here: we keep a single editable API URL field at the top -->
+  {/if}
+  {#if showLeafletMap}
+    <div class="map-mode">
+      <div class="map-controls">
+        <div class="form-group">
+          <label for="citySelect">City (autocomplete):</label>
+          <CityAutocomplete bind:value={selectedCityName} {cities} placeholder="Search or choose a city" select={handleCitySelected} />
+        </div>
+
+          {#if !showParameters}
+            <!-- Map preview should show only the map and allow click to set coordinates. Remove static details but add date inputs for convenience. -->
+            <div class="map-controls-mini">
+              <div class="form-group">
+                <label for="startDateMap">Start Date:</label>
+                <input id="startDateMap" type="date" bind:value={startDate} onchange={handleParameterChange} />
+              </div>
+              <div class="form-group">
+                <label for="endDateMap">End Date:</label>
+                <input id="endDateMap" type="date" bind:value={endDate} onchange={handleParameterChange} />
+              </div>
+            </div>
+          {/if}
+      </div>
+
+      <div class="map-preview">
+        <div class="map-header">
+          <div>Map preview — centered on: {lat}, {lon}</div>
+        </div>
+        {#if mapModuleLoaded}
+          <LeafletMap lat={Number(lat)} lon={Number(lon)} on:select={handleMapSelect} />
+        {:else}
+          <iframe
+          title="OpenStreetMap preview"
+          src={`https://www.openstreetmap.org/export/embed.html?bbox=${Number(lon) - 0.6},${Number(lat) - 0.3},${Number(lon) + 0.6},${Number(lat) + 0.3}&layer=mapnik&marker=${lat},${lon}`}
+          width="100%"
+          height="350"
+          frameborder="0"
+          style="border: 1px solid var(--border-color, #dee2e6); border-radius: 4px;"
+          ></iframe>
+        {/if}
+      </div>
+    </div>
+  {/if}
+
+  {#if showMap && showParameters}
+    <div class="map-preview">
+        <div class="map-header">
+          <div>Map preview — centered on: {lat}, {lon}</div>
+          <button type="button" class="map-inline-btn" onclick={toggleMap}>Close</button>
+        </div>
+      <iframe
+        title="OpenStreetMap preview"
+        src={`https://www.openstreetmap.org/export/embed.html?bbox=${Number(lon) - 0.6},${Number(lat) - 0.3},${Number(lon) + 0.6},${Number(lat) + 0.3}&layer=mapnik&marker=${lat},${lon}`}
+        width="100%"
+        height="350"
+        frameborder="0"
+        style="border: 1px solid var(--border-color, #dee2e6); border-radius: 4px;"
+      ></iframe>
     </div>
   {/if}
   
   <div class="form-group">
     <label for="format">Output Format:</label>
-    <select id="format" bind:value={format}>
+    <select id="format" bind:value={format} onchange={handleParameterChange}>
       <option value="json">JSON</option>
       <option value="csv">CSV</option>
     </select>
@@ -215,11 +442,12 @@ async function fetchAndDownload() {
   </button>
   
   {#if $lastError}
-    <div class="error-message">{$lastError}</div>
+    <div class="error-message" aria-live="assertive" aria-atomic="true">{$lastError}</div>
   {/if}
+  <!-- Geolocation errors are surfaced in the global `$lastError` store so they appear in the main error area -->
   
   {#if success}
-    <div class="success-message">{success}</div>
+    <div class="success-message" aria-live="polite" aria-atomic="true">{success}</div>
   {/if}
 </div>
 
@@ -251,6 +479,9 @@ async function fetchAndDownload() {
     cursor: pointer;
     border-radius: 4px;
     transition: all 0.2s ease;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
   }
   
   .toggle-btn:hover {
@@ -293,16 +524,26 @@ async function fetchAndDownload() {
     gap: 1rem;
     margin-bottom: 1rem;
   }
-  
-  .url-preview {
+
+  .map-controls {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 1rem;
     margin-bottom: 1rem;
   }
-  
-  .preview-url {
-    font-family: monospace;
-    font-size: 0.75rem;
-    background: var(--code-bg, #f8f9fa);
+
+  .map-controls-mini {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    gap: 0.75rem;
+    margin-bottom: 0.5rem;
   }
+
+  /* no additional coordinates summary styles required */
+
+  /* no longer used — keep for compatibility if we later convert to field labels */
+  
+  /* url-preview & preview-url removed; main `API URL` is the single source of truth */
   
   .fetch-btn {
     background: var(--primary-color, #007bff);
@@ -327,6 +568,121 @@ async function fetchAndDownload() {
   .fetch-btn.loading {
     background: var(--secondary-color, #6c757d);
   }
+
+  .map-inline-btn {
+    margin-top: 0.4rem;
+    margin-left: 0.5rem;
+    padding: 0.35rem 0.45rem;
+    font-size: 0.8rem;
+    border-radius: 4px;
+    border: 1px solid var(--border-color, #dee2e6);
+    background: var(--button-bg, #f8f9fa);
+    cursor: pointer;
+    min-width: 44px; /* touch target */
+    min-height: 36px;
+  }
+
+  /* Ensure Locate me uses the same padding and behaviour as other toggle buttons; allow icon + text */
+  .mode-toggle .mode-locate-btn {
+    gap: 0.5rem;
+  }
+
+  /* Make toggle buttons share available space so three toggles fit on a single line on small screens */
+  .mode-toggle .toggle-btn { flex: 1 1 0; min-width: 0; }
+
+  /* Keep icon and text visible on larger screens, hide text on very small screens but maintain touch target */
+  .mode-toggle .toggle-btn .btn-text { display: inline; }
+  @media (max-width: 420px) {
+    .mode-toggle .toggle-btn .btn-text { display: none; }
+  }
+
+  /* Tooltip wrapper for locate-me button; allow it to expand in the mode-toggle flex row */
+  .tooltip-wrap {
+    position: relative;
+    display: block;
+  }
+  .mode-toggle .tooltip-wrap { flex: 1 1 0; min-width: 0; }
+  .mode-toggle .tooltip-wrap .toggle-btn { width: 100%; height: 100%; }
+
+  .privacy-tooltip {
+    position: absolute;
+    bottom: calc(100% + 8px);
+    left: 50%;
+    transform: translateX(-50%) translateY(6px);
+    background: var(--tooltip-bg, #222);
+    color: var(--tooltip-fg, #fff);
+    font-size: 0.75rem;
+    line-height: 1;
+    padding: 0.35rem 0.5rem;
+    border-radius: 4px;
+    white-space: nowrap;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 120ms ease, transform 120ms ease;
+    z-index: 9999;
+  }
+  .privacy-tooltip::after {
+    content: '';
+    position: absolute;
+    top: 100%;
+    left: 50%;
+    transform: translateX(-50%);
+    border: 6px solid transparent;
+    border-top-color: var(--tooltip-bg, #222);
+  }
+  .tooltip-wrap:hover .privacy-tooltip,
+  .tooltip-wrap:focus-within .privacy-tooltip {
+    opacity: 1;
+    transform: translateX(-50%) translateY(0);
+    pointer-events: auto;
+  }
+
+  .geoloc-badge {
+    display: inline-block;
+    background: var(--success-color, #28a745);
+    color: white;
+    padding: 0.2rem 0.5rem;
+    border-radius: 999px;
+    font-size: 0.75rem;
+    position: absolute;
+    top: 50%;
+    right: -8px;
+    transform: translateY(-50%);
+  }
+
+  .geo-controls .geo-stack { display:flex; flex-direction:column; gap:0.5rem; }
+  .geo-controls .map-inline-btn { min-width: 120px; }
+
+  .toggle-btn .icon {
+    display:inline-block; vertical-align:middle; margin-right:0.25rem;
+    color: var(--primary-color, #007bff);
+  }
+  .toggle-btn .icon--success { color: var(--success-color, #28a745); }
+  .toggle-btn .spinner {
+    display:inline-block; width:14px; height:14px; border-radius:50%; border:2px solid currentColor; border-right-color:transparent; box-sizing:border-box; vertical-align:middle;
+    animation: _pdt_spin 0.75s linear infinite;
+  }
+  @keyframes _pdt_spin { to { transform: rotate(360deg); } }
+  /* Button focus visible for keyboard users */
+  .map-inline-btn:focus-visible {
+    outline: 3px solid rgba(0,123,255,0.25);
+    outline-offset: 2px;
+  }
+
+  /* Responsive: hide text on smaller screens to conserve space */
+
+  /* Input flash animation */
+  .flash {
+    animation: _pdt_flash 0.65s ease-in-out;
+  }
+  @keyframes _pdt_flash {
+    0% { box-shadow: 0 0 0 0 rgba(0,123,255,0.25); }
+    50% { box-shadow: 0 0 0 6px rgba(0,123,255,0.06); }
+    100% { box-shadow: 0 0 0 0 rgba(0,123,255,0); }
+  }
+
+  /* Visually-hidden helper for screen readers */
+  /* `sr-only` utility is provided at a global level in styles/utilities/visibility.css; use that instead */
   
   .error-message {
     background: #f8d7da;
@@ -344,5 +700,16 @@ async function fetchAndDownload() {
     border-radius: 4px;
     margin-top: 1rem;
     border: 1px solid #c3e6cb;
+  }
+
+  .map-preview {
+    margin-top: 1rem;
+  }
+
+  .map-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 0.5rem;
   }
 </style>
