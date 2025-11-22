@@ -22,10 +22,9 @@
   
   // UI state
   let success = $state('');
-  // Local geolocation error state (don't attempt to write to readonly `lastError` store)
-  let geolocError = $state('');
   // Geolocation UI state
   let geolocLoading = $state(false);
+  let geolocSuccess = $state(false);
   
   // Toggle showing parameters map UI
   function toggleParameters() {
@@ -228,9 +227,11 @@ async function fetchAndDownload() {
   function geolocateMe() {
     // Clear any prior success or error messages
     success = '';
-    geolocError = '';
+    // Clear global store error to ensure the geolocation flow starts clean
+    fileStore.setMetaLastError(null);
+    geolocSuccess = false;
     if (!navigator.geolocation) {
-      geolocError = 'Geolocation is not supported by your browser';
+      fileStore.setMetaLastError('Geolocation is not supported by your browser');
       return;
     }
     geolocLoading = true;
@@ -245,12 +246,15 @@ async function fetchAndDownload() {
         url = builtUrl();
         scheduleUploadDebounced();
         success = 'Updated coordinates from your device location';
-        geolocError = '';
+        fileStore.setMetaLastError(null);
+        geolocSuccess = true;
+        setTimeout(() => { geolocSuccess = false; }, 2000);
         geolocLoading = false;
+        geolocSuccess = false;
       },
       (err) => {
         geolocLoading = false;
-        geolocError = err?.message || 'Unable to determine location';
+        fileStore.setMetaLastError(err?.message || 'Unable to determine location');
       },
       { enableHighAccuracy: true, timeout: 10000, maximumAge: 60000 }
     );
@@ -300,9 +304,23 @@ async function fetchAndDownload() {
           <label for="geolocate" style="display:none;">Geolocation actions</label>
           <div style="display:flex; gap:0.5rem; align-items:center;">
             <button id="geolocate" type="button" class="map-inline-btn" onclick={geolocateMe} disabled={geolocLoading} title="Use your device's location" aria-label="Use your current location">
-              {#if geolocLoading}Locating...{:else}Use my location{/if}
+              {#if geolocLoading}
+                <span class="spinner" aria-hidden="true"></span>
+                <span style="margin-left:0.35rem;">Locating...</span>
+              {:else}
+                {#if geolocSuccess}
+                  <svg class="icon icon--success" viewBox="0 0 24 24" width="14" height="14" aria-hidden="true">
+                    <path fill="currentColor" d="M9 16.2L4.8 12l-1.4 1.4L9 19 21 7l-1.4-1.4z" />
+                  </svg>
+                {:else}
+                  <svg class="icon icon--pin" viewBox="0 0 24 24" width="14" height="14" aria-hidden="true">
+                    <path fill="currentColor" d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5a2.5 2.5 0 110-5 2.5 2.5 0 010 5z" />
+                  </svg>
+                {/if}
+                <span style="margin-left:0.35rem;">Use my location</span>
+              {/if}
             </button>
-            <button id="resetCoordinates" type="button" class="map-inline-btn" onclick={() => { selectedCityName=''; selectedCity=''; url=builtUrl(); scheduleUploadDebounced(); geolocError=''; }} title="Reset to URL coordinates" aria-label="Reset coordinates to URL values">Reset</button>
+            <button id="resetCoordinates" type="button" class="map-inline-btn" onclick={() => { selectedCityName=''; selectedCity=''; url=builtUrl(); scheduleUploadDebounced(); fileStore.setMetaLastError(null); geolocSuccess = false; geolocLoading = false; }} title="Reset to URL coordinates" aria-label="Reset coordinates to URL values">Reset</button>
           </div>
         </div>
       
@@ -418,9 +436,7 @@ async function fetchAndDownload() {
   {#if $lastError}
     <div class="error-message">{$lastError}</div>
   {/if}
-  {#if geolocError}
-    <div class="error-message">{geolocError}</div>
-  {/if}
+  <!-- Geolocation errors are surfaced in the global `$lastError` store so they appear in the main error area -->
   
   {#if success}
     <div class="success-message">{success}</div>
@@ -552,6 +568,17 @@ async function fetchAndDownload() {
     background: var(--button-bg, #f8f9fa);
     cursor: pointer;
   }
+
+  .map-inline-btn .icon {
+    display:inline-block; vertical-align:middle; margin-right:0.25rem;
+    color: var(--primary-color, #007bff);
+  }
+  .map-inline-btn .icon--success { color: var(--success-color, #28a745); }
+  .map-inline-btn .spinner {
+    display:inline-block; width:14px; height:14px; border-radius:50%; border:2px solid currentColor; border-right-color:transparent; box-sizing:border-box; vertical-align:middle;
+    animation: _pdt_spin 0.75s linear infinite;
+  }
+  @keyframes _pdt_spin { to { transform: rotate(360deg); } }
   
   .error-message {
     background: #f8d7da;

@@ -439,6 +439,22 @@ export function createFileStore() {
   }
 
   /**
+   * Set a UI-level meta.lastError value on the store snapshot
+   * @param {string|null} message - Error message or null to clear
+   */
+  function setMetaLastError(message = null) {
+    const currentSnapshot = getSnapshot();
+    const newSnapshot = {
+      ...currentSnapshot,
+      meta: {
+        ...currentSnapshot.meta,
+        lastError: message
+      }
+    };
+    commit(newSnapshot);
+  }
+
+  /**
    * Commit aggregation result produced by ProcessControls into the store.
    * This will make the charts and exports react to the processed data.
    *
@@ -528,6 +544,7 @@ export function createFileStore() {
     setAggregationResult,
     setMapping,
     setResults,
+    setMetaLastError,
   };
 }
 
