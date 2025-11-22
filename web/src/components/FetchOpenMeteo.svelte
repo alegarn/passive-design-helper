@@ -22,6 +22,8 @@
   
   // UI state
   let success = $state('');
+  // Transient state to animate input flash when coords are updated
+  let coordsUpdated = $state(false);
   // Geolocation UI state
   let geolocLoading = $state(false);
   let geolocSuccess = $state(false);
@@ -246,11 +248,12 @@ async function fetchAndDownload() {
         url = builtUrl();
         scheduleUploadDebounced();
         success = 'Updated coordinates from your device location';
+        coordsUpdated = true;
+        setTimeout(() => { coordsUpdated = false; }, 650);
         fileStore.setMetaLastError(null);
         geolocSuccess = true;
         setTimeout(() => { geolocSuccess = false; }, 2000);
         geolocLoading = false;
-        geolocSuccess = false;
       },
       (err) => {
         geolocLoading = false;
@@ -270,6 +273,26 @@ async function fetchAndDownload() {
     <button type="button" class="toggle-btn {showLeafletMap ? 'active' : ''}" onclick={() => { if (!mapModuleLoaded) openLeafletPreview(); else showLeafletMap = !showLeafletMap; }}>
       {#if showLeafletMap}Close Map Preview{:else}Open Map Preview{/if}
     </button>
+    <button id="geolocate" type="button" class="toggle-btn mode-locate-btn" onclick={geolocateMe} disabled={geolocLoading} aria-disabled={geolocLoading} title="Use your device's location" aria-label="Use your current location">
+      {#if geolocLoading}
+        <span class="spinner" aria-hidden="true"></span>
+        <span class="btn-text" style="margin-left:0.35rem;">Locating…</span>
+      {:else}
+        {#if geolocSuccess}
+          <svg class="icon icon--success" viewBox="0 0 24 24" width="14" height="14" aria-hidden="true">
+            <path fill="currentColor" d="M9 16.2L4.8 12l-1.4 1.4L9 19 21 7l-1.4-1.4z" />
+          </svg>
+        {:else}
+          <svg class="icon icon--pin" viewBox="0 0 24 24" width="14" height="14" aria-hidden="true">
+            <path fill="currentColor" d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5a2.5 2.5 0 110-5 2.5 2.5 0 010 5z" />
+          </svg>
+        {/if}
+        <span class="btn-text" style="margin-left:0.35rem;">Locate me</span>
+      {/if}
+    </button>
+    {#if geolocSuccess}
+      <span class="geoloc-badge" role="status" aria-live="polite">Location accepted</span>
+    {/if}
   </div>
   
   <div class="form-group">
@@ -288,41 +311,23 @@ async function fetchAndDownload() {
 
   {#if showParameters}
     <div class="params-grid">
+        <div class="form-group geo-controls" role="group" aria-labelledby="geoControlsLabel">
+          <div id="geoControlsLabel" class="sr-only">Geolocation actions</div>
+          <div class="geo-stack">
+            <button id="resetCoordinates" type="button" class="map-inline-btn" onclick={() => { selectedCityName=''; selectedCity=''; url=builtUrl(); scheduleUploadDebounced(); fileStore.setMetaLastError(null); geolocSuccess = false; geolocLoading = false; coordsUpdated = false; }} title="Reset to URL coordinates" aria-label="Reset coordinates to URL values">Reset my location</button>
+            <button id="openMap" type="button" class="map-inline-btn" onclick={openInMap} title="Open lat/lon in OpenStreetMap" aria-label="Open coordinates in OpenStreetMap">Open in map</button>
+          </div>
+        </div>
         <div class="form-group">
           <label for="lat">Latitude:</label>
-          <input id="lat" type="number" step="any" bind:value={lat} oninput={handleManualCoordinateChange} />
-          <button type="button" class="map-inline-btn" onclick={openInMap} title="Open lat/lon in OpenStreetMap">Open in map</button>
+          <input id="lat" type="number" step="any" bind:value={lat} oninput={handleManualCoordinateChange} class:flash={coordsUpdated} />
         </div>
       
         <div class="form-group">
           <label for="lon">Longitude:</label>
-          <input id="lon" type="number" step="any" bind:value={lon} oninput={handleManualCoordinateChange} />
-          <button type="button" class="map-inline-btn" onclick={openInMap} title="Open lat/lon in OpenStreetMap">Open in map</button>
+          <input id="lon" type="number" step="any" bind:value={lon} oninput={handleManualCoordinateChange} class:flash={coordsUpdated} />
         </div>
 
-        <div class="form-group">
-          <label for="geolocate" style="display:none;">Geolocation actions</label>
-          <div style="display:flex; gap:0.5rem; align-items:center;">
-            <button id="geolocate" type="button" class="map-inline-btn" onclick={geolocateMe} disabled={geolocLoading} title="Use your device's location" aria-label="Use your current location">
-              {#if geolocLoading}
-                <span class="spinner" aria-hidden="true"></span>
-                <span style="margin-left:0.35rem;">Locating...</span>
-              {:else}
-                {#if geolocSuccess}
-                  <svg class="icon icon--success" viewBox="0 0 24 24" width="14" height="14" aria-hidden="true">
-                    <path fill="currentColor" d="M9 16.2L4.8 12l-1.4 1.4L9 19 21 7l-1.4-1.4z" />
-                  </svg>
-                {:else}
-                  <svg class="icon icon--pin" viewBox="0 0 24 24" width="14" height="14" aria-hidden="true">
-                    <path fill="currentColor" d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5a2.5 2.5 0 110-5 2.5 2.5 0 010 5z" />
-                  </svg>
-                {/if}
-                <span style="margin-left:0.35rem;">Use my location</span>
-              {/if}
-            </button>
-            <button id="resetCoordinates" type="button" class="map-inline-btn" onclick={() => { selectedCityName=''; selectedCity=''; url=builtUrl(); scheduleUploadDebounced(); fileStore.setMetaLastError(null); geolocSuccess = false; geolocLoading = false; }} title="Reset to URL coordinates" aria-label="Reset coordinates to URL values">Reset</button>
-          </div>
-        </div>
       
       <div class="form-group">
         <label for="startDate">Start Date:</label>
@@ -434,12 +439,12 @@ async function fetchAndDownload() {
   </button>
   
   {#if $lastError}
-    <div class="error-message">{$lastError}</div>
+    <div class="error-message" aria-live="assertive" aria-atomic="true">{$lastError}</div>
   {/if}
   <!-- Geolocation errors are surfaced in the global `$lastError` store so they appear in the main error area -->
   
   {#if success}
-    <div class="success-message">{success}</div>
+    <div class="success-message" aria-live="polite" aria-atomic="true">{success}</div>
   {/if}
 </div>
 
@@ -567,7 +572,31 @@ async function fetchAndDownload() {
     border: 1px solid var(--border-color, #dee2e6);
     background: var(--button-bg, #f8f9fa);
     cursor: pointer;
+    min-width: 44px; /* touch target */
+    min-height: 36px;
   }
+
+  .mode-toggle .mode-locate-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.4rem 0.75rem;
+    font-size: 0.875rem;
+  }
+
+  .geoloc-badge {
+    display: inline-block;
+    background: var(--success-color, #28a745);
+    color: white;
+    padding: 0.2rem 0.5rem;
+    border-radius: 999px;
+    font-size: 0.75rem;
+    margin-left: 0.4rem;
+    align-self: center;
+  }
+
+  .geo-controls .geo-stack { display:flex; flex-direction:column; gap:0.5rem; }
+  .geo-controls .map-inline-btn { min-width: 120px; }
 
   .map-inline-btn .icon {
     display:inline-block; vertical-align:middle; margin-right:0.25rem;
@@ -579,6 +608,30 @@ async function fetchAndDownload() {
     animation: _pdt_spin 0.75s linear infinite;
   }
   @keyframes _pdt_spin { to { transform: rotate(360deg); } }
+  /* Button focus visible for keyboard users */
+  .map-inline-btn:focus-visible {
+    outline: 3px solid rgba(0,123,255,0.25);
+    outline-offset: 2px;
+  }
+
+  /* Responsive: hide text on smaller screens to conserve space */
+  .map-inline-btn .btn-text { display: inline; }
+  @media (max-width: 420px) {
+    .map-inline-btn .btn-text { display: none; }
+  }
+
+  /* Input flash animation */
+  .flash {
+    animation: _pdt_flash 0.65s ease-in-out;
+  }
+  @keyframes _pdt_flash {
+    0% { box-shadow: 0 0 0 0 rgba(0,123,255,0.25); }
+    50% { box-shadow: 0 0 0 6px rgba(0,123,255,0.06); }
+    100% { box-shadow: 0 0 0 0 rgba(0,123,255,0); }
+  }
+
+  /* Visually-hidden helper for screen readers */
+  /* `sr-only` utility is provided at a global level in styles/utilities/visibility.css; use that instead */
   
   .error-message {
     background: #f8d7da;
