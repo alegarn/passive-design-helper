@@ -13,16 +13,36 @@
   let endDate = $state('2025-11-17');
   let hourly = $state('temperature_2m,relative_humidity_2m');
   let format = $state('csv');
-  // mode: 'url' | 'params' | 'map'
-  let mode = $state('url');
+  // show/hide sections
+  let showParameters = $state(false);
+  let showLeafletMap = $state(false);
+  import LeafletMap from './LeafletMap.svelte';
+  import CityAutocomplete from './CityAutocomplete.svelte';
+  let mapModuleLoaded = $state(true);
   
   // UI state
   let success = $state('');
   
-  // Toggle between URL and parameters mode
-  function setMode(newMode) {
-    mode = newMode;
+  // Toggle showing parameters map UI
+  function toggleParameters() {
+    showParameters = !showParameters;
     success = '';
+    if (showParameters) {
+      url = builtUrl();
+      scheduleUploadDebounced();
+    }
+  }
+
+  // Toggle showing Leaflet map component (lazy loaded)
+  async function openLeafletPreview() {
+    // We already import LeafletMap statically for now — open preview
+    showLeafletMap = true;
+    url = builtUrl();
+    scheduleUploadDebounced();
+  }
+
+  function closeLeafletPreview() {
+    showLeafletMap = false;
   }
   
   // Build URL from parameters
@@ -45,9 +65,9 @@ async function fetchAndDownload() {
     // Ensure we always pass a concrete URL to the store and request JSON from the API.
     // The component still allows the user to download JSON or CSV, but the store
     // needs a parsed JSON payload for column/header detection.
-    const finalUrl = (mode === 'params' || mode === 'map') ? buildUrl() : url;
+    const final = finalUrl();
     const params = {
-      url: finalUrl,
+      url: final,
       format: 'json' // always fetch JSON so normalizer can extract headers/samples
     };
 
@@ -96,27 +116,36 @@ async function fetchAndDownload() {
 }
   
   
-  // Update URL when parameters change (if in parameter mode)
-  $effect(() => {
-    // Keep the generated URL in sync when we're using parameters or map mode
-    if (mode === 'params' || mode === 'map') {
-      url = buildUrl();
-    }
-  });
+  // Derived URL from parameters (computed, doesn't overwrite manual input unless we explicitly copy)
+  const builtUrl = $derived(() => buildUrl());
+  // Final URL used for all uploads and network calls: if parameters or map UI active, use builtUrl, otherwise manual `url` value.
+  const finalUrl = $derived(() => (showParameters || showLeafletMap) ? builtUrl() : url);
   
-  // Auto-fetch when parameters change in parameter mode
+  // Auto-fetch when parameters change (only active when `Choose parameters` or Map preview are open)
   function triggerFetch() {
-    if (mode === 'params') {
-      const params = {
-        latitude: lat,
-        longitude: lon,
-        start_date: startDate,
-        end_date: endDate,
-        hourly: hourly,
-        format: format
-      };
+    const urlToUse = finalUrl();
+    const params = { url: urlToUse, format: format };
+    fileStore.fetchRemote(params);
+  }
+
+  // Debounced upload helpers
+  let uploadDebounceTimer = null;
+  const UPLOAD_DEBOUNCE_MS = 450;
+
+  function scheduleUploadDebounced() {
+    if (uploadDebounceTimer) clearTimeout(uploadDebounceTimer);
+    uploadDebounceTimer = setTimeout(() => {
+      const urlToUse = finalUrl();
+      const params = { url: urlToUse, format: 'json' };
       fileStore.fetchRemote(params);
-    }
+    }, UPLOAD_DEBOUNCE_MS);
+  }
+
+  function scheduleUploadImmediate() {
+    if (uploadDebounceTimer) clearTimeout(uploadDebounceTimer);
+    const urlToUse = finalUrl();
+    const params = { url: urlToUse, format: 'json' };
+    fileStore.fetchRemote(params);
   }
 
   // When a city is selected, update the lat/lon fields
@@ -128,8 +157,23 @@ async function fetchAndDownload() {
       lat = String(Number(city.lat).toFixed(6));
       lon = String(Number(city.lon).toFixed(6));
       selectedCity = city;
-      // If we are in params or map mode, automatically update the URL preview
-      if (mode === 'params' || mode === 'map') url = buildUrl();
+      // If parameters or map UI is visible, update the URL and schedule a fetch
+      if (showParameters || showLeafletMap) {
+        url = builtUrl();
+        scheduleUploadDebounced();
+      }
+    }
+  }
+
+  function handleCitySelected(city) {
+    if (!city) return;
+    lat = String(Number(city.lat).toFixed(6));
+    lon = String(Number(city.lon).toFixed(6));
+    selectedCity = city;
+    selectedCityName = city.name;
+    if (showParameters || showLeafletMap) {
+      url = finalUrl();
+      scheduleUploadDebounced();
     }
   }
 
@@ -146,7 +190,6 @@ async function fetchAndDownload() {
 
   // Clear selected city when user manually edits lat/lon inputs (avoids $effect and keeps logic local)
   function handleManualCoordinateChange() {
-    if (!selectedCity) return;
     const currentLat = lat ? Number(lat).toFixed(6) : '';
     const currentLon = lon ? Number(lon).toFixed(6) : '';
     const cityLat = selectedCity && selectedCity.lat ? Number(selectedCity.lat).toFixed(6) : '';
@@ -154,7 +197,28 @@ async function fetchAndDownload() {
     if (currentLat !== cityLat || currentLon !== cityLon) {
       selectedCityName = '';
       selectedCity = '';
+      scheduleUploadDebounced();
     }
+    // Always schedule upload for manual coordinate edits
+    scheduleUploadDebounced();
+  }
+
+  function handleParameterChange() {
+    // Keep the URL preview in sync and schedule an upload each time a parameter changes
+    url = builtUrl();
+    scheduleUploadDebounced();
+  }
+
+  function handleMapSelect(e) {
+    if (!e || !e.detail) return;
+    const { lat: newLat, lon: newLon } = e.detail;
+    lat = String(Number(newLat).toFixed(6));
+    lon = String(Number(newLon).toFixed(6));
+    // selecting via the map is a 'manual coordinate' update: clear selected city
+    selectedCityName = '';
+    selectedCity = '';
+    url = builtUrl();
+    scheduleUploadDebounced();
   }
   
 </script>
@@ -163,64 +227,48 @@ async function fetchAndDownload() {
   <h2>Fetch Open-Meteo Weather Data</h2>
   
   <div class="mode-toggle">
-    <button
-      type="button"
-      class="toggle-btn {mode === 'url' ? 'active' : ''}"
-      onclick={() => setMode('url')}
-    >
-      Use URL
-    </button>
-    <button
-      type="button"
-      class="toggle-btn {mode === 'params' ? 'active' : ''}"
-      onclick={() => setMode('params')}
-    >
-      Use Parameters
-    </button>
-    <button
-      type="button"
-      class="toggle-btn {mode === 'map' ? 'active' : ''}"
-      onclick={() => setMode('map')}
-    >
-      Use Map
+    <button type="button" class="toggle-btn {showParameters ? 'active' : ''}" onclick={() => { showParameters = !showParameters; }}>Choose parameters</button>
+    <button type="button" class="toggle-btn {showLeafletMap ? 'active' : ''}" onclick={() => { if (!mapModuleLoaded) openLeafletPreview(); else showLeafletMap = !showLeafletMap; }}>
+      {#if showLeafletMap}Close Map Preview{:else}Open Map Preview{/if}
     </button>
   </div>
   
-  {#if mode === 'url'}
-    <div class="form-group">
-      <label for="url">API URL:</label>
-      <input 
-        id="url"
-        type="url" 
-        bind:value={url} 
-        placeholder="https://archive-api.open-meteo.com/v1/archive?..."
-        class="url-input"
-      />
-    </div>
-  {:else if mode === 'params'}
+  <div class="form-group">
+    <label for="url">API URL:</label>
+    <input 
+      id="url" 
+      type="url" 
+      bind:value={url} 
+      placeholder="https://archive-api.open-meteo.com/v1/archive?..."
+      class="url-input"
+      oninput={() => { // when user manually edits URL, automatically upload the custom URL after a brief debounce
+        scheduleUploadDebounced();
+      }}
+    />
+  </div>
+
+  {#if showParameters}
     <div class="params-grid">
-      <div class="form-group">
-        <label for="lat">Latitude:</label>
-        <input id="lat" type="number" step="any" bind:value={lat} oninput={handleManualCoordinateChange} />
-        <button type="button" class="map-inline-btn" onclick={openInMap} title="Open lat/lon in OpenStreetMap">Open in map</button>
-        <button type="button" class="map-inline-btn" onclick={toggleMap} title="Toggle inline map preview">Preview map</button>
-      </div>
+        <div class="form-group">
+          <label for="lat">Latitude:</label>
+          <input id="lat" type="number" step="any" bind:value={lat} oninput={handleManualCoordinateChange} />
+          <button type="button" class="map-inline-btn" onclick={openInMap} title="Open lat/lon in OpenStreetMap">Open in map</button>
+        </div>
       
-      <div class="form-group">
-        <label for="lon">Longitude:</label>
-        <input id="lon" type="number" step="any" bind:value={lon} oninput={handleManualCoordinateChange} />
-        <button type="button" class="map-inline-btn" onclick={openInMap} title="Open lat/lon in OpenStreetMap">Open in map</button>
-        <button type="button" class="map-inline-btn" onclick={toggleMap} title="Toggle inline map preview">Preview map</button>
-      </div>
+        <div class="form-group">
+          <label for="lon">Longitude:</label>
+          <input id="lon" type="number" step="any" bind:value={lon} oninput={handleManualCoordinateChange} />
+          <button type="button" class="map-inline-btn" onclick={openInMap} title="Open lat/lon in OpenStreetMap">Open in map</button>
+        </div>
       
       <div class="form-group">
         <label for="startDate">Start Date:</label>
-        <input id="startDate" type="date" bind:value={startDate} />
+        <input id="startDate" type="date" bind:value={startDate} onchange={handleParameterChange} />
       </div>
       
       <div class="form-group">
         <label for="endDate">End Date:</label>
-        <input id="endDate" type="date" bind:value={endDate} />
+        <input id="endDate" type="date" bind:value={endDate} onchange={handleParameterChange} />
       </div>
       
       <div class="form-group">
@@ -230,85 +278,66 @@ async function fetchAndDownload() {
           type="text" 
           bind:value={hourly} 
           placeholder="temperature_2m,relative_humidity_2m"
+          oninput={handleParameterChange}
         />
       </div>
 
       <!-- City selection moved to Use Map mode -->
       
-      <div class="form-group">
-        <label for="format">Format:</label>
-        <select id="format" bind:value={format}>
-          <option value="json">JSON</option>
-          <option value="csv">CSV</option>
-        </select>
-      </div>
+      <!-- Output format is below (global control) -->
     </div>
     
-    <div class="url-preview">
-      <label for="previewUrl">Generated URL:</label>
-      <input id="previewUrl" type="url" value={url} readonly class="preview-url" />
-    </div>
-  {:else if mode === 'map'}
+    <!-- URL preview removed here: we keep a single editable API URL field at the top -->
+  {/if}
+  {#if showLeafletMap}
     <div class="map-mode">
       <div class="map-controls">
         <div class="form-group">
-          <label for="citySelect">City:</label>
-          <select id="citySelect" bind:value={selectedCityName} onchange={selectCity}>
-            <option value="">-- Select city --</option>
-            {#each cities as city}
-              <option value={city.name}>{city.name}</option>
-            {/each}
-          </select>
+          <label for="citySelect">City (autocomplete):</label>
+          <CityAutocomplete bind:value={selectedCityName} {cities} placeholder="Search or choose a city" select={handleCitySelected} />
         </div>
 
-        <div class="form-group">
-          <label for="latMap">Latitude:</label>
-          <input id="latMap" type="number" step="any" bind:value={lat} oninput={handleManualCoordinateChange} />
-        </div>
-
-        <div class="form-group">
-          <label for="lonMap">Longitude:</label>
-          <input id="lonMap" type="number" step="any" bind:value={lon} oninput={handleManualCoordinateChange} />
-        </div>
-
-        <div class="form-group">
-          <label for="startDateMap">Start Date:</label>
-          <input id="startDateMap" type="date" bind:value={startDate} />
-        </div>
-
-        <div class="form-group">
-          <label for="endDateMap">End Date:</label>
-          <input id="endDateMap" type="date" bind:value={endDate} />
-        </div>
-
-        <div class="form-group">
-          <label for="hourlyMap">Hourly Variables:</label>
-          <input id="hourlyMap" type="text" bind:value={hourly} placeholder="temperature_2m,relative_humidity_2m" />
-        </div>
+          {#if !showParameters}
+            <!-- Map preview should show only the map and allow click to set coordinates. Remove static details but add date inputs for convenience. -->
+            <div class="map-controls-mini">
+              <div class="form-group">
+                <label for="startDateMap">Start Date:</label>
+                <input id="startDateMap" type="date" bind:value={startDate} onchange={handleParameterChange} />
+              </div>
+              <div class="form-group">
+                <label for="endDateMap">End Date:</label>
+                <input id="endDateMap" type="date" bind:value={endDate} onchange={handleParameterChange} />
+              </div>
+            </div>
+          {/if}
       </div>
 
       <div class="map-preview">
         <div class="map-header">
           <div>Map preview — centered on: {lat}, {lon}</div>
         </div>
-        <iframe
+        {#if mapModuleLoaded}
+          <LeafletMap lat={Number(lat)} lon={Number(lon)} on:select={handleMapSelect} />
+        {:else}
+          <iframe
           title="OpenStreetMap preview"
           src={`https://www.openstreetmap.org/export/embed.html?bbox=${Number(lon) - 0.6},${Number(lat) - 0.3},${Number(lon) + 0.6},${Number(lat) + 0.3}&layer=mapnik&marker=${lat},${lon}`}
           width="100%"
           height="350"
           frameborder="0"
           style="border: 1px solid var(--border-color, #dee2e6); border-radius: 4px;"
-        ></iframe>
+          ></iframe>
+        {/if}
       </div>
     </div>
   {/if}
 
-  {#if showMap && mode === 'params'}
+  {#if showMap && showParameters}
     <div class="map-preview">
-      <div class="map-header">
-        <div>Map preview — centered on: {lat}, {lon}</div>
-        <button type="button" class="map-inline-btn" onclick={toggleMap}>Close</button>
-      </div>
+        <div class="map-header">
+          <div>Map preview — centered on: {lat}, {lon}</div>
+          <button type="button" class="map-inline-btn" onclick={toggleMap}>Close</button>
+        </div>
       <iframe
         title="OpenStreetMap preview"
         src={`https://www.openstreetmap.org/export/embed.html?bbox=${Number(lon) - 0.6},${Number(lat) - 0.3},${Number(lon) + 0.6},${Number(lat) + 0.3}&layer=mapnik&marker=${lat},${lon}`}
@@ -322,7 +351,7 @@ async function fetchAndDownload() {
   
   <div class="form-group">
     <label for="format">Output Format:</label>
-    <select id="format" bind:value={format}>
+    <select id="format" bind:value={format} onchange={handleParameterChange}>
       <option value="json">JSON</option>
       <option value="csv">CSV</option>
     </select>
@@ -428,19 +457,18 @@ async function fetchAndDownload() {
     margin-bottom: 1rem;
   }
 
+  .map-controls-mini {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    gap: 0.75rem;
+    margin-bottom: 0.5rem;
+  }
+
   /* no additional coordinates summary styles required */
 
   /* no longer used — keep for compatibility if we later convert to field labels */
   
-  .url-preview {
-    margin-bottom: 1rem;
-  }
-  
-  .preview-url {
-    font-family: monospace;
-    font-size: 0.75rem;
-    background: var(--code-bg, #f8f9fa);
-  }
+  /* url-preview & preview-url removed; main `API URL` is the single source of truth */
   
   .fetch-btn {
     background: var(--primary-color, #007bff);
