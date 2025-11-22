@@ -16,6 +16,7 @@ Usage:
 const fs = require('fs');
 const path = require('path');
 const readline = require('readline');
+const { ZONE_COLORS } = require('./scripts/theme.cjs');
 
 async function prompt(q) {
   const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
@@ -158,13 +159,14 @@ function printHelp() {
   function p(t, rh) { if (typeof t === 'string' && t.trim().endsWith('+')) return [INF_T, Number(rh)]; return [Number(t), Number(rh)]; }
 
   const ZONES = [
-    { id: 'Cold', color: '#88c0d0', poly: null, note: 'T < 23°C' },
-    { id: 'Comfort', color: '#a3be8c', poly: [ p(23,20), p(23,80), p(25,80), p(28,67), p(29.5,50), p(29.5,20) ]},
-    { id: 'Ventilation', color: '#ebcb8b', poly: [ p(23,80), p(23,100), p(29.5,100), p(34.5,50), p(34.5,20), p(29.5,20), p(29.5,50), p(28,67), p(25,80) ]},
-    { id: 'Mass Cooling', color: '#5e81ac', poly: [ p(23,20), p(29.5,20), p(29.5,50), p(28,67), p(36,33), p(39.5,30), p(39.5,7) ]},
-    { id: 'Evaporative Cooling', color: '#88c0d0', poly: [ p(23,20), p(29.5,20), p(29.5,50), p(28,67), p(39,30), p(42.7,20), p(43.7,10), p(43.7,0), p(31.3,0) ]},
-    { id: 'Air Conditioning + Dehumidifier', color: '#bf616a', poly: [ p('34.7+',45), p('34.7+',50), p('29.8+',100) ]},
-    { id: 'Air Conditioning', color: '#d08770', poly: [ p('43.7+',0), p('43.7+',6), p('47.3+',6), p('47.3+',20), p('44+',27) ]}
+    { id: 'Cold', color: ZONE_COLORS['Cold'], poly: null, note: 'T < 23°C' },
+    { id: 'Comfort', color: ZONE_COLORS['Comfort'], poly: [ p(23,20), p(23,80), p(25,80), p(28,67), p(29.5,50), p(29.5,20) ]},
+    { id: 'Ventilation', color: ZONE_COLORS['Ventilation'], poly: [ p(23,80), p(23,100), p(29.5,100), p(34.5,50), p(34.5,20), p(29.5,20), p(29.5,50), p(28,67), p(25,80) ]},
+    { id: 'Active Solar Heating', color: ZONE_COLORS['Active Solar Heating'], poly: [ p(6.8,0), p(6.8,100), p(10.8,100), p(10.8,0) ], note: 'Active solar heating band (approx)' },
+    { id: 'Mass Cooling', color: ZONE_COLORS['Mass Cooling'], poly: [ p(23,20), p(29.5,20), p(29.5,50), p(28,67), p(36,33), p(39.5,30), p(39.5,7) ]},
+    { id: 'Evaporative Cooling', color: ZONE_COLORS['Evaporative Cooling'], poly: [ p(23,20), p(29.5,20), p(29.5,50), p(28,67), p(39,30), p(42.7,20), p(43.7,10), p(43.7,0), p(31.3,0) ]},
+    { id: 'Air Conditioning + Dehumidifier', color: ZONE_COLORS['Air Conditioning + Dehumidifier'], poly: [ p('34.7+',45), p('34.7+',50), p('29.8+',100) ]},
+    { id: 'Air Conditioning', color: ZONE_COLORS['Air Conditioning'], poly: [ p('43.7+',0), p('43.7+',6), p('47.3+',6), p('47.3+',20), p('44+',27) ]}
   ];
 
   function pointOnSegment(px, py, x1, y1, x2, y2) {
@@ -184,9 +186,15 @@ function printHelp() {
     return inside;
   }
   // classification with energy-priority tie-break (least energy consuming preferred)
-  const ENERGY_PRIORITY = ['Comfort', 'Ventilation', 'Mass Cooling', 'Evaporative Cooling', 'Air Conditioning + Dehumidifier', 'Air Conditioning', 'Cold', 'Unclassified'];
+  const ENERGY_PRIORITY = ['Comfort', 'Ventilation', 'Heating', 'Mass Cooling', 'Evaporative Cooling', 'Air Conditioning + Dehumidifier', 'Air Conditioning', 'Cold', 'Unclassified'];
   function classifyPoint(temp, rh) {
-    if (temp < 23) return 'Cold';
+    const T = Number(temp);
+    const H = Number(rh);
+
+    // Thresholds first: AC (extreme hot) and Heating (extreme cold)
+    if (T > 43.5) return 'Air Conditioning';
+    if (T < 0) return 'Heating';
+
     const matches = [];
     for (let zi = 1; zi < ZONES.length; zi++) {
       const zone = ZONES[zi];
@@ -194,7 +202,8 @@ function printHelp() {
       if (pointInPoly(temp, rh, zone.poly)) matches.push(zone.id);
     }
     if (matches.length === 0) {
-      if (temp >= 43.7) return 'Air Conditioning';
+      // If no polygon matched, fall back to 'Cold' when T < 23
+      if (T < 23) return 'Cold';
       return 'Unclassified';
     }
     // pick match with highest priority (earliest in ENERGY_PRIORITY)

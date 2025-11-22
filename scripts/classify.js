@@ -1,5 +1,5 @@
 // Refactor derived from logic.js
-const { ZONES } = require('./zones');
+import { ZONES, preferredZoneForPoint } from './zones.js';
 
 /**
  * Check if a point lies on a line segment
@@ -48,30 +48,26 @@ const ENERGY_PRIORITY = ['Comfort', 'Ventilation', 'Mass Cooling', 'Evaporative 
  * @returns {string} Zone ID
  */
 function classifyPoint(temp, rh) {
-  // Cold zone is simple temperature threshold
-  if (temp < 23) return 'Cold';
-  
-  // Find all zones that contain this point
-  const matches = [];
-  for (let zi = 1; zi < ZONES.length; zi++) {
-    const zone = ZONES[zi];
-    if (!zone.poly) continue;
-    if (pointInPoly(temp, rh, zone.poly)) matches.push(zone.id);
-  }
-  
-  if (matches.length === 0) {
-    // Fallback for very high temperatures
-    if (temp >= 43.7) return 'Air Conditioning';
-    return 'Unclassified';
-  }
-  
-  // Pick match with highest priority (earliest in ENERGY_PRIORITY)
-  matches.sort((a,b) => ENERGY_PRIORITY.indexOf(a) - ENERGY_PRIORITY.indexOf(b));
-  return matches[0];
+  const T = Number(temp);
+  const H = Number(rh);
+
+  // Very hot: Air Conditioning takes precedence
+  if (T > 43.5) return 'Air Conditioning';
+
+  // Very cold: Heating should be used even if polygons don't match
+  if (T < 0) return 'Heating';
+
+  // Try to detect a preferred zone based on polygon membership and the
+  // preferredZoneForPoint tie-breaking rules. This will pick 'Passive Solar',
+  // 'Mass Cooling', etc.
+  const pref = preferredZoneForPoint(T, H);
+  if (pref && pref.id) return pref.id;
+
+  // If no polygon matched, fall back to 'Cold' only when the temperature is below threshold
+  if (T < 23) return 'Cold';
+
+  // Normal fallback
+  return 'Unclassified';
 }
 
-module.exports = {
-  pointOnSegment,
-  pointInPoly,
-  classifyPoint
-};
+export { pointOnSegment, pointInPoly, classifyPoint };

@@ -1,0 +1,161 @@
+/* Psychrometric chart component */
+.chart-container {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-md);
+}
+
+.chart-container__title {
+  margin: 0;
+  font-size: var(--font-size-lg);
+  font-weight: 600;
+  color: var(--color-text);
+}
+
+.psychrometric-chart {
+  width: 100%;
+  height: auto;
+  max-width: 800px;
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  background-color: var(--color-bg-elevated);
+  box-shadow: var(--shadow-sm);
+}
+
+.chart-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-md);
+  padding: var(--space-sm);
+  background-color: var(--color-bg);
+  border-radius: 8px;
+  border: 1px solid var(--color-border);
+}
+
+.chart-legend__item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+  font-size: var(--font-size-sm);
+  color: var(--color-text);
+}
+
+.chart-legend__color {
+  width: 16px;
+  height: 16px;
+  border-radius: 4px;
+  border: 1px solid var(--color-border);
+}
+
+.chart-tooltip {
+  position: absolute;
+  background-color: var(--color-bg-elevated);
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  padding: var(--space-sm);
+  box-shadow: var(--shadow-md);
+  pointer-events: none;
+  z-index: 1000;
+  font-size: var(--font-size-sm);
+  max-width: 200px;
+}
+
+.chart-tooltip__title {
+  font-weight: 600;
+  margin-bottom: var(--space-xs);
+  color: var(--color-text);
+}
+
+.chart-tooltip__row {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--space-md);
+  margin-bottom: var(--space-xs);
+}
+
+.chart-tooltip__label {
+  color: var(--color-text-muted);
+}
+
+.chart-tooltip__value {
+  font-weight: 500;
+  color: var(--color-text);
+}
+
+@media (max-width: 768px) {
+  .psychrometric-chart {
+    max-width: 100%;
+    height: 400px;
+  }
+  
+  .chart-legend {
+    justify-content: center;
+  }
+}
+
+/* Psychrometric chart specific styles */
+.psychro-chart-container {
+  position: relative;
+  width: 100%;
+  height: 400px;
+}
+
+.psychro-canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+  image-rendering: optimizeQuality;
+}
+
+/* High-DPI scaling support */
+@media (-webkit-min-device-pixel-ratio: 2), (min-resolution: 192dpi) {
+  .psychro-canvas {
+    image-rendering: -webkit-optimize-contrast;
+    image-rendering: crisp-edges;
+  }
+}
+
+/* Responsive adjustments */
+@media (max-width: 768px) {
+  .psychro-chart-container {
+    height: 400px;
+    max-width: 100%;
+  }
+}
+
+@media (max-width: 480px) {
+  .psychro-chart-container {
+    height: 300px;
+  }
+}
+
+/* Performance optimization: will-change hint for smooth animations */
+.psychro-canvas {
+  will-change: transform;
+}
+
+/* Loading state */
+.psychro-chart-container.loading::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-color: rgba(255, 255, 255, 0.8);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 10;
+}
+
+.psychro-chart-container.loading::after {
+  content: 'Loading chart...';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  color: var(--color-text-muted);
+  font-size: var(--font-size-sm);
+  z-index: 11;
+}

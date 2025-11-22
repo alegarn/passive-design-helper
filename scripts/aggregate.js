@@ -1,6 +1,6 @@
 // Refactor derived from logic.js
-const { datePartsFactory } = require('./utils');
-const { classifyPoint } = require('./classify');
+import { datePartsFactory } from './utils.js';
+import { classifyPoint } from './classify.js';
 
 /**
  * Compute duration for each row using median rule and ensure non-negative duration
@@ -169,6 +169,13 @@ function createAggregator(options = {}) {
     
     // Store row with duration for bucket building
     rowsWithDur.push({ ...row, dur: duration });
+    if (row.zone === 'Ventilation') {
+      console.log('[aggregate] Ventilation row:', {
+        ts: new Date(row.ts).toISOString(),
+        dur: duration,
+        durHours: duration / 3600000
+      });
+    }
     
     // Update previous row for next iteration
     previousRow = row;
@@ -203,11 +210,67 @@ function createAggregator(options = {}) {
     
     // Build per-bucket data if timeline unit is set
     if (timelineUnit) {
+      // Dev-only debug: show sample rows and range
+      console.log('[aggregate] rowsWithDur sample (first 5):', rowsWithDur.slice(0, 5).map(r => ({
+        ts: new Date(r.ts).toISOString(),
+        zone: r.zone,
+        dur: r.dur
+      })));
       perBucket = {};
+      
+      // Compute actual data range to constrain bucket creation
+      const minTs = Math.min(...rowsWithDur.map(r => r.ts));
+      const maxTs = Math.max(...rowsWithDur.map(r => r.ts));
+      
+      console.log('[aggregate] data range:', {
+        min: new Date(minTs).toISOString(),
+        max: new Date(maxTs).toISOString(),
+        rowsCount: rowsWithDur.length
+      });
+      
+      const zoneTotals = {};
+      console.log('[aggregate] about to loop rowsWithDur, length:', rowsWithDur.length);
       for (const row of rowsWithDur) {
         const bk = bucketKey(row.ts, timelineUnit, dateParts);
         perBucket[bk] = perBucket[bk] || {};
-        perBucket[bk][row.zone] = (perBucket[bk][row.zone] || 0) + row.dur;
+        perBucket[bk][row.zone] = (perBucket[bk][row.zone] || 0) + row.dur; // avoid double-add of row durations
+        // Track running totals per zone
+        zoneTotals[row.zone] = (zoneTotals[row.zone] || 0) + row.dur;
+      }
+      console.log('[aggregate] after loop, unique bucket keys count:', Object.keys(perBucket).length);
+      console.log('[aggregate] final zone totals (hours):', Object.fromEntries(
+        Object.entries(zoneTotals).map(([z, ms]) => [z, ms / 3600000])
+      ));
+      
+      // Fill missing buckets only within the actual data range
+      if (rowsWithDur.length > 0) {
+        const { samplingUnit } = detectSampling(
+          [...rowsWithDur].sort((a, b) => a.ts - b.ts)
+            .map((row, i, arr) => i < arr.length - 1 ? arr[i + 1].ts - row.ts : 0)
+            .filter(d => d > 0)
+            .sort((a, b) => a - b)[Math.floor(rowsWithDur.length / 2)] || 0
+        );
+        
+        // Generate buckets from minTs to maxTs using detected sampling interval
+        // generate buckets only within actual data range to avoid full-year expansion
+        let currentTs = minTs;
+        while (currentTs <= maxTs) {
+          const bk = bucketKey(currentTs, timelineUnit, dateParts);
+          if (!perBucket[bk]) {
+            perBucket[bk] = {}; // Create empty bucket for missing time periods
+          }
+          
+          // Increment based on timeline unit
+          if (timelineUnit === 'hour') {
+            currentTs += 3600 * 1000; // 1 hour
+          } else if (timelineUnit === 'day') {
+            currentTs += 24 * 3600 * 1000; // 1 day
+          } else if (timelineUnit === 'month') {
+            // Move to next month
+            const parts = dateParts(currentTs);
+            currentTs = Date.UTC(parts.year, parts.month + 1, 1);
+          }
+        }
       }
     }
     
@@ -235,10 +298,4 @@ function createAggregator(options = {}) {
   };
 }
 
-module.exports = {
-  computeDurations,
-  detectSampling,
-  buildBuckets,
-  bucketKey,
-  createAggregator
-};
+export { computeDurations, detectSampling, buildBuckets, bucketKey, createAggregator };
