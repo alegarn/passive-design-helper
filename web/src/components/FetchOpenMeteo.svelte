@@ -3,15 +3,25 @@
   import { cities } from '../data/cities.js';
   
   // Form state
-  let url = $state('https://archive-api.open-meteo.com/v1/archive?latitude=52.52&longitude=13.41&start_date=2025-11-16&end_date=2025-11-17&hourly=temperature_2m,relative_humidity_2m');
+  // Compute a local today date string in YYYY-MM-DD format for use as the default start/end dates
+  const DEFAULT_DATE = (() => {
+    const d = new Date();
+    const yyyy = d.getFullYear();
+    const mm = String(d.getMonth() + 1).padStart(2, '0');
+    const dd = String(d.getDate()).padStart(2, '0');
+    return `${yyyy}-${mm}-${dd}`;
+  })();
+
   let lat = $state('52.52');
   let lon = $state('13.41');
   let selectedCity = $state('');
   let selectedCityName = $state('');
   let showMap = $state(false);
-  let startDate = $state('2025-11-16');
-  let endDate = $state('2025-11-17');
+  let startDate = $state(DEFAULT_DATE);
+  let endDate = $state(DEFAULT_DATE);
   let hourly = $state('temperature_2m,relative_humidity_2m');
+  // Default initial URL built from the default parameters (static lat/lon + DEFAULT_DATE)
+  let url = $state(`https://archive-api.open-meteo.com/v1/archive?latitude=52.52&longitude=13.41&start_date=${DEFAULT_DATE}&end_date=${DEFAULT_DATE}&hourly=temperature_2m,relative_humidity_2m`);
   let format = $state('csv');
   // show/hide sections
   let showParameters = $state(false);
