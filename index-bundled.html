@@ -1,0 +1,1048 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Passive Design Tactics Analyzer (Bundled)</title>
+  <link rel="stylesheet" href="styles/main.css">
+</head>
+<body>
+  <div class="app">
+    <header class="app__header">
+      <h1 class="app__title">Passive Design Tactics</h1>
+      <button class="app__reset-btn" aria-label="Reset analysis">Reset</button>
+    </header>
+    <main class="app__main">
+      <aside class="panel panel--input">
+        <section class="upload-zone" aria-label="CSV file upload">
+          <div class="upload-zone__droparea" tabindex="0" role="button">
+            <svg class="upload-zone__icon" aria-hidden="true" viewBox="0 0 24 24" width="48" height="48" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+              <polyline points="7,10 12,15 17,10"></polyline>
+              <line x1="12" y1="15" x2="12" y2="3"></line>
+            </svg>
+            <p class="upload-zone__text">Drop CSV file or click to browse</p>
+            <input type="file" class="upload-zone__input" accept=".csv" id="file-input">
+          </div>
+          <div class="upload-zone__status" role="status" aria-live="polite"></div>
+        </section>
+
+        <section class="config-section config-section--columns">
+          <h2 class="config-section__title">Column Mapping</h2>
+          <form class="column-mapper">
+            <div class="form-field">
+              <label for="col-time" class="form-field__label">Time/Date Column</label>
+              <select id="col-time" class="form-field__select">
+                <option value="">-- Auto detect --</option>
+              </select>
+            </div>
+            <div class="form-field">
+              <label for="col-temp" class="form-field__label">Temperature Column</label>
+              <select id="col-temp" class="form-field__select"></select>
+            </div>
+            <div class="form-field">
+              <label for="col-rh" class="form-field__label">Humidity Column</label>
+              <select id="col-rh" class="form-field__select"></select>
+            </div>
+          </form>
+        </section>
+
+        <section class="config-section config-section--dates">
+          <h2 class="config-section__title">Date Format</h2>
+          <fieldset class="date-format-selector">
+            <legend class="visually-hidden">Choose date format</legend>
+            <label class="radio-label">
+              <input type="radio" name="date-format" value="auto" checked>
+              <span>Auto detect</span>
+            </label>
+            <label class="radio-label">
+              <input type="radio" name="date-format" value="day-first">
+              <span>Day-first (DD/MM/YYYY)</span>
+            </label>
+            <label class="radio-label">
+              <input type="radio" name="date-format" value="month-first">
+              <span>Month-first (MM/DD/YYYY)</span>
+            </label>
+          </fieldset>
+          <p class="date-format-selector__preview">Sample: <code>--</code></p>
+        </section>
+
+        <section class="config-section config-section--timeline">
+          <h2 class="config-section__title">Timeline Grouping</h2>
+          <select class="form-field__select" id="timeline-unit">
+            <option value="auto">Auto detect</option>
+            <option value="hour">Per Hour</option>
+            <option value="day">Per Day</option>
+            <option value="month">Per Month</option>
+          </select>
+        </section>
+
+        <button class="btn btn--primary btn--analyze">
+          <span class="btn__text">Analyze Data</span>
+        </button>
+      </aside>
+
+      <section class="panel panel--results">
+        <div class="chart-container">
+          <h2 class="chart-container__title">Psychrometric Chart</h2>
+          <div style="position: relative;">
+            <canvas class="psychrometric-chart" width="800" height="600" role="img" aria-label="Psychrometric chart showing temperature and humidity zones"></canvas>
+            <canvas id="label-overlay" style="position: absolute; top: 0; left: 0; pointer-events: none; width: 800px; height: 600px;"></canvas>
+          </div>
+          <div class="chart-legend" role="list"></div>
+        </div>
+
+        <div class="zone-stats">
+          <h2 class="zone-stats__title">Zone Distribution</h2>
+          <div class="zone-stats__grid" role="list"></div>
+        </div>
+
+        <div class="timeline-breakdown">
+          <h2 class="timeline-breakdown__title">Timeline Analysis</h2>
+          <div class="timeline-breakdown__controls">
+            <button class="btn btn--sm" data-view="table">Table</button>
+            <button class="btn btn--sm" data-view="chart">Chart</button>
+          </div>
+          <div class="timeline-breakdown__content"></div>
+        </div>
+
+        <div class="export-controls">
+          <h2 class="export-controls__title">Export Results</h2>
+          <div class="export-controls__buttons">
+            <button class="btn btn--secondary" data-export="csv">
+              <svg class="btn__icon" aria-hidden="true" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                <polyline points="7,10 12,15 17,10"></polyline>
+                <line x1="12" y1="15" x2="12" y2="3"></line>
+              </svg>
+              <span>Timeseries CSV</span>
+            </button>
+            <button class="btn btn--secondary" data-export="json">
+              <svg class="btn__icon" aria-hidden="true" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                <polyline points="7,10 12,15 17,10"></polyline>
+                <line x1="12" y1="15" x2="12" y2="3"></line>
+              </svg>
+              <span>Summary JSON</span>
+            </button>
+            <button class="btn btn--secondary" data-export="md">
+              <svg class="btn__icon" aria-hidden="true" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                <polyline points="7,10 12,15 17,10"></polyline>
+                <line x1="12" y1="15" x2="12" y2="3"></line>
+              </svg>
+              <span>Markdown Report</span>
+            </button>
+          </div>
+        </div>
+      </section>
+    </main>
+    <footer class="app__footer">
+      <p>Powered by <a href="https://github.com/yourusername/passive-design-tactics">passive-design-tactics</a></p>
+    </footer>
+  </div>
+
+  <script src="scripts/bundle.js"></script>
+  <script>
+    // Enable psychrometric chart feature flag
+    window.DEV_PSYCHRO_CHART = true;
+    console.log('Starting bundled app...');
+    
+    class TacticsApp {
+      constructor() {
+        this.state = {
+          rawData: null,
+          columnMapping: { time: -1, temp: -1, rh: -1 },
+          dateOptions: { dayFirst: null, treatAsUTC: false },
+          timelineUnit: 'auto',
+          results: null
+        };
+        this.tooltip = null;
+        this.initEventListeners();
+      }
+
+      initEventListeners() {
+        console.log('Initializing event listeners...');
+        
+        const fileInput = document.getElementById('file-input');
+        const dropArea = document.querySelector('.upload-zone__droparea');
+        const analyzeBtn = document.querySelector('.btn--analyze');
+        const resetBtn = document.querySelector('.app__reset-btn');
+        
+        console.log('Elements found:', {
+          fileInput: !!fileInput,
+          dropArea: !!dropArea,
+          analyzeBtn: !!analyzeBtn,
+          resetBtn: !!resetBtn
+        });
+
+        // File upload handlers
+        if (fileInput) {
+          fileInput.addEventListener('change', (e) => {
+            console.log('File input change event:', e);
+            this.handleFileSelect(e);
+          });
+        }
+        
+        // Drag and drop handlers
+        if (dropArea) {
+          dropArea.addEventListener('dragover', (e) => {
+            console.log('Drag over event:', e);
+            this.handleDragOver(e);
+          });
+          dropArea.addEventListener('dragleave', (e) => {
+            console.log('Drag leave event:', e);
+            this.handleDragLeave(e);
+          });
+          dropArea.addEventListener('drop', (e) => {
+            console.log('Drop event:', e);
+            this.handleFileDrop(e);
+          });
+          dropArea.addEventListener('click', () => {
+            console.log('Drop area clicked');
+            if (fileInput) fileInput.click();
+          });
+        }
+
+        // Analysis handlers
+        if (analyzeBtn) {
+          analyzeBtn.addEventListener('click', () => this.analyzeData());
+        }
+        if (resetBtn) {
+          resetBtn.addEventListener('click', () => this.resetAnalysis());
+        }
+
+        // Column mapping handlers
+        document.getElementById('col-time').addEventListener('change', (e) => this.updateColumnMapping('time', e.target.value));
+        document.getElementById('col-temp').addEventListener('change', (e) => this.updateColumnMapping('temp', e.target.value));
+        document.getElementById('col-rh').addEventListener('change', (e) => this.updateColumnMapping('rh', e.target.value));
+
+        // Date format handlers
+        document.querySelectorAll('input[name="date-format"]').forEach(radio => {
+          radio.addEventListener('change', (e) => this.updateDateFormat(e.target.value));
+        });
+
+        // Timeline unit handler
+        document.getElementById('timeline-unit').addEventListener('change', (e) => this.updateTimelineUnit(e.target.value));
+
+        // Export handlers
+        document.querySelectorAll('[data-export]').forEach(btn => {
+          btn.addEventListener('click', (e) => this.handleExport(e.target.dataset.export));
+        });
+
+        // Timeline view toggle
+        document.querySelectorAll('[data-view]').forEach(btn => {
+          btn.addEventListener('click', (e) => this.toggleTimelineView(e.target.dataset.view));
+        });
+      }
+
+      async handleFileSelect(event) {
+        const file = event.target.files[0];
+        if (file) {
+          await this.processFile(file);
+        }
+      }
+
+      handleDragOver(event) {
+        event.preventDefault();
+        event.currentTarget.classList.add('drag-over');
+      }
+
+      handleDragLeave(event) {
+        event.currentTarget.classList.remove('drag-over');
+      }
+
+      async handleFileDrop(event) {
+        event.preventDefault();
+        event.currentTarget.classList.remove('drag-over');
+        
+        const files = event.dataTransfer.files;
+        if (files.length > 0) {
+          await this.processFile(files[0]);
+        }
+      }
+
+      async processFile(file) {
+        console.log('processFile called with:', file);
+        
+        const statusEl = document.querySelector('.upload-zone__status');
+        
+        if (!statusEl) {
+          console.error('Status element not found!');
+          return;
+        }
+        
+        try {
+          console.log('Starting file processing...');
+          statusEl.textContent = 'Reading file...';
+          statusEl.className = 'upload-zone__status';
+          
+          console.log('Reading file as text...');
+          const text = await file.text();
+          console.log('File read, length:', text.length);
+          
+          const lines = text.split(/\r?\n/).filter(l => l.trim());
+          console.log('Lines found:', lines.length);
+          
+          if (lines.length < 2) {
+            throw new Error('File appears to be empty or invalid');
+          }
+          
+          console.log('Parsing header...');
+          const headers = window.TacticsBundle.parseHeader(lines);
+          console.log('Headers parsed:', headers);
+          
+          this.state.rawData = { lines, headers, filename: file.name };
+          console.log('Raw data stored:', this.state.rawData);
+          
+          // Auto-detect columns
+          console.log('Detecting columns...');
+          this.state.columnMapping = {
+            time: window.TacticsBundle.findBestColumn(headers, ['time', 'date', 'datetime']),
+            temp: window.TacticsBundle.findBestColumn(headers, ['temp', 'temperature']),
+            rh: window.TacticsBundle.findBestColumn(headers, ['rh', 'humidity'])
+          };
+          console.log('Column mapping detected:', this.state.columnMapping);
+          
+          console.log('Rendering column mapper...');
+          this.renderColumnMapper();
+          
+          statusEl.textContent = `Loaded ${lines.length - 1} rows from ${file.name}`;
+          statusEl.className = 'upload-zone__status success';
+          console.log('File processing completed successfully');
+          
+        } catch (error) {
+          console.error('File processing error:', error);
+          statusEl.textContent = `Error: ${error.message}`;
+          statusEl.className = 'upload-zone__status error';
+        }
+      }
+
+      renderColumnMapper() {
+        console.log('renderColumnMapper called, rawData:', this.state.rawData);
+        
+        if (!this.state.rawData) {
+          console.log('No raw data, returning');
+          return;
+        }
+        
+        const { headers } = this.state.rawData;
+        console.log('Headers to render:', headers);
+        
+        const selects = {
+          time: document.getElementById('col-time'),
+          temp: document.getElementById('col-temp'),
+          rh: document.getElementById('col-rh')
+        };
+        
+        console.log('Select elements found:', {
+          time: !!selects.time,
+          temp: !!selects.temp,
+          rh: !!selects.rh
+        });
+        
+        Object.entries(selects).forEach(([type, select]) => {
+          if (!select) {
+            console.error('Select element not found for type:', type);
+            return;
+          }
+          
+          console.log('Rendering select for type:', type, 'with mapping:', this.state.columnMapping[type]);
+          
+          // Clear existing options except the first
+          select.innerHTML = '<option value="">-- Auto detect --</option>';
+          
+          headers.forEach((header, index) => {
+            const option = document.createElement('option');
+            option.value = index;
+            option.textContent = header;
+            if (index === this.state.columnMapping[type]) {
+              option.selected = true;
+            }
+            select.appendChild(option);
+          });
+        });
+        
+        console.log('Column mapper rendering completed');
+      }
+
+      updateColumnMapping(type, value) {
+        this.state.columnMapping[type] = parseInt(value) || -1;
+        this.updateDatePreview();
+      }
+
+      updateDateFormat(format) {
+        if (format === 'auto') {
+          this.state.dateOptions.dayFirst = null;
+        } else {
+          this.state.dateOptions.dayFirst = format === 'day-first';
+        }
+        this.updateDatePreview();
+      }
+
+      updateDatePreview() {
+        const previewEl = document.querySelector('.date-format-selector__preview code');
+        if (!this.state.rawData || this.state.columnMapping.time === -1) {
+          previewEl.textContent = '--';
+          return;
+        }
+        
+        const { lines } = this.state.rawData;
+        const timeCol = this.state.columnMapping.time;
+        
+        // Try to parse first few non-header rows
+        for (let i = 1; i < Math.min(6, lines.length); i++) {
+          const cols = window.TacticsBundle.csvSplitLine(lines[i]);
+          if (cols[timeCol]) {
+            const parsed = window.TacticsBundle.tryParseDate(cols[timeCol], this.state.dateOptions.dayFirst);
+            if (parsed) {
+              previewEl.textContent = new Date(parsed).toLocaleString();
+              return;
+            }
+          }
+        }
+        
+        previewEl.textContent = 'Unable to parse date';
+      }
+
+      updateTimelineUnit(unit) {
+        this.state.timelineUnit = unit;
+      }
+
+      async analyzeData() {
+        if (!this.state.rawData) {
+          this.showError('Please upload a CSV file first');
+          return;
+        }
+        
+        const { time, temp, rh } = this.state.columnMapping;
+        if (time === -1 || temp === -1 || rh === -1) {
+          this.showError('Please map all required columns');
+          return;
+        }
+        
+        const analyzeBtn = document.querySelector('.btn--analyze');
+        const originalText = analyzeBtn.querySelector('.btn__text').textContent;
+        
+        try {
+          analyzeBtn.disabled = true;
+          analyzeBtn.querySelector('.btn__text').textContent = 'Analyzing...';
+          
+          const aggregator = window.TacticsBundle.createAggregator({ 
+            treatAsUTC: this.state.dateOptions.treatAsUTC 
+          });
+          
+          if (this.state.timelineUnit !== 'auto') {
+            aggregator.setTimelineUnit(this.state.timelineUnit);
+          }
+          
+          const { lines } = this.state.rawData;
+          let processedRows = 0;
+          
+          // Process each row
+          for (let i = 1; i < lines.length; i++) {
+            const cols = window.TacticsBundle.csvSplitLine(lines[i]);
+            const tms = window.TacticsBundle.tryParseDate(cols[time], this.state.dateOptions.dayFirst);
+            const temperature = Number(cols[temp]);
+            const humidity = Number(cols[rh]);
+            
+            if (Number.isFinite(temperature) && Number.isFinite(humidity) && tms) {
+              aggregator.pushRow({ ts: tms, temp: temperature, rh: humidity });
+              processedRows++;
+            }
+          }
+          
+          this.state.results = aggregator.finish();
+          
+          this.renderResults();
+          
+          analyzeBtn.querySelector('.btn__text').textContent = `Analyzed ${processedRows} rows`;
+          
+        } catch (error) {
+          this.showError(`Analysis failed: ${error.message}`);
+          console.error('Analysis error:', error);
+        } finally {
+          analyzeBtn.disabled = false;
+          setTimeout(() => {
+            analyzeBtn.querySelector('.btn__text').textContent = originalText;
+          }, 2000);
+        }
+      }
+
+      renderResults() {
+        this.renderChart();
+        this.renderStatistics();
+        this.renderTimeline();
+      }
+
+      renderChart() {
+        // defer to psychro renderer
+        try {
+          if (!this._psychroRenderer) {
+            // Hide the legacy canvas
+            const legacyCanvas = document.querySelector('.psychrometric-chart');
+            if (legacyCanvas) legacyCanvas.style.display = 'none';
+            
+            // Check if container already exists and reuse it
+            let container = document.querySelector('.psychro-chart-container');
+            const chartContainer = document.querySelector('.chart-container');
+            
+            if (!container) {
+              container = document.createElement('div');
+              container.className = 'psychro-chart-container';
+              container.style.width = '100%';
+              container.style.height = '400px';
+              chartContainer.insertBefore(container, chartContainer.querySelector('.chart-legend'));
+            } else {
+              // Clear any existing content in the container
+              container.innerHTML = '';
+            }
+            
+            if (window.TacticsBundle && typeof window.TacticsBundle.initPsychroChart === 'function') {
+              this._psychroRenderer = window.TacticsBundle.initPsychroChart('.psychro-chart-container', {
+                Tmin:0, Tmax:50, Wmax:0.03, p:101325, samplingN:200
+              });
+              if (this._psychroRenderer && typeof this._psychroRenderer.init === 'function') {
+                this._psychroRenderer.init();
+              }
+            } else {
+              console.warn('Psychro renderer not available');
+              if (legacyCanvas) legacyCanvas.style.display = '';
+              return;
+            }
+          }
+          const points = (this.state.results && this.state.results.rowsWithDur)
+            ? this.state.results.rowsWithDur.map(r => {
+                // Convert RH to W (humidity ratio) using the psychrometric formula
+                const RH = r.rh / 100; // Convert percentage to decimal
+                const W = window.TacticsBundle.W_from_RH_T(RH, r.temp);
+                return {T: r.temp, W: W};
+              })
+            : [];
+          this._psychroRenderer.renderDataPoints(points);
+        } catch (err) {
+          console.error('Psychro render error', err);
+        }
+        // Update legend as before (unchanged)
+        const legendEl = document.querySelector('.chart-legend');
+        legendEl.innerHTML = '';
+        window.TacticsBundle.ZONES.forEach(zone => {
+          const item = document.createElement('div');
+          item.className = 'chart-legend__item';
+          item.innerHTML = `<div class="chart-legend__color" style="background-color: ${zone.color}"></div><span>${zone.id}</span>`;
+          legendEl.appendChild(item);
+        });
+      }
+
+      renderStatistics() {
+        const gridEl = document.querySelector('.zone-stats__grid');
+        gridEl.innerHTML = '';
+        
+        if (!this.state.results || !this.state.results.summary) {
+          return;
+        }
+        
+        // Sort by hours descending
+        const summary = [...this.state.results.summary].sort((a, b) => b.hours - a.hours);
+        
+        summary.forEach(item => {
+          const zone = window.TacticsBundle.ZONES.find(z => z.id === item.zone);
+          const card = document.createElement('article');
+          card.className = 'stat-card';
+          card.setAttribute('role', 'listitem');
+          card.innerHTML = `
+            <div class="stat-card__color" style="background-color: ${zone ? zone.color : '#999'}"></div>
+            <h3 class="stat-card__zone">${item.zone}</h3>
+            <p class="stat-card__hours">${item.hours.toFixed(1)} hours</p>
+            <p class="stat-card__percent">${item.percent.toFixed(1)}%</p>
+          `;
+          gridEl.appendChild(card);
+        });
+      }
+
+      renderTimeline() {
+        const contentEl = document.querySelector('.timeline-breakdown__content');
+        
+        if (!this.state.results || !this.state.results.perBucket) {
+          contentEl.innerHTML = '<p>No timeline data available</p>';
+          return;
+        }
+        
+        const perBucket = this.state.results.perBucket;
+        const periods = Object.keys(perBucket).sort();
+        
+        let html = '<table class="timeline-table"><thead><tr><th>Period</th>';
+        
+        // Add zone headers
+        window.TacticsBundle.ZONES.forEach(zone => {
+          html += `<th>${zone.id}</th>`;
+        });
+        html += '</tr></thead><tbody>';
+        
+        periods.forEach(period => {
+          html += `<tr><td>${period}</td>`;
+          window.TacticsBundle.ZONES.forEach(zone => {
+            const hours = perBucket[period][zone.id] || 0;
+            html += `<td>${hours.toFixed(1)}</td>`;
+          });
+          html += '</tr>';
+        });
+        
+        html += '</tbody></table>';
+        contentEl.innerHTML = html;
+      }
+
+      toggleTimelineView(view) {
+        // Update button states
+        document.querySelectorAll('[data-view]').forEach(btn => {
+          btn.classList.toggle('btn--primary', btn.dataset.view === view);
+          btn.classList.toggle('btn--secondary', btn.dataset.view !== view);
+        });
+        
+        // For now, only table view is implemented
+        const contentEl = document.querySelector('.timeline-breakdown__content');
+        if (view === 'chart') {
+          contentEl.innerHTML = '<p>Chart view not yet implemented</p>';
+        } else {
+          this.renderTimeline();
+        }
+      }
+
+      handleExport(format) {
+        if (!this.state.results) {
+          this.showError('No results to export');
+          return;
+        }
+        
+        try {
+          let content, filename, mimeType;
+          
+          // Handle missing/undefined/null/empty format values by using a safe default
+          if (format === undefined || format === null || format === '' || format === 'undefined' || format === 'null') {
+            format = 'csv';
+          }
+          
+          // Normalize and validate the format
+          const normalizedFormat = this.normalizeExportFormat(format);
+          
+          switch (normalizedFormat) {
+            case 'csv':
+              content = window.TacticsBundle.buildTimeseriesLines(this.state.results.rowsWithDur || []).join('\n');
+              filename = `tactics-timeseries-${new Date().toISOString().split('T')[0]}.csv`;
+              mimeType = 'text/csv';
+              break;
+              
+            case 'json':
+              content = JSON.stringify(window.TacticsBundle.buildJsonSummary(this.state.results.summary, this.state.results.totalMs, this.state.rawData?.filename), null, 2);
+              filename = `tactics-summary-${new Date().toISOString().split('T')[0]}.json`;
+              mimeType = 'application/json';
+              break;
+              
+            case 'md':
+              content = window.TacticsBundle.formatSummary(
+                this.state.results.summary,
+                this.state.results.perBucket,
+                this.state.timelineUnit,
+                'md',
+                this.state.results.totalMs,
+                this.state.dateOptions.treatAsUTC,
+                this.state.results.firstTs,
+                this.state.results.lastTs
+              );
+              filename = `tactics-report-${new Date().toISOString().split('T')[0]}.md`;
+              mimeType = 'text/markdown';
+              break;
+              
+            default:
+              const supportedFormats = ['csv', 'json', 'md'];
+              throw new Error(`Unsupported export format: "${format}". Supported formats are: ${supportedFormats.join(', ')}`);
+          }
+          
+          this.downloadBlob(content, filename, mimeType);
+          
+        } catch (error) {
+          this.showError(`Export failed: ${error.message}`);
+          console.error('Export error:', error);
+        }
+      }
+
+      normalizeExportFormat(format) {
+        if (!format || typeof format !== 'string') {
+          return format;
+        }
+        
+        // Convert to lowercase and remove leading dots
+        const normalized = format.toLowerCase().replace(/^\./, '');
+        
+        // Handle MIME types
+        const mimeToFormat = {
+          'text/csv': 'csv',
+          'application/json': 'json',
+          'text/markdown': 'md'
+        };
+        
+        if (mimeToFormat[normalized]) {
+          return mimeToFormat[normalized];
+        }
+        
+        // Handle common variations
+        const variations = {
+          'markdown': 'md',
+          'text': 'md', // Common mistake
+          'csv': 'csv',
+          'json': 'json'
+        };
+        
+        return variations[normalized] || normalized;
+      }
+
+      downloadBlob(content, filename, mimeType) {
+        const blob = new Blob([content], { type: mimeType });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = filename;
+        a.click();
+        URL.revokeObjectURL(url);
+      }
+
+      resetAnalysis() {
+        this.state = {
+          rawData: null,
+          columnMapping: { time: -1, temp: -1, rh: -1 },
+          dateOptions: { dayFirst: null, treatAsUTC: false },
+          timelineUnit: 'auto',
+          results: null
+        };
+        
+        // Reset UI
+        document.getElementById('file-input').value = '';
+        document.querySelector('.upload-zone__status').textContent = '';
+        document.querySelector('.upload-zone__status').className = 'upload-zone__status';
+        
+        // Clear column mapper
+        ['col-time', 'col-temp', 'col-rh'].forEach(id => {
+          const select = document.getElementById(id);
+          select.innerHTML = '<option value="">-- Auto detect --</option>';
+        });
+        
+        // Reset date format
+        document.querySelector('input[name="date-format"][value="auto"]').checked = true;
+        document.querySelector('.date-format-selector__preview code').textContent = '--';
+        
+        // Reset timeline unit
+        document.getElementById('timeline-unit').value = 'auto';
+        
+        // Handle psychro renderer cleanup
+        if (this._psychroRenderer) {
+          this._psychroRenderer.destroy();
+          this._psychroRenderer = null;
+        }
+        
+        // Remove psychro container if it exists
+        const container = document.querySelector('.psychro-chart-container');
+        if (container) {
+          container.remove();
+        }
+        
+        // Restore the legacy canvas visibility
+        const legacyCanvas = document.querySelector('.psychrometric-chart');
+        if (legacyCanvas) {
+          legacyCanvas.style.display = '';
+          const ctx = legacyCanvas.getContext('2d');
+          ctx.clearRect(0, 0, 800, 600);
+        }
+        
+        // Clear results
+        document.querySelector('.chart-legend').innerHTML = '';
+        document.querySelector('.zone-stats__grid').innerHTML = '';
+        document.querySelector('.timeline-breakdown__content').innerHTML = '';
+        
+        // Reset analyze button
+        const analyzeBtn = document.querySelector('.btn--analyze');
+        analyzeBtn.disabled = false;
+        analyzeBtn.querySelector('.btn__text').textContent = 'Analyze Data';
+      }
+
+      showError(message) {
+        const statusEl = document.querySelector('.upload-zone__status');
+        statusEl.textContent = message;
+        statusEl.className = 'upload-zone__status error';
+        
+        setTimeout(() => {
+          statusEl.textContent = '';
+          statusEl.className = 'upload-zone__status';
+        }, 5000);
+      }
+    }
+
+    // Initialize app when DOM is ready
+    document.addEventListener('DOMContentLoaded', () => {
+      console.log('DOM loaded, initializing app...');
+      new TacticsApp();
+    });
+  </script>
+</body>
+</html>
+<script>
+(function(){
+  try {
+    // Runtime label injection for bundled app (non-destructive)
+    function drawLabelsGlobal() {
+      try {
+        const canvas = document.querySelector('.psychro-canvas') || document.querySelector('.psychrometric-chart');
+        if (!canvas) return;
+        const dpr = window.devicePixelRatio || 1;
+        const ctx = canvas.getContext('2d');
+        if (!ctx) return;
+
+        const cw = (canvas.width / dpr) || (canvas.clientWidth || 600);
+        const ch = (canvas.height / dpr) || (canvas.clientHeight || 400);
+
+        // Fallback renderer bounds (match renderer defaults)
+        const Tmin = 0;
+        const Tmax = 50;
+        const Wmax = 0.03;
+
+        function map(T, W) {
+          const x = ((T - Tmin) / (Tmax - Tmin)) * cw;
+          const y = ch - (W / Wmax) * ch;
+          return { x, y };
+        }
+
+        ctx.save();
+        // Draw with visible font sizes (CSS px) — scaled for legibility
+        ctx.fillStyle = 'rgba(0,0,0,0.9)';
+        ctx.strokeStyle = 'white';
+        ctx.lineWidth = Math.max(1, Math.round(2 * dpr));
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+
+        // Temperature ticks (every 5°C)
+        ctx.font = `${14}px sans-serif`;
+        for (let T = Math.ceil(Tmin / 5) * 5; T <= Tmax; T += 5) {
+          const sampleW = Math.min(Wmax, Math.max(1e-6, Wmax * 0.02));
+          const p = map(T, sampleW);
+          const labelY = Math.max(12, ch - 12);
+          ctx.lineWidth = Math.max(1, Math.round(2 * dpr));
+          ctx.strokeText(`${T}°C`, p.x, labelY);
+          ctx.fillText(`${T}°C`, p.x, labelY);
+        }
+        // X axis title
+        ctx.font = `${14}px sans-serif`;
+        ctx.strokeText('Temperature (°C)', cw / 2, ch - 30);
+        ctx.fillText('Temperature (°C)', cw / 2, ch - 30);
+
+        // Humidity-ratio ticks (left)
+        ctx.font = `${12}px sans-serif`;
+        ctx.textAlign = 'right';
+        for (let i = 0; i <= 4; i++) {
+          const W = (Wmax / 4) * i;
+          const p = map(Tmin + (Tmax - Tmin) * 0.02, W);
+          const gx = Math.max(6, p.x - 6);
+          const label = `${(W * 1000).toFixed(1)} g/kg`;
+          ctx.strokeText(label, gx, p.y);
+          ctx.fillText(label, gx, p.y);
+        }
+        // Y axis title (simple vertical placement)
+        ctx.save();
+        ctx.font = `${14}px sans-serif`;
+        ctx.translate(16, ch / 2);
+        ctx.rotate(-Math.PI / 2);
+        ctx.textAlign = 'center';
+        ctx.strokeText('Humidity ratio (g/kg)', 0, 0);
+        ctx.fillText('Humidity ratio (g/kg)', 0, 0);
+        ctx.restore();
+
+        // RH labels on right side if conversion function exists
+        ctx.font = `${11}px sans-serif`;
+        ctx.textAlign = 'left';
+        if (window.TacticsBundle && typeof window.TacticsBundle.W_from_RH_T === 'function') {
+          for (let rh = 0.1; rh < 1.0 + 1e-12; rh += 0.1) {
+            const sampleT = Math.max(Tmin, Tmax - 2);
+            const sampleW = window.TacticsBundle.W_from_RH_T(rh, sampleT);
+            if (!Number.isFinite(sampleW)) continue;
+            const p = map(sampleT, sampleW);
+            const ox = Math.min(cw - 6, p.x + 6);
+            const label = `${Math.round(rh * 100)}%`;
+            ctx.lineWidth = Math.max(1, Math.round(2 * dpr));
+            ctx.strokeText(label, ox, p.y);
+            ctx.fillText(label, ox, p.y);
+          }
+        }
+
+        ctx.restore();
+
+        console.debug && console.debug('psychro:drawLabelsGlobal drawn', { cw, ch, dpr });
+      } catch (e) {
+        console.warn && console.warn('psychro:drawLabelsGlobal error', e);
+      }
+    }
+
+    // Trigger when page ready and after analysis actions
+    document.addEventListener('DOMContentLoaded', () => {
+      // Initial attempt (if canvas already present)
+      setTimeout(drawLabelsGlobal, 300);
+
+      // Re-run after Analyze button is clicked (allow time for renderer to create canvas)
+      const analyzeBtn = document.querySelector('.btn--analyze');
+      if (analyzeBtn) {
+        analyzeBtn.addEventListener('click', () => {
+          setTimeout(drawLabelsGlobal, 600);
+          setTimeout(drawLabelsGlobal, 1400);
+        });
+      }
+
+      // Watch for DOM changes (canvas insertion) and redraw labels
+      const mo = new MutationObserver(() => {
+        drawLabelsGlobal();
+      });
+      mo.observe(document.body, { childList: true, subtree: true });
+
+      // Expose for manual calls
+      window.drawLabelsGlobal = drawLabelsGlobal;
+      console.debug && console.debug('psychro:label injector ready');
+    });
+  } catch (e) {
+    console.warn && console.warn('psychro:inject bootstrap error', e);
+  }
+})();
+</script>
+<script>
+(function(){
+  try {
+    // Runtime label injection for bundled app (non-destructive)
+    function drawLabelsGlobal() {
+      try {
+        const canvas = document.querySelector('.psychro-canvas') || document.querySelector('.psychrometric-chart');
+        if (!canvas) return;
+        const dpr = window.devicePixelRatio || 1;
+        const ctx = canvas.getContext('2d');
+        if (!ctx) return;
+
+        const cw = (canvas.width / dpr) || (canvas.clientWidth || 600);
+        const ch = (canvas.height / dpr) || (canvas.clientHeight || 400);
+
+        // Fallback renderer bounds (match renderer defaults)
+        const Tmin = 0;
+        const Tmax = 50;
+        const Wmax = 0.03;
+
+        function map(T, W) {
+          const x = ((T - Tmin) / (Tmax - Tmin)) * cw;
+          const y = ch - (W / Wmax) * ch;
+          return { x, y };
+        }
+
+        ctx.save();
+        // Draw with visible font sizes (CSS px) — scaled for legibility
+        ctx.fillStyle = 'rgba(0,0,0,0.9)';
+        ctx.strokeStyle = 'white';
+        ctx.lineWidth = Math.max(1, Math.round(2 * dpr));
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+
+        // Temperature ticks (every 5°C)
+        ctx.font = `${14}px sans-serif`;
+        for (let T = Math.ceil(Tmin / 5) * 5; T <= Tmax; T += 5) {
+          const sampleW = Math.min(Wmax, Math.max(1e-6, Wmax * 0.02));
+          const p = map(T, sampleW);
+          const labelY = Math.max(12, ch - 12);
+          ctx.lineWidth = Math.max(1, Math.round(2 * dpr));
+          ctx.strokeText(`${T}°C`, p.x, labelY);
+          ctx.fillText(`${T}°C`, p.x, labelY);
+        }
+        // X axis title
+        ctx.font = `${14}px sans-serif`;
+        ctx.strokeText('Temperature (°C)', cw / 2, ch - 30);
+        ctx.fillText('Temperature (°C)', cw / 2, ch - 30);
+
+        // Humidity-ratio ticks (left)
+        ctx.font = `${12}px sans-serif`;
+        ctx.textAlign = 'right';
+        for (let i = 0; i <= 4; i++) {
+          const W = (Wmax / 4) * i;
+          const p = map(Tmin + (Tmax - Tmin) * 0.02, W);
+          const gx = Math.max(6, p.x - 6);
+          const label = `${(W * 1000).toFixed(1)} g/kg`;
+          ctx.strokeText(label, gx, p.y);
+          ctx.fillText(label, gx, p.y);
+        }
+        // Y axis title (simple vertical placement)
+        ctx.save();
+        ctx.font = `${14}px sans-serif`;
+        ctx.translate(16, ch / 2);
+        ctx.rotate(-Math.PI / 2);
+        ctx.textAlign = 'center';
+        ctx.strokeText('Humidity ratio (g/kg)', 0, 0);
+        ctx.fillText('Humidity ratio (g/kg)', 0, 0);
+        ctx.restore();
+
+        // RH labels on right side if conversion function exists
+        ctx.font = `${11}px sans-serif`;
+        ctx.textAlign = 'left';
+        if (window.TacticsBundle && typeof window.TacticsBundle.W_from_RH_T === 'function') {
+          for (let rh = 0.1; rh < 1.0 + 1e-12; rh += 0.1) {
+            const sampleT = Math.max(Tmin, Tmax - 2);
+            const sampleW = window.TacticsBundle.W_from_RH_T(rh, sampleT);
+            if (!Number.isFinite(sampleW)) continue;
+            const p = map(sampleT, sampleW);
+            const ox = Math.min(cw - 6, p.x + 6);
+            const label = `${Math.round(rh * 100)}%`;
+            ctx.lineWidth = Math.max(1, Math.round(2 * dpr));
+            ctx.strokeText(label, ox, p.y);
+            ctx.fillText(label, ox, p.y);
+          }
+        }
+
+        ctx.restore();
+
+        console.debug && console.debug('psychro:drawLabelsGlobal drawn', { cw, ch, dpr });
+      } catch (e) {
+        console.warn && console.warn('psychro:drawLabelsGlobal error', e);
+      }
+    }
+
+    // Redraw labels continuously to prevent overwrites by renderer
+    function scheduleLabels() {
+      // Immediate draw
+      drawLabelsGlobal();
+      // Redraw after each frame for a short period to survive renderer clears
+      let count = 0;
+      const interval = setInterval(() => {
+        drawLabelsGlobal();
+        count++;
+        if (count > 4) clearInterval(interval);
+      }, 100);
+    }
+
+    // Trigger when page ready and after analysis actions
+    document.addEventListener('DOMContentLoaded', () => {
+      // Initial attempt (if canvas already present)
+      setTimeout(drawLabelsGlobal, 300);
+
+      // Re-run after Analyze button is clicked (allow time for renderer to create canvas)
+      const analyzeBtn = document.querySelector('.btn--analyze');
+      if (analyzeBtn) {
+        analyzeBtn.addEventListener('click', () => {
+          setTimeout(scheduleLabels, 600);
+          setTimeout(scheduleLabels, 1400);
+        });
+      }
+
+      // Watch for DOM changes (canvas insertion) and redraw labels
+      const mo = new MutationObserver(() => {
+        drawLabelsGlobal();
+      });
+      mo.observe(document.body, { childList: true, subtree: true });
+
+      // Expose for manual calls
+      window.drawLabelsGlobal = drawLabelsGlobal;
+      window.scheduleLabels = scheduleLabels;
+      console.debug && console.debug('psychro:label injector ready');
+    });
+  } catch (e) {
+    console.warn && console.warn('psychro:inject bootstrap error', e);
+  }
+})();
+</script>

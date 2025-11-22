@@ -16,20 +16,51 @@ Usage:
 const fs = require('fs');
 const path = require('path');
 const readline = require('readline');
+const { ZONE_COLORS } = require('./scripts/theme.cjs');
 
 async function prompt(q) {
   const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
   return new Promise(resolve => rl.question(q, ans => { rl.close(); resolve(ans.trim()); }));
 }
 
+function printHelp() {
+  console.log('Usage: node tactics-cli.js [input.csv] [options]');
+  console.log('Options:');
+  console.log('  -h, --help                 Show this help and exit');
+  console.log('  --auto                     Non-interactive auto mode (trust detections)');
+  console.log('  --assume-day-first         Assume day-first date format when ambiguous');
+  console.log('  --utc                      Treat parsed datetimes as UTC');
+  console.log('  --ts <path>                Path for timeseries CSV output (default: tactics_timeseries.csv)');
+  console.log('  --format, -f <md|txt|csv>  Summary output format (md, txt, csv)');
+  console.log('  --out, -o <path>           Path for summary output file');
+  console.log('  --json, -j [path]          Write JSON summary (optional path, default tactics_summary.json)');
+  console.log('  --only <csv|md|txt|json>    Produce only one output type and skip others');
+  console.log('  --no-ts                    Do not write the timeseries CSV');
+  console.log('  --choose                   In auto mode, allow simple choice of input file when multiple exist');
+  console.log('  --select <N>               In auto mode select the N-th CSV (1-based) deterministically');
+  console.log('\nExamples:');
+  console.log('  node tactics-cli.js data.csv --format md --out summary.md --ts timeseries.csv --json summary.json');
+  console.log('  node tactics-cli.js --auto --assume-day-first sample.csv');
+}
+
 (async function main() {
   const ARGV = process.argv.slice(2);
+  if (ARGV.includes('-h') || ARGV.includes('--help')) { printHelp(); process.exit(0); }
+  const AUTO = ARGV.includes('--auto'); // non-interactive, trust detections
+  const ASSUME_DAY_FIRST = ARGV.includes('--assume-day-first');
+  const FORCE_UTC = ARGV.includes('--utc');
 
   function argVal(name) {
     const i = ARGV.indexOf(name);
     if (i >= 0 && ARGV[i+1] && !ARGV[i+1].startsWith('--')) return ARGV[i+1];
     return null;
   }
+
+  // new flags
+  const onlyFlag = argVal('--only'); // csv | md | txt | json
+  const noTsFlag = ARGV.includes('--no-ts'); // skip timeseries csv
+  const autoChoose = ARGV.includes('--choose') || ARGV.includes('--auto-choose'); // in auto mode allow choosing input
+  const selectVal = argVal('--select'); // deterministic selection index (1-based)
 
   let inputPath = ARGV[0] && !ARGV[0].startsWith('--') ? ARGV[0] : null;
   const formatFlag = (argVal('--format') || argVal('-f') || '').toLowerCase();
@@ -48,17 +79,53 @@ async function prompt(q) {
   if (!inputPath) {
     const files = fs.readdirSync(process.cwd()).filter(f => f.toLowerCase().endsWith('.csv'));
     if (files.length === 0) {
+      if (AUTO) { console.error('No .csv found in cwd. Auto mode cannot continue.'); process.exit(1); }
       const manual = await prompt('No .csv found in cwd. Enter path to CSV file: ');
       inputPath = manual || null;
       if (!inputPath) { console.error('No input file. Exiting.'); process.exit(1); }
     } else {
-      console.log('CSV files found:');
-      files.forEach((f,i) => console.log(`  [${i+1}] ${f}`));
-      const ans = await prompt('Choose number or enter path: ');
-      const n = Number(ans);
-      if (!Number.isNaN(n) && n >= 1 && n <= files.length) inputPath = path.join(process.cwd(), files[n-1]);
-      else inputPath = ans || null;
-      if (!inputPath) { console.error('No input file chosen. Exiting.'); process.exit(1); }
+      if (AUTO) {
+        // if --select provided, use that deterministically (1-based index)
+        if (selectVal) {
+          const n = Number(selectVal);
+          if (Number.isNaN(n) || n < 1 || n > files.length) { console.error('--select index out of range'); process.exit(1); }
+          inputPath = path.join(process.cwd(), files[n-1]);
+          console.log(`Auto mode: selected CSV '${files[n-1]}' by --select`);
+        } else {
+          // choose the most recently modified CSV file deterministically
+          let latest = null;
+          let latestMtime = -1;
+          for (const f of files) {
+            try {
+              const st = fs.statSync(path.join(process.cwd(), f));
+              if (st.mtimeMs > latestMtime) { latestMtime = st.mtimeMs; latest = f; }
+            } catch (e) { /* ignore stat errors */ }
+          }
+          if (!latest) { console.error('No readable CSV files found for auto mode.'); process.exit(1); }
+          inputPath = path.join(process.cwd(), latest);
+          console.log(`Auto mode: selected CSV '${latest}' (most recently modified)`);
+        }
+        // if autoChoose, allow simple validation/choice
+        if (autoChoose) {
+          console.log('Multiple CSV files available:');
+          files.forEach((f,i) => console.log(`  [${i+1}] ${f}`));
+          const ans = await prompt(`Accept '${path.basename(inputPath)}'? Enter number to choose different file or press Enter to accept: `);
+          if (ans) {
+            const n = Number(ans);
+            if (!Number.isNaN(n) && n >= 1 && n <= files.length) inputPath = path.join(process.cwd(), files[n-1]);
+            else console.log('Invalid choice, keeping auto-selected file.');
+          }
+          console.log('Using file:', path.basename(inputPath));
+        }
+      } else {
+        console.log('CSV files found:');
+        files.forEach((f,i) => console.log(`  [${i+1}] ${f}`));
+        const ans = await prompt('Choose number or enter path: ');
+        const n = Number(ans);
+        if (!Number.isNaN(n) && n >= 1 && n <= files.length) inputPath = path.join(process.cwd(), files[n-1]);
+        else inputPath = ans || null;
+        if (!inputPath) { console.error('No input file chosen. Exiting.'); process.exit(1); }
+      }
     }
   }
 
@@ -92,13 +159,14 @@ async function prompt(q) {
   function p(t, rh) { if (typeof t === 'string' && t.trim().endsWith('+')) return [INF_T, Number(rh)]; return [Number(t), Number(rh)]; }
 
   const ZONES = [
-    { id: 'Cold', color: '#88c0d0', poly: null, note: 'T < 23°C' },
-    { id: 'Comfort', color: '#a3be8c', poly: [ p(23,20), p(23,80), p(25,80), p(28,67), p(29.5,50), p(29.5,20) ]},
-    { id: 'Ventilation', color: '#ebcb8b', poly: [ p(23,80), p(23,100), p(29.5,100), p(34.5,50), p(34.5,20), p(29.5,20), p(29.5,50), p(28,67), p(25,80) ]},
-    { id: 'Mass Cooling', color: '#5e81ac', poly: [ p(23,20), p(29.5,20), p(29.5,50), p(28,67), p(36,33), p(39.5,30), p(39.5,7) ]},
-    { id: 'Evaporative Cooling', color: '#88c0d0', poly: [ p(23,20), p(29.5,20), p(29.5,50), p(28,67), p(39,30), p(42.7,20), p(43.7,10), p(43.7,0), p(31.3,0) ]},
-    { id: 'Air Conditioning + Dehumidifier', color: '#bf616a', poly: [ p('34.7+',45), p('34.7+',50), p('29.8+',100) ]},
-    { id: 'Air Conditioning', color: '#d08770', poly: [ p('43.7+',0), p('43.7+',6), p('47.3+',6), p('47.3+',20), p('44+',27) ]}
+    { id: 'Cold', color: ZONE_COLORS['Cold'], poly: null, note: 'T < 23°C' },
+    { id: 'Comfort', color: ZONE_COLORS['Comfort'], poly: [ p(23,20), p(23,80), p(25,80), p(28,67), p(29.5,50), p(29.5,20) ]},
+    { id: 'Ventilation', color: ZONE_COLORS['Ventilation'], poly: [ p(23,80), p(23,100), p(29.5,100), p(34.5,50), p(34.5,20), p(29.5,20), p(29.5,50), p(28,67), p(25,80) ]},
+    { id: 'Active Solar Heating', color: ZONE_COLORS['Active Solar Heating'], poly: [ p(6.8,0), p(6.8,100), p(10.8,100), p(10.8,0) ], note: 'Active solar heating band (approx)' },
+    { id: 'Mass Cooling', color: ZONE_COLORS['Mass Cooling'], poly: [ p(23,20), p(29.5,20), p(29.5,50), p(28,67), p(36,33), p(39.5,30), p(39.5,7) ]},
+    { id: 'Evaporative Cooling', color: ZONE_COLORS['Evaporative Cooling'], poly: [ p(23,20), p(29.5,20), p(29.5,50), p(28,67), p(39,30), p(42.7,20), p(43.7,10), p(43.7,0), p(31.3,0) ]},
+    { id: 'Air Conditioning + Dehumidifier', color: ZONE_COLORS['Air Conditioning + Dehumidifier'], poly: [ p('34.7+',45), p('34.7+',50), p('29.8+',100) ]},
+    { id: 'Air Conditioning', color: ZONE_COLORS['Air Conditioning'], poly: [ p('43.7+',0), p('43.7+',6), p('47.3+',6), p('47.3+',20), p('44+',27) ]}
   ];
 
   function pointOnSegment(px, py, x1, y1, x2, y2) {
@@ -118,9 +186,15 @@ async function prompt(q) {
     return inside;
   }
   // classification with energy-priority tie-break (least energy consuming preferred)
-  const ENERGY_PRIORITY = ['Comfort', 'Ventilation', 'Mass Cooling', 'Evaporative Cooling', 'Air Conditioning + Dehumidifier', 'Air Conditioning', 'Cold', 'Unclassified'];
+  const ENERGY_PRIORITY = ['Comfort', 'Ventilation', 'Heating', 'Mass Cooling', 'Evaporative Cooling', 'Air Conditioning + Dehumidifier', 'Air Conditioning', 'Cold', 'Unclassified'];
   function classifyPoint(temp, rh) {
-    if (temp < 23) return 'Cold';
+    const T = Number(temp);
+    const H = Number(rh);
+
+    // Thresholds first: AC (extreme hot) and Heating (extreme cold)
+    if (T > 43.5) return 'Air Conditioning';
+    if (T < 0) return 'Heating';
+
     const matches = [];
     for (let zi = 1; zi < ZONES.length; zi++) {
       const zone = ZONES[zi];
@@ -128,7 +202,8 @@ async function prompt(q) {
       if (pointInPoly(temp, rh, zone.poly)) matches.push(zone.id);
     }
     if (matches.length === 0) {
-      if (temp >= 43.7) return 'Air Conditioning';
+      // If no polygon matched, fall back to 'Cold' when T < 23
+      if (T < 23) return 'Cold';
       return 'Unclassified';
     }
     // pick match with highest priority (earliest in ENERGY_PRIORITY)
@@ -161,6 +236,7 @@ async function prompt(q) {
   console.log('\nDetected CSV headers:');
   headers.forEach((h, i) => console.log(`  [${i}] ${h}`));
   async function confirmCol(name, currentIdx) {
+    if (AUTO) return currentIdx; // trust detection in auto mode
     const curLabel = currentIdx >= 0 ? `${currentIdx} (${headers[currentIdx]})` : 'not detected';
     const ans = await prompt(`Column for ${name} [detected: ${curLabel}] - enter index to override or press Enter to accept: `);
     if (!ans) return currentIdx;
@@ -178,26 +254,55 @@ async function prompt(q) {
 
   const rows = [];
   // helper: try multiple date parsing strategies and allow user to pick
-  function tryParseDate(s) {
+  // parse date strings robustly; supports dd/mm/yyyy hh:mm:ss with double spaces
+  function tryParseDate(s, preferDayFirst) {
     if (!s || !s.trim()) return NaN;
-    // 1) ISO direct
-    let d = Date.parse(s);
-    if (!isNaN(d)) return d;
-    // 2) replace common separators and try day-first dd/mm/yyyy
-    const m = s.match(/(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2,4})/);
+    const raw = s.trim();
+    // 1) ISO direct - but skip if we prefer day-first and this looks like ambiguous format
+    let d = Date.parse(raw);
+    
+    
+    // If we prefer day-first and this looks like DD/MM/YYYY format, don't use direct parse
+    // because Date.parse() will interpret as MM/DD/YYYY
+    if (!isNaN(d) && preferDayFirst && raw.match(/^\d{1,2}[\/\-]\d{1,2}[\/\-]\d{2,4}/)) {
+      // Skip direct parse and force regex parsing
+    } else if (!isNaN(d)) {
+      return d;
+    }
+    // normalize spaces and trim
+    const norm = raw.replace(/\s+/g, ' ').trim();
+    
+    // pattern: DD/MM/YYYY HH:MM:SS or MM/DD/YYYY HH:MM:SS
+    const m = norm.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2,4})(?:[ T](\d{1,2}:\d{2}(?::\d{2})?))?$/);
+    
     if (m) {
       const a = Number(m[1]), b = Number(m[2]), y = Number(m[3]);
-      // try day-first
-      const dayFirst = new Date(`${y.toString().padStart(4,'0')}-${String(b).padStart(2,'0')}-${String(a).padStart(2,'0')}T00:00:00`);
-      if (!isNaN(dayFirst.getTime())) return dayFirst.getTime();
-      // try month-first
-      const monthFirst = new Date(`${y.toString().padStart(4,'0')}-${String(a).padStart(2,'0')}-${String(b).padStart(2,'0')}T00:00:00`);
-      if (!isNaN(monthFirst.getTime())) return monthFirst.getTime();
+      const timePart = m[4] || '00:00:00';
+      if (preferDayFirst) {
+        const iso = `${y.toString().padStart(4,'0')}-${String(b).padStart(2,'0')}-${String(a).padStart(2,'0')}T${timePart}`;
+        const dt = Date.parse(iso);
+        if (!isNaN(dt)) return dt;
+        // try month-first as fallback
+        const iso2 = `${y.toString().padStart(4,'0')}-${String(a).padStart(2,'0')}-${String(b).padStart(2,'0')}T${timePart}`;
+        const dt2 = Date.parse(iso2);
+        if (!isNaN(dt2)) return dt2;
+      } else {
+        // try month-first first
+        const iso2 = `${y.toString().padStart(4,'0')}-${String(a).padStart(2,'0')}-${String(b).padStart(2,'0')}T${timePart}`;
+        const dt2 = Date.parse(iso2);
+        if (!isNaN(dt2)) return dt2;
+        // try day-first as fallback
+        const iso = `${y.toString().padStart(4,'0')}-${String(b).padStart(2,'0')}-${String(a).padStart(2,'0')}T${timePart}`;
+        const dt = Date.parse(iso);
+        if (!isNaN(dt)) return dt;
+      }
     }
-    // 3) try replacing double spaces
-    const s2 = s.replace(/\s+/g,' ');
-    d = Date.parse(s2);
-    if (!isNaN(d)) return d;
+    // try epoch seconds or ms
+    const onlyDigits = raw.replace(/[^0-9]/g, '');
+    if (onlyDigits.length >= 10) {
+      const n = Number(raw);
+      if (!isNaN(n)) return n;
+    }
     return NaN;
   }
 
@@ -213,22 +318,90 @@ async function prompt(q) {
     const m = sd && sd.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2,4})/);
     if (m) { const a = Number(m[1]); if (a > 12) { dayFirstLikely = true; break; } }
   }
-  if (dayFirstLikely) {
-    const pick = await prompt('Date samples look like DD/MM/YYYY. Parse as day-first? (Y/n): ');
-    if ((pick || '').toLowerCase().startsWith('n')) dayFirstLikely = false; else dayFirstLikely = true;
-  } else {
-    const pick = await prompt('Date format uncertain. Force day-first parsing? (y/N): ');
-    if ((pick || '').toLowerCase().startsWith('y')) dayFirstLikely = true;
+  // Additional heuristic: if filename suggests single month and dates show day>12, force day-first
+  const filename = path.basename(inputPath).toLowerCase();
+  const isSingleMonthFile = filename.includes('_01_') || filename.includes('_02_') || filename.includes('_03_') ||
+                           filename.includes('_04_') || filename.includes('_05_') || filename.includes('_06_') ||
+                           filename.includes('_07_') || filename.includes('_08_') || filename.includes('_09_') ||
+                           filename.includes('_10_') || filename.includes('_11_') || filename.includes('_12_');
+  if (isSingleMonthFile && !dayFirstLikely) {
+    // Check if any date has day > 12 or if month in filename matches second component
+    for (const sd of sampleDates) {
+      const m = sd && sd.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2,4})/);
+      if (m) {
+        const day = Number(m[1]);
+        const month = Number(m[2]);
+        // Extract month from filename (e.g., _04_ from 2024_04_si_samrong_hourly.csv)
+        const filenameMonthMatch = filename.match(/_(\d{2})_/);
+        if (filenameMonthMatch) {
+          const filenameMonth = Number(filenameMonthMatch[1]);
+          if (month === filenameMonth && day <= 31) {
+            dayFirstLikely = true;
+            break;
+          }
+        }
+        if (day > 12) {
+          dayFirstLikely = true;
+          break;
+        }
+      }
+    }
+  }
+  if (ASSUME_DAY_FIRST) dayFirstLikely = true;
+  
+  // DEBUG: Add debug output to see what's happening
+  console.log('DEBUG: dayFirstLikely:', dayFirstLikely);
+  console.log('DEBUG: filename:', filename);
+  console.log('DEBUG: isSingleMonthFile:', isSingleMonthFile);
+  console.log('DEBUG: sampleDates[0]:', sampleDates[0]);
+  if (!AUTO) {
+    if (dayFirstLikely) {
+      const pick = await prompt('Date samples look like DD/MM/YYYY. Parse as day-first? (Y/n): ');
+      if ((pick || '').toLowerCase().startsWith('n')) dayFirstLikely = false; else dayFirstLikely = true;
+    } else {
+      const pick = await prompt('Date format uncertain. Force day-first parsing? (y/N): ');
+      if ((pick || '').toLowerCase().startsWith('y')) dayFirstLikely = true;
+    }
   }
 
   // timezone handling: let user choose local or UTC
-  const tzAns = await prompt('Treat parsed datetimes as (1) local time or (2) UTC? [1]: ');
-  const treatAsUTC = (tzAns || '1').trim() === '2';
+  let treatAsUTC = false;
+  if (AUTO) treatAsUTC = FORCE_UTC;
+  else {
+    const tzAns = await prompt('Treat parsed datetimes as (1) local time or (2) UTC? [1]: ');
+    treatAsUTC = (tzAns || '1').trim() === '2';
+  }
+
+  // Helper function to normalize access to date parts based on treatAsUTC
+  function dateParts(ts) {
+    const d = new Date(ts);
+    if (treatAsUTC) {
+      return {
+        year: d.getUTCFullYear(),
+        month: d.getUTCMonth() + 1, // 1-based month
+        day: d.getUTCDate(),
+        hours: d.getUTCHours(),
+        minutes: d.getUTCMinutes(),
+        seconds: d.getUTCSeconds()
+      };
+    } else {
+      return {
+        year: d.getFullYear(),
+        month: d.getMonth() + 1, // 1-based month
+        day: d.getDate(),
+        hours: d.getHours(),
+        minutes: d.getMinutes(),
+        seconds: d.getSeconds()
+      };
+    }
+  }
 
   for (let i = 1; i < lines.length; i++) {
     const cols = csvSplitLine(lines[i]);
     const timeRaw = cols[timeCol], tempRaw = cols[tempCol], rhRaw = cols[rhCol];
-    let tms = tryParseDate(timeRaw);
+    let tms = tryParseDate(timeRaw, dayFirstLikely);
+    
+    
     if (isNaN(tms) && timeRaw && timeRaw.trim().match(/^(\d+)$/)) {
       // maybe epoch seconds
       const n = Number(timeRaw.trim());
@@ -246,7 +419,7 @@ async function prompt(q) {
     }
     if (isNaN(tms)) continue;
     if (treatAsUTC) {
-      // if parsed as local, adjust to UTC by using Date.UTC components
+      // convert parsed time to milliseconds UTC (if parsed as local)
       const dt = new Date(tms);
       tms = Date.UTC(dt.getFullYear(), dt.getMonth(), dt.getDate(), dt.getHours(), dt.getMinutes(), dt.getSeconds(), dt.getMilliseconds());
     }
@@ -265,12 +438,105 @@ async function prompt(q) {
   const agg = {}; const tsOutLines = ['datetime,temperature,humidity,zone,color'];
   // prepare bucketed aggregation (per-day or per-month) depending on total range
   const totalRangeMs = rows[rows.length-1].ts - rows[0].ts;
-  const oneDayMs = 24*60*60*1000;
-  const useMonthly = totalRangeMs > (30 * oneDayMs);
+  const oneHourMs = 60*60*1000;
+  const oneDayMs = 24*oneHourMs;
+
+  // detect sampling resolution more robustly
+  const medianMs = medianDiff || 0;
+  let samplingUnit = 'irregular';
+  if (medianMs === 0) samplingUnit = 'single';
+  else if (medianMs <= 90*1000) samplingUnit = 'seconds';
+  else if (medianMs <= 90*60*1000) samplingUnit = 'minutes';
+  else if (medianMs <= 3*oneHourMs) samplingUnit = 'hour';
+  else if (medianMs <= 2*oneDayMs) samplingUnit = 'day';
+  else samplingUnit = 'month+';
+
+  // detect whether original timestamps contain time-of-day info and if it's constant 00:00:00
+  let timePartExists = 0; let timePartNonZero = 0;
+  for (const r of rows) {
+    const tr = String(r.timeRaw || '');
+    if (tr.match(/\d{1,2}:\d{2}(?::\d{2})?/)) timePartExists++;
+    const m = tr.match(/(\d{1,2}):(\d{2})(?::(\d{2}))?/);
+    if (m) {
+      const hh = Number(m[1]); const mm = Number(m[2]); const ss = Number(m[3]||0);
+      if (hh !== 0 || mm !== 0 || ss !== 0) timePartNonZero++;
+    }
+  }
+
+  // Decide timeline grouping (per-month / per-day / per-hour)
+  const sdTmp = new Date(rows[0].ts);
+  const edTmp = new Date(rows[rows.length-1].ts);
+  const sdParts = dateParts(rows[0].ts);
+  const edParts = dateParts(rows[rows.length-1].ts);
+  
+  // Data-driven monthsSpan: count distinct year-month buckets from actual data
+  const monthSet = new Set();
+  for (const row of rows) {
+    const parts = dateParts(row.ts);
+    monthSet.add(`${parts.year}-${String(parts.month).padStart(2, '0')}`);
+  }
+  const monthsSpan = monthSet.size;
+  
+  // Debug output to check date detection
+  console.log('DEBUG: First date:', sdTmp.toISOString(), `(using ${treatAsUTC ? 'UTC' : 'local'})`);
+  console.log('DEBUG: Last date:', edTmp.toISOString(), `(using ${treatAsUTC ? 'UTC' : 'local'})`);
+  console.log('DEBUG: Months span:', monthsSpan);
+  console.log('DEBUG: Total range (days):', totalRangeMs / (24*60*60*1000));
+
+  // Detected timeline (before asking the user)
+  let detectedTimeline = 'month';
+  if (AUTO) {
+    // Full-auto rules: prefer the largest grouping possible per your request
+    // Check if filename suggests single month data
+    const filename = path.basename(inputPath).toLowerCase();
+    const isSingleMonthFile = filename.includes('_01_') || filename.includes('_02_') || filename.includes('_03_') ||
+                             filename.includes('_04_') || filename.includes('_05_') || filename.includes('_06_') ||
+                             filename.includes('_07_') || filename.includes('_08_') || filename.includes('_09_') ||
+                             filename.includes('_10_') || filename.includes('_11_') || filename.includes('_12_');
+    
+    if (monthsSpan > 2) detectedTimeline = 'month';
+    else if (monthsSpan === 1 && samplingUnit === 'hour') detectedTimeline = 'day';
+    else if (totalRangeMs <= 2*oneDayMs && samplingUnit === 'hour') detectedTimeline = 'hour';
+    else if ((monthsSpan <= 2 || isSingleMonthFile) && samplingUnit === 'hour') detectedTimeline = 'day';  // For 1-2 months of hourly data or single month file, use day breakdown
+    else if (monthsSpan === 1) detectedTimeline = 'day';  // Single month should default to day breakdown
+    else detectedTimeline = 'month';
+  } else {
+    // Interactive default detection
+    if (totalRangeMs <= oneDayMs) {
+      detectedTimeline = (timePartExists && (samplingUnit === 'hour' || samplingUnit === 'minutes' || timePartNonZero>0)) ? 'hour' : 'day';
+    } else if (totalRangeMs <= 31*oneDayMs) {
+      detectedTimeline = (samplingUnit === 'hour' || samplingUnit === 'minutes' || samplingUnit === 'seconds') ? 'day' : 'month';
+    } else {
+      detectedTimeline = 'month';
+    }
+  }
+
+  // If not auto, ask the user which grouping they want (default is detected)
+  let timelineUnit = detectedTimeline;
+  if (!AUTO) {
+    const ans = await prompt(`Choose timeline grouping for the summary (month / day / hour) [auto=${detectedTimeline}]: `);
+    const pick = (ans || '').trim().toLowerCase();
+    if (pick === '') {
+      timelineUnit = detectedTimeline;
+    } else if (['month','day','hour'].includes(pick)) {
+      timelineUnit = pick;
+    } else if (pick === 'auto') {
+      timelineUnit = detectedTimeline;
+    } else {
+      console.log('Unrecognized choice, using detected grouping:', detectedTimeline);
+      timelineUnit = detectedTimeline;
+    }
+  } else {
+    // in auto mode use detectedTimeline
+    timelineUnit = detectedTimeline;
+  }
+
   function bucketKey(ts) {
-    const d = new Date(ts);
-    if (useMonthly) return `${d.getUTCFullYear()}-${String(d.getUTCMonth()+1).padStart(2,'0')}`;
-    return `${d.getUTCFullYear()}-${String(d.getUTCMonth()+1).padStart(2,'0')}-${String(d.getUTCDate()).padStart(2,'0')}`;
+    const parts = dateParts(ts);
+    if (timelineUnit === 'month') return `${parts.year}-${String(parts.month).padStart(2,'0')}`;
+    if (timelineUnit === 'day') return `${parts.year}-${String(parts.month).padStart(2,'0')}-${String(parts.day).padStart(2,'0')}`;
+    // hour
+    return `${parts.year}-${String(parts.month).padStart(2,'0')}-${String(parts.day).padStart(2,'0')} ${String(parts.hours).padStart(2,'0')}:00`;
   }
   const perBucket = {};
   for (const r of rows) {
@@ -299,18 +565,120 @@ async function prompt(q) {
   }).sort((a,b)=>b.hours - a.hours);
 
   // write timeseries CSV
-  try { fs.writeFileSync(outTS, tsOutLines.join('\n'), 'utf8'); } catch(e) { console.error('Could not write timeseries file:', e.message); }
+  // Decide which outputs to write based on flags and interactive choices
+  let writeTS = true;
+  let writeSummary = true;
+  let writeJSON = Boolean(jsonPath);
+  if (onlyFlag) {
+    writeTS = false; writeSummary = false; writeJSON = false;
+    const of = (onlyFlag || '').toLowerCase();
+    if (of === 'csv') writeTS = true;
+    else if (of === 'md' || of === 'txt' || of === 'csv') writeSummary = true;
+    else if (of === 'json') writeJSON = true;
+  }
+  if (noTsFlag) writeTS = false;
+
+  // Interactive: ask whether timeseries CSV is needed and show a short sample
+  if (!AUTO && writeTS) {
+    // show two example lines
+    console.log('\nExample of timeseries output (first 2 data lines):');
+    console.log(tsOutLines[0]);
+    for (let i = 1; i <= Math.min(2, tsOutLines.length-1); i++) console.log(tsOutLines[i]);
+    const ans = await prompt('Write timeseries CSV? (Y/n): ');
+    if ((ans || '').toLowerCase().startsWith('n')) writeTS = false;
+  }
+
+  if (AUTO) {
+    // in auto mode respect onlyFlag/noTsFlag; otherwise keep defaults
+    // nothing to do here
+  }
+
+  if (writeTS) {
+    try { fs.writeFileSync(outTS, tsOutLines.join('\n'), 'utf8'); console.log('Timeseries for plotting written to', outTS); }
+    catch(e) { console.error('Could not write timeseries file:', e.message); }
+  } else {
+    console.log('Timeseries CSV skipped.');
+  }
 
   // prepare summary in chosen format
   let outContent = '';
+  // detected period / title for summary (format depends on timelineUnit)
+  const startTs = rows.length ? rows[0].ts : null;
+  const endTs = rows.length ? rows[rows.length-1].ts : null;
+  let periodTitle = '';
+  if (startTs && endTs) {
+    const sdParts = dateParts(startTs);
+    const edParts = dateParts(endTs);
+    if (timelineUnit === 'month') {
+      // show MM-YYYY covering the start month (or multiple months?) if span within one month show that month
+      if (sdParts.year === edParts.year && sdParts.month === edParts.month) {
+        periodTitle = `${String(sdParts.month).padStart(2,'0')}-${sdParts.year}`;
+      } else {
+        // multi-month range
+        periodTitle = `${String(sdParts.month).padStart(2,'0')}-${sdParts.year} to ${String(edParts.month).padStart(2,'0')}-${edParts.year}`;
+      }
+    } else if (timelineUnit === 'day') {
+      const sISO = `${sdParts.year}-${String(sdParts.month).padStart(2,'0')}-${String(sdParts.day).padStart(2,'0')}`;
+      const eISO = `${edParts.year}-${String(edParts.month).padStart(2,'0')}-${String(edParts.day).padStart(2,'0')}`;
+      if (sISO === eISO) periodTitle = sISO;
+      else periodTitle = `${sISO} to ${eISO}`;
+    } else if (timelineUnit === 'hour') {
+      // show start day or day range
+      const sISO = `${sdParts.year}-${String(sdParts.month).padStart(2,'0')}-${String(sdParts.day).padStart(2,'0')}`;
+      const eISO = `${edParts.year}-${String(edParts.month).padStart(2,'0')}-${String(edParts.day).padStart(2,'0')}`;
+      if (sISO === eISO) periodTitle = sISO;
+      else periodTitle = `${sISO} to ${eISO}`;
+    }
+  }
+
+  // global summary
   if (outFormat === 'md') {
+    outContent += `## Summary table for ${periodTitle || 'all data'}\n\n`;
     outContent += `| Zone | Hours | % of time |\n| --- | ---: | ---: |\n`;
     for (const s of summary) outContent += `| ${s.zone} | ${s.hours} | ${s.percent} % |\n`;
   } else if (outFormat === 'csv') {
+    outContent += `# Summary table for ${periodTitle || 'all data'}\n`;
     outContent += 'zone,hours,percent\n';
     for (const s of summary) outContent += `${s.zone},${s.hours},${s.percent}\n`;
   } else {
+    outContent += `Summary table for ${periodTitle || 'all data'}:\n`;
     for (const s of summary) outContent += `${s.zone}: ${s.hours} h (${s.percent}%)\n`;
+  }
+
+  // timeline breakdown (per-month or per-day depending on range)
+  const bucketKeys = Object.keys(perBucket).sort();
+  if (bucketKeys.length > 0) {
+    if (outFormat === 'md') outContent += `\n## Timeline breakdown (${timelineUnit === 'month' ? 'per-month' : timelineUnit === 'hour' ? 'per-hour' : 'per-day'})\n\n`;
+    else if (outFormat === 'csv') outContent += '\nperiod,zone,hours,percent\n';
+    else outContent += `\nTimeline breakdown (${timelineUnit === 'month' ? 'per-month' : timelineUnit === 'hour' ? 'per-hour' : 'per-day'}):\n`;
+
+    for (const bk of bucketKeys) {
+      const bucketTotal = Object.values(perBucket[bk]).reduce((s,v)=>s+v,0) || 1;
+      const rowsList = Object.keys(perBucket[bk]).map(z => ({ zone: z, ms: perBucket[bk][z] } )).sort((a,b)=>b.ms-a.ms);
+      if (outFormat === 'md') {
+        outContent += `### ${bk}\n\n| Zone | Hours | % of time |\n| --- | ---: | ---: |\n`;
+        for (const r of rowsList) {
+          const h = Number((r.ms/(1000*60*60)).toFixed(3));
+          const p = Number((r.ms*100/bucketTotal).toFixed(2));
+          outContent += `| ${r.zone} | ${h} | ${p} % |\n`;
+        }
+        outContent += '\n';
+      } else if (outFormat === 'csv') {
+        for (const r of rowsList) {
+          const h = Number((r.ms/(1000*60*60)).toFixed(3));
+          const p = Number((r.ms*100/bucketTotal).toFixed(2));
+          outContent += `${bk},${r.zone},${h},${p}\n`;
+        }
+      } else {
+        outContent += `-- ${bk} --\n`;
+        for (const r of rowsList) {
+          const h = Number((r.ms/(1000*60*60)).toFixed(3));
+          const p = Number((r.ms*100/bucketTotal).toFixed(2));
+          outContent += `  ${r.zone}: ${h} h (${p}%)\n`;
+        }
+        outContent += '\n';
+      }
+    }
   }
 
   // also print markdown table to console
@@ -319,10 +687,14 @@ async function prompt(q) {
   for (const s of summary) md += `| ${s.zone} | ${s.hours} | ${s.percent} % |\n`;
   console.log(md);
 
-  try {
-    fs.writeFileSync(outPath, outContent, 'utf8');
-    console.log('Summary written to', outPath);
-  } catch (e) { console.error('Could not write summary file:', e.message); }
+  if (writeSummary) {
+    try {
+      fs.writeFileSync(outPath, outContent, 'utf8');
+      console.log('Summary written to', outPath);
+    } catch (e) { console.error('Could not write summary file:', e.message); }
+  } else {
+    console.log('Summary output skipped.');
+  }
 
   // write JSON summary if requested
   if (jsonPath) {

@@ -1,0 +1,90 @@
+/* Form field component styles */
+.form-field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+}
+
+.form-field__label {
+  font-size: var(--font-size-sm);
+  font-weight: 500;
+  color: var(--color-text);
+}
+
+.form-field__select {
+  padding: var(--space-sm);
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  background-color: var(--color-bg-elevated);
+  color: var(--color-text);
+  font-family: inherit;
+  font-size: var(--font-size-base);
+  transition: border-color var(--transition-fast);
+}
+
+.form-field__select:focus {
+  outline: none;
+  border-color: var(--color-primary);
+  box-shadow: 0 0 0 2px rgba(94, 129, 172, 0.2);
+}
+
+.form-field__select:invalid {
+  border-color: var(--color-error);
+}
+
+.column-mapper {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-md);
+}
+
+.date-format-selector {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+}
+
+.radio-label {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  cursor: pointer;
+  padding: var(--space-sm);
+  border-radius: 6px;
+  transition: background-color var(--transition-fast);
+}
+
+.radio-label:hover {
+  background-color: var(--color-bg);
+}
+
+.radio-label input[type="radio"] {
+  margin: 0;
+}
+
+.date-format-selector__preview {
+  margin: 0;
+  padding: var(--space-sm);
+  background-color: var(--color-bg);
+  border-radius: 6px;
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+  border: 1px solid var(--color-border);
+}
+
+.date-format-selector__preview code {
+  background-color: transparent;
+  padding: 0;
+  color: var(--color-text);
+}
+
+.timeline-breakdown__content {
+  margin-top: var(--space-md);
+}
+
+.export-controls__title {
+  margin: 0 0 var(--space-md) 0;
+  font-size: var(--font-size-base);
+  font-weight: 600;
+  color: var(--color-text);
+}
