@@ -26,12 +26,18 @@
   function toggleParameters() {
     showParameters = !showParameters;
     success = '';
+    if (showParameters) {
+      url = builtUrl();
+      scheduleUploadDebounced();
+    }
   }
 
   // Toggle showing Leaflet map component (lazy loaded)
   async function openLeafletPreview() {
     // We already import LeafletMap statically for now — open preview
     showLeafletMap = true;
+    url = builtUrl();
+    scheduleUploadDebounced();
   }
 
   function closeLeafletPreview() {
@@ -109,14 +115,8 @@ async function fetchAndDownload() {
 }
   
   
-  // Update URL when parameters change (if in parameter mode)
-  $effect(() => {
-    // Always keep generated URL preview updated if we are not using a custom URL input
-    // We generate/update url from parameters whenever the user opened the parameters UI or map.
-    if (showParameters || showLeafletMap) {
-      url = buildUrl();
-    }
-  });
+  // Derived URL from parameters (computed, doesn't overwrite manual input unless we explicitly copy)
+  const builtUrl = $derived(() => buildUrl());
   
   // Auto-fetch when parameters change (only active when `Choose parameters` or Map preview are open)
   function triggerFetch() {
@@ -164,7 +164,7 @@ async function fetchAndDownload() {
       selectedCity = city;
       // If parameters or map UI is visible, update the URL and schedule a fetch
       if (showParameters || showLeafletMap) {
-        url = buildUrl();
+        url = builtUrl();
         scheduleUploadDebounced();
       }
     }
@@ -197,7 +197,8 @@ async function fetchAndDownload() {
   }
 
   function handleParameterChange() {
-    // Schedule upload each time a parameter changes
+    // Keep the URL preview in sync and schedule an upload each time a parameter changes
+    url = builtUrl();
     scheduleUploadDebounced();
   }
 
@@ -209,6 +210,7 @@ async function fetchAndDownload() {
     // selecting via the map is a 'manual coordinate' update: clear selected city
     selectedCityName = '';
     selectedCity = '';
+    url = builtUrl();
     scheduleUploadDebounced();
   }
   
