@@ -17,6 +17,7 @@
   let showParameters = $state(false);
   let showLeafletMap = $state(false);
   import LeafletMap from './LeafletMap.svelte';
+  import CityAutocomplete from './CityAutocomplete.svelte';
   let mapModuleLoaded = $state(true);
   
   // UI state
@@ -164,6 +165,19 @@ async function fetchAndDownload() {
     }
   }
 
+  function handleCitySelected(e) {
+    const city = e?.detail;
+    if (!city) return;
+    lat = String(Number(city.lat).toFixed(6));
+    lon = String(Number(city.lon).toFixed(6));
+    selectedCity = city;
+    selectedCityName = city.name;
+    if (showParameters || showLeafletMap) {
+      url = finalUrl();
+      scheduleUploadDebounced();
+    }
+  }
+
   function openInMap() {
     const mapLat = encodeURIComponent(lat || 0);
     const mapLon = encodeURIComponent(lon || 0);
@@ -281,12 +295,7 @@ async function fetchAndDownload() {
       <div class="map-controls">
         <div class="form-group">
           <label for="citySelect">City:</label>
-          <select id="citySelect" bind:value={selectedCityName} onchange={selectCity}>
-            <option value="">-- Select city --</option>
-            {#each cities as city}
-              <option value={city.name}>{city.name}</option>
-            {/each}
-          </select>
+          <CityAutocomplete bind:value={selectedCityName} {cities} placeholder="Search or choose a city" on:select={handleCitySelected} />
         </div>
 
           {#if !showParameters}
