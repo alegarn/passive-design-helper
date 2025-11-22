@@ -22,6 +22,10 @@
   
   // UI state
   let success = $state('');
+  // Local geolocation error state (don't attempt to write to readonly `lastError` store)
+  let geolocError = $state('');
+  // Geolocation UI state
+  let geolocLoading = $state(false);
   
   // Toggle showing parameters map UI
   function toggleParameters() {
@@ -220,6 +224,37 @@ async function fetchAndDownload() {
     url = builtUrl();
     scheduleUploadDebounced();
   }
+
+  function geolocateMe() {
+    // Clear any prior success or error messages
+    success = '';
+    geolocError = '';
+    if (!navigator.geolocation) {
+      geolocError = 'Geolocation is not supported by your browser';
+      return;
+    }
+    geolocLoading = true;
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        const { latitude, longitude } = pos.coords;
+        // Keep the same formatting as other coordinate handling
+        lat = String(Number(latitude).toFixed(6));
+        lon = String(Number(longitude).toFixed(6));
+        selectedCityName = '';
+        selectedCity = '';
+        url = builtUrl();
+        scheduleUploadDebounced();
+        success = 'Updated coordinates from your device location';
+        geolocError = '';
+        geolocLoading = false;
+      },
+      (err) => {
+        geolocLoading = false;
+        geolocError = err?.message || 'Unable to determine location';
+      },
+      { enableHighAccuracy: true, timeout: 10000, maximumAge: 60000 }
+    );
+  }
   
 </script>
 
@@ -259,6 +294,16 @@ async function fetchAndDownload() {
           <label for="lon">Longitude:</label>
           <input id="lon" type="number" step="any" bind:value={lon} oninput={handleManualCoordinateChange} />
           <button type="button" class="map-inline-btn" onclick={openInMap} title="Open lat/lon in OpenStreetMap">Open in map</button>
+        </div>
+
+        <div class="form-group">
+          <label for="geolocate" style="display:none;">Geolocation actions</label>
+          <div style="display:flex; gap:0.5rem; align-items:center;">
+            <button id="geolocate" type="button" class="map-inline-btn" onclick={geolocateMe} disabled={geolocLoading} title="Use your device's location" aria-label="Use your current location">
+              {#if geolocLoading}Locating...{:else}Use my location{/if}
+            </button>
+            <button id="resetCoordinates" type="button" class="map-inline-btn" onclick={() => { selectedCityName=''; selectedCity=''; url=builtUrl(); scheduleUploadDebounced(); geolocError=''; }} title="Reset to URL coordinates" aria-label="Reset coordinates to URL values">Reset</button>
+          </div>
         </div>
       
       <div class="form-group">
@@ -372,6 +417,9 @@ async function fetchAndDownload() {
   
   {#if $lastError}
     <div class="error-message">{$lastError}</div>
+  {/if}
+  {#if geolocError}
+    <div class="error-message">{geolocError}</div>
   {/if}
   
   {#if success}
