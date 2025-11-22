@@ -2,6 +2,11 @@
 
 A comprehensive tool for analyzing passive design strategies using weather data and psychrometric charts. This repository contains both CLI and web interfaces for fetching and analyzing historical weather data from Open-Meteo.
 
+<!-- Badges -->
+[![License](https://img.shields.io/github/license/alegarn/passive-design-helper)](https://github.com/alegarn/passive-design-helper/blob/main/LICENSE)
+[![Node.js version](https://img.shields.io/badge/node-%3E%3D21-brightgreen.svg)](https://nodejs.org/)
+[![Build](https://img.shields.io/badge/build-local-lightgrey.svg)](#)
+
 ## Features
 
 - 🌤️ Fetch historical weather data from Open-Meteo API
@@ -125,6 +130,27 @@ time,temperature_2m,relative_humidity_2m
 2025-11-03T01:00,8.8,93
 ...
 ```
+
+### CSV Format: Examples and Notes
+The CLI and Web UI accept CSV data in common formats; these examples clarify auto-detection and mapping behaviors.
+
+Full ISO timestamps with timezone:
+```csv
+time,temperature_2m,relative_humidity_2m
+2025-11-03T00:00:00+00:00,9.5,93
+2025-11-03T01:00:00+00:00,8.8,93
+```
+
+Local timestamps (browser assumes local timezone):
+```csv
+time_local,temp_C,rh_pct
+2025-11-03T00:00,9.5,93
+2025-11-03T01:00,8.8,93
+```
+
+Mapping notes:
+- Common mappings: `temp` => `temperature_2m`, `rh` => `relative_humidity_2m`, `datetime` => `time`.
+- If your CSV uses different names, the web UI includes an input mapping UI to match fields before processing.
 
 ## Testing
 
