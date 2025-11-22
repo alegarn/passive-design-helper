@@ -3,6 +3,11 @@
 
 A Svelte 5 + Vite single-page app for browser-based analysis of timestamped temperature and relative-humidity CSV data (streaming parsing, psychrometric charts, time-series aggregation, and export).
 
+<!-- Badges -->
+[![License](https://img.shields.io/github/license/alegarn/passive-design-helper)](https://github.com/alegarn/passive-design-helper/blob/main/LICENSE)
+[![Node.js version](https://img.shields.io/badge/node-%3E%3D21-brightgreen.svg)](https://nodejs.org/)
+[![Build](https://img.shields.io/badge/build-local-lightgrey.svg)](#)
+
 This directory contains the web UI that runs fully client-side and is designed to work with large CSV files by processing input in streaming chunks.
 
 ---
@@ -81,6 +86,28 @@ The build output is in the `dist/` directory. This app is static and can be host
   - Temperature column names: `temp`, `temperature` (with or without 'c' or 'f' suffixes)
   - Relative humidity column names: `rh`, `humidity`
 - Sample data for quick testing: `open-meteo-test.csv` in the repository root. Use the sample CSV to confirm the psychrometric chart behavior and time-series aggregation.
+
+### Sample CSV formats (examples)
+The application supports UTF-8 CSV files and will attempt to auto-detect date/time columns, temperature, and relative humidity columns.
+
+Example CSV (timestamps in full ISO 8601 with timezone):
+```csv
+time,temperature_2m,relative_humidity_2m
+2025-11-03T00:00:00+00:00,9.5,93
+2025-11-03T01:00:00+00:00,8.8,93
+2025-11-03T02:00:00+00:00,8.6,95
+```
+
+Example CSV (UTC timestamps without timezone):
+```csv
+datetime,temp_c,rh
+2025-11-03T00:00,9.5,93
+2025-11-03T01:00,8.8,93
+```
+
+Column mapping notes:
+- If your CSV uses different names (e.g., `temp_C`, `temperature_celsius`, `rh_pct`), use the `ProcessControls` UI to map them to the app’s internal field names.
+- If your timestamps are in local time without timezone, the app assumes local browser timezone — consider converting to UTC for consistent behavior.
 
 ## Troubleshooting
 - If you see build errors, verify your Node version is >= 21.

@@ -1,6 +1,11 @@
 # Passive Design Tactics
 
-A comprehensive tool for analyzing passive design strategies using weather data and psychrometric charts. This project provides both CLI and web interfaces for fetching and analyzing historical weather data from Open-Meteo.
+A comprehensive tool for analyzing passive design strategies using weather data and psychrometric charts. This repository contains both CLI and web interfaces for fetching and analyzing historical weather data from Open-Meteo.
+
+<!-- Badges -->
+[![License](https://img.shields.io/github/license/alegarn/passive-design-helper)](https://github.com/alegarn/passive-design-helper/blob/main/LICENSE)
+[![Node.js version](https://img.shields.io/badge/node-%3E%3D21-brightgreen.svg)](https://nodejs.org/)
+[![Build](https://img.shields.io/badge/build-local-lightgrey.svg)](#)
 
 ## Features
 
@@ -12,7 +17,10 @@ A comprehensive tool for analyzing passive design strategies using weather data 
 
 ## Quick Start
 
-### CLI Usage
+### Requirements
+- Node.js 21+ (or a recent stable version recommended). See the `web/` README for subproject-specific notes.
+
+### CLI Usage (Quick)
 
 #### Using Direct URL
 ```bash
@@ -39,23 +47,29 @@ node scripts/fetch-open-meteo.js \
 node scripts/fetch-open-meteo.js --help
 ```
 
-### Web Interface
+### Web Interface (Quick)
 
-1. Start the development server:
+1. Start the development server (from the `web/` folder):
 ```bash
 cd web
-npm install
+npm ci           # or `npm install` if you are not in CI
 npm run dev
 ```
 
-2. Open your browser to `http://localhost:5173`
+2. Open your browser to `http://localhost:5173` (or any port printed by Vite). For a specific host or port, see `web/README.md`.
 
 3. Use the "Fetch Open-Meteo Weather Data" component to:
    - Enter API parameters directly
    - Choose between JSON and CSV output
    - Download data directly to your browser
 
-## Available Components
+## Development & Project Layout
+
+This repository is organized into subprojects so the UI can be developed and released independently of CLI tooling. The `web/` directory contains a Svelte + Vite application, and `scripts/` contains various Node.js CLI tools.
+
+If you are working on the web UI, use the `web/README.md` for local development and the `web/` package scripts for dev/build/preview.
+
+### Available Components
 
 ### CLI Tools
 
@@ -116,6 +130,27 @@ time,temperature_2m,relative_humidity_2m
 2025-11-03T01:00,8.8,93
 ...
 ```
+
+### CSV Format: Examples and Notes
+The CLI and Web UI accept CSV data in common formats; these examples clarify auto-detection and mapping behaviors.
+
+Full ISO timestamps with timezone:
+```csv
+time,temperature_2m,relative_humidity_2m
+2025-11-03T00:00:00+00:00,9.5,93
+2025-11-03T01:00:00+00:00,8.8,93
+```
+
+Local timestamps (browser assumes local timezone):
+```csv
+time_local,temp_C,rh_pct
+2025-11-03T00:00,9.5,93
+2025-11-03T01:00,8.8,93
+```
+
+Mapping notes:
+- Common mappings: `temp` => `temperature_2m`, `rh` => `relative_humidity_2m`, `datetime` => `time`.
+- If your CSV uses different names, the web UI includes an input mapping UI to match fields before processing.
 
 ## Testing
 
@@ -185,6 +220,12 @@ For CLI debugging, add verbose logging:
 DEBUG=* node scripts/fetch-open-meteo.js --your-parameters
 ```
 
+## Local/testing tips
+
+- If you need deterministic installs in CI: use `npm ci` (from the subproject folder, e.g. `cd web && npm ci`).
+- If you need to debug CLI/Node scripts, set `DEBUG` env var, or run with `node --inspect` and attach a debugger.
+- Use `./test-fetch-cli.sh` to exercise the CLI fetching flow. For the web interface, use `npm run dev` and open the dev console.
+
 ## Contributing
 
 1. Fork the repository
@@ -203,7 +244,7 @@ MIT License - see LICENSE file for details.
 - [Psychrometric Chart Theory](https://en.wikipedia.org/wiki/Psychrometrics)
 - [Passive Design Strategies](https://www.wbdg.org/design-objectives/sustainable/passive-design)
 
-## File Structure
+## File Structure (Overview)
 
 ```
 ├── scripts/                 # CLI utilities
