@@ -16,8 +16,8 @@
   // show/hide sections
   let showParameters = $state(false);
   let showLeafletMap = $state(false);
-  let MapComponent = $state(null); // will be lazy-loaded (reactive state for runes)
-  let mapModuleLoaded = $state(false);
+  import LeafletMap from './LeafletMap.svelte';
+  let mapModuleLoaded = $state(true);
   
   // UI state
   let success = $state('');
@@ -30,13 +30,8 @@
 
   // Toggle showing Leaflet map component (lazy loaded)
   async function openLeafletPreview() {
-    if (!MapComponent) {
-      // dynamically import the map component (code-splitting)
-      const mod = await import('./LeafletMap.svelte');
-      MapComponent = mod?.default || mod;
-    }
+    // We already import LeafletMap statically for now — open preview
     showLeafletMap = true;
-    mapModuleLoaded = true;
   }
 
   function closeLeafletPreview() {
@@ -333,8 +328,8 @@ async function fetchAndDownload() {
         <div class="map-header">
           <div>Map preview — centered on: {lat}, {lon}</div>
         </div>
-        {#if MapComponent}
-          <MapComponent lat={Number(lat)} lon={Number(lon)} on:select={handleMapSelect} />
+        {#if mapModuleLoaded}
+          <LeafletMap lat={Number(lat)} lon={Number(lon)} on:select={handleMapSelect} />
         {:else}
           <iframe
           title="OpenStreetMap preview"

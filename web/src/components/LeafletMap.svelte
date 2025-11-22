@@ -1,9 +1,6 @@
 <script>
   import { createEventDispatcher, onMount, onDestroy } from 'svelte';
-  export let lat = 0;
-  export let lon = 0;
-  export let zoom = 5;
-  export let mapClass = 'leaflet-map';
+  let { lat = 0, lon = 0, zoom = 5, mapClass = 'leaflet-map' } = $props();
 
   const dispatch = createEventDispatcher();
   let containerEl;
@@ -76,10 +73,15 @@
     }
   });
 
-  // Watch for prop changes from parent
-  $: if (map && L) {
-    updateMarker();
-  }
+  // Watch for prop changes from parent (use $effect for runes mode compatibility)
+  $effect(() => {
+    // Read lat and lon inside the effect body so changes cause runs
+    const _latDep = lat;
+    const _lonDep = lon;
+    if (map && L) {
+      updateMarker();
+    }
+  });
 </script>
 
 <div bind:this={containerEl} class={mapClass} style="width:100%; height:350px;"></div>
