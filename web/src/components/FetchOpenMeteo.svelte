@@ -64,9 +64,9 @@ async function fetchAndDownload() {
     // Ensure we always pass a concrete URL to the store and request JSON from the API.
     // The component still allows the user to download JSON or CSV, but the store
     // needs a parsed JSON payload for column/header detection.
-    const finalUrl = (showParameters || showLeafletMap) ? buildUrl() : url;
+    const final = finalUrl();
     const params = {
-      url: finalUrl,
+      url: final,
       format: 'json' // always fetch JSON so normalizer can extract headers/samples
     };
 
@@ -117,20 +117,14 @@ async function fetchAndDownload() {
   
   // Derived URL from parameters (computed, doesn't overwrite manual input unless we explicitly copy)
   const builtUrl = $derived(() => buildUrl());
+  // Final URL used for all uploads and network calls: if parameters or map UI active, use builtUrl, otherwise manual `url` value.
+  const finalUrl = $derived(() => (showParameters || showLeafletMap) ? builtUrl() : url);
   
   // Auto-fetch when parameters change (only active when `Choose parameters` or Map preview are open)
   function triggerFetch() {
-    if (showParameters || showLeafletMap) {
-      const params = {
-        latitude: lat,
-        longitude: lon,
-        start_date: startDate,
-        end_date: endDate,
-        hourly: hourly,
-        format: format
-      };
-      fileStore.fetchRemote(params);
-    }
+    const urlToUse = finalUrl();
+    const params = { url: urlToUse, format: format };
+    fileStore.fetchRemote(params);
   }
 
   // Debounced upload helpers
@@ -140,7 +134,7 @@ async function fetchAndDownload() {
   function scheduleUploadDebounced() {
     if (uploadDebounceTimer) clearTimeout(uploadDebounceTimer);
     uploadDebounceTimer = setTimeout(() => {
-      const urlToUse = (showParameters || showLeafletMap) ? buildUrl() : url;
+      const urlToUse = finalUrl();
       const params = { url: urlToUse, format: 'json' };
       fileStore.fetchRemote(params);
     }, UPLOAD_DEBOUNCE_MS);
@@ -148,7 +142,7 @@ async function fetchAndDownload() {
 
   function scheduleUploadImmediate() {
     if (uploadDebounceTimer) clearTimeout(uploadDebounceTimer);
-    const urlToUse = (showParameters || showLeafletMap) ? buildUrl() : url;
+    const urlToUse = finalUrl();
     const params = { url: urlToUse, format: 'json' };
     fileStore.fetchRemote(params);
   }
