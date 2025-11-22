@@ -83,7 +83,7 @@
 </main>
 
 <footer>
-  <p>&copy; 2024 Passive Design Tactics</p>
+  <p>&copy; 2024 Passive Design Tactics by alegarn</p>
 </footer>
 
 <style>
