@@ -236,19 +236,17 @@ async function fetchAndDownload() {
 
   {#if showParameters}
     <div class="params-grid">
-      <div class="form-group">
-        <label for="lat">Latitude:</label>
-        <input id="lat" type="number" step="any" bind:value={lat} oninput={handleManualCoordinateChange} />
-        <button type="button" class="map-inline-btn" onclick={openInMap} title="Open lat/lon in OpenStreetMap">Open in map</button>
-        <button type="button" class="map-inline-btn" onclick={toggleMap} title="Toggle inline map preview">Preview map</button>
-      </div>
+        <div class="form-group">
+          <label for="lat">Latitude:</label>
+          <input id="lat" type="number" step="any" bind:value={lat} oninput={handleManualCoordinateChange} />
+          <button type="button" class="map-inline-btn" onclick={openInMap} title="Open lat/lon in OpenStreetMap">Open in map</button>
+        </div>
       
-      <div class="form-group">
-        <label for="lon">Longitude:</label>
-        <input id="lon" type="number" step="any" bind:value={lon} oninput={handleManualCoordinateChange} />
-        <button type="button" class="map-inline-btn" onclick={openInMap} title="Open lat/lon in OpenStreetMap">Open in map</button>
-        <button type="button" class="map-inline-btn" onclick={toggleMap} title="Toggle inline map preview">Preview map</button>
-      </div>
+        <div class="form-group">
+          <label for="lon">Longitude:</label>
+          <input id="lon" type="number" step="any" bind:value={lon} oninput={handleManualCoordinateChange} />
+          <button type="button" class="map-inline-btn" onclick={openInMap} title="Open lat/lon in OpenStreetMap">Open in map</button>
+        </div>
       
       <div class="form-group">
         <label for="startDate">Start Date:</label>
@@ -276,10 +274,7 @@ async function fetchAndDownload() {
       <!-- Output format is below (global control) -->
     </div>
     
-    <div class="url-preview">
-      <label for="previewUrl">Generated URL:</label>
-      <input id="previewUrl" type="url" value={url} readonly class="preview-url" />
-    </div>
+    <!-- URL preview removed here: we keep a single editable API URL field at the top -->
   {/if}
   {#if showLeafletMap}
     <div class="map-mode">
@@ -294,30 +289,19 @@ async function fetchAndDownload() {
           </select>
         </div>
 
-        <div class="form-group">
-          <label for="latMap">Latitude:</label>
-          <input id="latMap" type="number" step="any" bind:value={lat} oninput={handleManualCoordinateChange} />
-        </div>
-
-        <div class="form-group">
-          <label for="lonMap">Longitude:</label>
-          <input id="lonMap" type="number" step="any" bind:value={lon} oninput={handleManualCoordinateChange} />
-        </div>
-
-        <div class="form-group">
-          <label for="startDateMap">Start Date:</label>
-          <input id="startDateMap" type="date" bind:value={startDate} onchange={handleParameterChange} />
-        </div>
-
-        <div class="form-group">
-          <label for="endDateMap">End Date:</label>
-          <input id="endDateMap" type="date" bind:value={endDate} onchange={handleParameterChange} />
-        </div>
-
-        <div class="form-group">
-          <label for="hourlyMap">Hourly Variables:</label>
-          <input id="hourlyMap" type="text" bind:value={hourly} placeholder="temperature_2m,relative_humidity_2m" oninput={handleParameterChange} />
-        </div>
+          {#if !showParameters}
+            <!-- Map preview should show only the map and allow click to set coordinates. Remove static details but add date inputs for convenience. -->
+            <div class="map-controls-mini">
+              <div class="form-group">
+                <label for="startDateMap">Start Date:</label>
+                <input id="startDateMap" type="date" bind:value={startDate} onchange={handleParameterChange} />
+              </div>
+              <div class="form-group">
+                <label for="endDateMap">End Date:</label>
+                <input id="endDateMap" type="date" bind:value={endDate} onchange={handleParameterChange} />
+              </div>
+            </div>
+          {/if}
       </div>
 
       <div class="map-preview">
@@ -342,10 +326,10 @@ async function fetchAndDownload() {
 
   {#if showMap && showParameters}
     <div class="map-preview">
-      <div class="map-header">
-        <div>Map preview — centered on: {lat}, {lon}</div>
-        <button type="button" class="map-inline-btn" onclick={toggleMap}>Close</button>
-      </div>
+        <div class="map-header">
+          <div>Map preview — centered on: {lat}, {lon}</div>
+          <button type="button" class="map-inline-btn" onclick={toggleMap}>Close</button>
+        </div>
       <iframe
         title="OpenStreetMap preview"
         src={`https://www.openstreetmap.org/export/embed.html?bbox=${Number(lon) - 0.6},${Number(lat) - 0.3},${Number(lon) + 0.6},${Number(lat) + 0.3}&layer=mapnik&marker=${lat},${lon}`}
@@ -465,19 +449,18 @@ async function fetchAndDownload() {
     margin-bottom: 1rem;
   }
 
+  .map-controls-mini {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    gap: 0.75rem;
+    margin-bottom: 0.5rem;
+  }
+
   /* no additional coordinates summary styles required */
 
   /* no longer used — keep for compatibility if we later convert to field labels */
   
-  .url-preview {
-    margin-bottom: 1rem;
-  }
-  
-  .preview-url {
-    font-family: monospace;
-    font-size: 0.75rem;
-    background: var(--code-bg, #f8f9fa);
-  }
+  /* url-preview & preview-url removed; main `API URL` is the single source of truth */
   
   .fetch-btn {
     background: var(--primary-color, #007bff);
