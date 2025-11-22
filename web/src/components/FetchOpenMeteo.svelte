@@ -165,8 +165,7 @@ async function fetchAndDownload() {
     }
   }
 
-  function handleCitySelected(e) {
-    const city = e?.detail;
+  function handleCitySelected(city) {
     if (!city) return;
     lat = String(Number(city.lat).toFixed(6));
     lon = String(Number(city.lon).toFixed(6));
@@ -294,8 +293,8 @@ async function fetchAndDownload() {
     <div class="map-mode">
       <div class="map-controls">
         <div class="form-group">
-          <label for="citySelect">City:</label>
-          <CityAutocomplete bind:value={selectedCityName} {cities} placeholder="Search or choose a city" on:select={handleCitySelected} />
+          <label for="citySelect">City (autocomplete):</label>
+          <CityAutocomplete bind:value={selectedCityName} {cities} placeholder="Search or choose a city" select={handleCitySelected} />
         </div>
 
           {#if !showParameters}

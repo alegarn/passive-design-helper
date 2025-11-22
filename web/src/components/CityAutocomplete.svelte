@@ -1,9 +1,13 @@
 <script>
-  import { createEventDispatcher, onMount, onDestroy } from 'svelte';
+  import { onMount, onDestroy } from 'svelte';
 
   // runes props
-  let { value = '' , cities = [], placeholder = 'Search city...' } = $props();
-  const dispatch = createEventDispatcher();
+  let { 
+    value = '' , 
+    cities = [], 
+    placeholder = 'Search city...', 
+    select = () => {} 
+  } = $props();
 
   let isOpen = $state(false);
   let inputEl = $state(null);
@@ -27,7 +31,8 @@
   function chooseCity(city) {
     // Set the bound `value` - runs in parent via binding
     value = city.name;
-    dispatch('select', city);
+    // call the passed-in callback prop
+    try { select(city); } catch (e) { /* ignore */ }
     close();
   }
 
