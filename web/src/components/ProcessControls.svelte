@@ -32,20 +32,15 @@
   let capMultiplier = $state(4);
 
   // Reactive values for median and effective cap (populated after processing)
-  let medianMs = $state(null);
-  let effectiveCapMs = $state(null);
+  const medianMs = $derived(() => aggregationResult && aggregationResult.medianDelta !== undefined ? aggregationResult.medianDelta : null);
+  const effectiveCapMs = $derived(() => {
+    const m = (aggregationResult && aggregationResult.medianDelta !== undefined) ? aggregationResult.medianDelta : null;
+    return (m !== null && m !== undefined) ? (m * capMultiplier) : null;
+  });
   // Tooltip state for the cap multiplier info box
   let showCapInfo = $state(false);
 
-  $effect(() => {
-    if (aggregationResult && aggregationResult.medianDelta !== undefined) {
-      medianMs = aggregationResult.medianDelta;
-      effectiveCapMs = medianMs * capMultiplier;
-    } else {
-      medianMs = null;
-      effectiveCapMs = null;
-    }
-  });
+  // medianMs and effectiveCapMs are derived values computed above
   
   
   // Auto-select columns based on header names (with debug logging)

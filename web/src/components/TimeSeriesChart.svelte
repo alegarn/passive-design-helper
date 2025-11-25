@@ -4,7 +4,14 @@
   import { onDestroy } from 'svelte';
   import { ZONE_COLORS } from '../scripts/theme.js';
   import { ZONES, preferredZoneForPoint } from '../scripts/zones.js';
-  import TacticModal from './TacticModal.svelte';
+  // Dynamic import: load the modal only when needed
+  let TacticModalComponent = $state(null);
+  async function loadTacticModal() {
+    if (!TacticModalComponent) {
+      const mod = await import('./TacticModal.svelte');
+      TacticModalComponent = mod.default;
+    }
+  }
   import { classifyPoint } from '../scripts/classify.js';
   import {
     aggregateByHour,
@@ -122,21 +129,15 @@
   // The project's custom $derived returns a callable store, so referencing the store
   // directly in the template yields the store function instead of its value.
   // Use these local variables (updated via $effect) to drive the StatCard rendering.
-  let datasetAveragesVal = $state([]);
-  let zoneTotalsVal = $state([]);
+  // Use the project's callable derived stores directly in the template (call with ())
   let selectedZoneId = $state(null);
   // max metrics derived store is read via $maxMetrics in markup
   
+  // We now call the derived stores directly in the template using datasetAverages() / zoneTotals().
+
+  // If a zone is selected, start pre-loading the modal so it's ready by the time user clicks
   $effect(() => {
-    try {
-      datasetAveragesVal = typeof datasetAverages === 'function' ? datasetAverages() : datasetAverages;
-      zoneTotalsVal = typeof zoneTotals === 'function' ? zoneTotals() : zoneTotals;
-      // maxMetrics read implicitly by template via $maxMetrics
-    } catch (e) {
-      // console.debug('[TimeSeriesChart] failed to hydrate derived values:', e);
-      datasetAveragesVal = [];
-      zoneTotalsVal = [];
-    }
+    if (selectedZoneId) loadTacticModal();
   });
 
   // No dynamic JS equalization required; use simple CSS min-width/height defaults instead.
@@ -1001,7 +1002,7 @@
   {/if} -->
 
   <!-- Dataset Statistics (replaces Chart.js dataset legend) -->
-  {#if datasetAveragesVal && datasetAveragesVal.length > 0}
+  {#if datasetAverages() && datasetAverages().length > 0}
     <div class="dataset-stats" role="list">
       <div class="dataset-stats__header">
         <h4>Dataset Averages</h4>
@@ -1017,7 +1018,7 @@
 
       {#if !showMinMax}
         <div class="dataset-stats__grid">
-          {#each datasetAveragesVal as dataset (dataset.label)}
+          {#each datasetAverages() as dataset (dataset.label)}
             {#if dataset.value > 0}
               <StatCard
                 label={dataset.label}
@@ -1050,11 +1051,11 @@
   <!-- Max/Min metrics are shown inside the Dataset Averages area using the 'Show Min / Max' toggle -->
 
   <!-- Passive Design Zone StatCards (replaced custom zone legend at lines ~862-873) -->
-  {#if zoneTotalsVal && zoneTotalsVal.length > 0}
+  {#if zoneTotals() && zoneTotals().length > 0}
     <div class="zone-stats" role="list">
       <h4>Passive Design Zones (Hours)</h4>
       <div class="zone-stats__grid">
-        {#each zoneTotalsVal as zone (zone.id)}
+        {#each zoneTotals() as zone (zone.id)}
           <button type="button" class="zone-btn" onclick={() => selectedZoneId = zone.id} aria-label={`Open details for zone ${zone.name}`}>
             <StatCard
               role="listitem"
@@ -1071,7 +1072,11 @@
   {/if}
   
   {#if selectedZoneId}
-    <TacticModal tactic={ZONES.find(z => z.id === selectedZoneId)} onClose={() => selectedZoneId = null} />
+    {#if TacticModalComponent}
+      <TacticModalComponent tactic={ZONES.find(z => z.id === selectedZoneId)} onClose={() => selectedZoneId = null} />
+    {:else}
+      <div class="modal-loading">Loading details…</div>
+    {/if}
   {/if}
   <!-- Original Custom Zone Legend (commented out - replaced with StatCards above) -->
   <!--

@@ -1,7 +1,14 @@
 <script>
   import { onMount, onDestroy, tick } from 'svelte';
   import ZoneHours from './ZoneHours.svelte';
-  import TacticModal from './TacticModal.svelte';
+  // Dynamic import for TacticModal - load only when needed
+  let TacticModalComponent = $state(null);
+  async function loadTacticModal() {
+    if (!TacticModalComponent) {
+      const mod = await import('./TacticModal.svelte');
+      TacticModalComponent = mod.default;
+    }
+  }
   import { ZONES } from '../scripts/zones.js';
 
   let { summaryData = null } = $props();
@@ -137,6 +144,10 @@
     }
   });
 
+  $effect(() => {
+    if (selectedZoneId) loadTacticModal();
+  });
+
   // No JS equalization needed — use CSS-only min-width/height defaults
 
   // Reactive effect to handle psychrometric points changes
@@ -230,7 +241,13 @@
 {/if}
 
 {#if selectedZoneId}
-  <TacticModal tactic={ZONES.find(z => z.id === selectedZoneId)} onClose={() => selectedZoneId = null} />
+  {#if selectedZoneId}
+    {#if TacticModalComponent}
+      <TacticModalComponent tactic={ZONES.find(z => z.id === selectedZoneId)} onClose={() => selectedZoneId = null} />
+    {:else}
+      <div class="modal-loading">Loading details…</div>
+    {/if}
+  {/if}
 {/if}
 
 <style>

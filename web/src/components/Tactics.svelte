@@ -1,7 +1,14 @@
 <script>
   import { onMount } from 'svelte';
   import TacticCard from './TacticCard.svelte';
-  import TacticModal from './TacticModal.svelte';
+  // Load TacticModal dynamically only when needed
+  let TacticModalComponent = $state(null);
+  async function loadTacticModal() {
+    if (!TacticModalComponent) {
+      const mod = await import('./TacticModal.svelte');
+      TacticModalComponent = mod.default;
+    }
+  }
   import { ZONES } from '../scripts/zones.js';
 
   // Svelte 5 rune state
@@ -12,23 +19,23 @@
 
   // no persisting favorites
 
-  let filtered = $state(ZONES.slice());
-
-  $effect(() => {
+  let filtered = $derived(() => {
     const q = String(query).trim().toLowerCase();
-    const list = ZONES.filter(z => {
+    return ZONES.filter(z => {
       if (filterCategory !== 'All' && z.type !== filterCategory.toLowerCase()) return false;
       if (!q) return true;
       const hay = `${z.id} ${z.description ?? ''} ${z.examples?.join(' ') ?? ''}`.toLowerCase();
       return hay.includes(q);
     });
-    filtered = list;
   });
 
   function openTactic(t) { selectedId = t.id; }
   function closeTactic() { selectedId = null; }
   // compare/favorite functionality removed; modal-driven details are used
   
+  $effect(() => {
+    if (selectedId) loadTacticModal();
+  });
 </script>
 
 <section aria-labelledby="tactics-heading">
@@ -57,7 +64,11 @@
   {/if}
 
   {#if selectedId}
-    <TacticModal tactic={ZONES.find(z => z.id === selectedId)} onClose={closeTactic} />
+    {#if TacticModalComponent}
+      <TacticModalComponent tactic={ZONES.find(z => z.id === selectedId)} onClose={closeTactic} />
+    {:else}
+      <div class="modal-loading">Loading details…</div>
+    {/if}
   {/if}
 </section>
 
