@@ -5,7 +5,7 @@ export default defineConfig({
   plugins: [
     svelte()
   ],
-  base: './',
+  base: '/passive-design-helper/',
   build: {
     outDir: 'dist'
   }
