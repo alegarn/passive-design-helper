@@ -240,11 +240,7 @@
     position: relative;
   }
 
-  :global(.zone-hours-container) {
-    --tactic-card-min: 180px;
-    --tactic-card-height: 120px;
-    --tactic-card-basis: 220px;
-  }
+  /* rely on global default variables for tactic cards */
   
   .psychro-chart {
     width: 100%;
@@ -276,13 +272,17 @@
     margin-top: var(--space-lg, 1.5rem);
     width: 100%;
     align-items: stretch;
-    justify-content: flex-start;
+    justify-content: center;
     /* Ensure children can wrap into multiple columns, controlled by global card variables */
   }
 
   @media (max-width: 480px) {
     .zone-hours-container { gap: 0.5rem; }
     .zone-hour-btn { min-width: 100%; }
+  }
+  /* On large screens, use global --tactic-card-height-large so we can configure across the app */
+  @media (min-width: 1200px) {
+    :global(.zone-hours-container) { --tactic-card-height: var(--tactic-card-height-large); }
   }
   @media (max-width: 480px) {
     :global(.zone-hours-container) { --tactic-card-min: 100%; }
@@ -294,10 +294,10 @@
     min-width: var(--tactic-card-min);
     max-width: var(--tactic-card-max);
     width: 100%;
-    height: var(--tactic-card-height, auto);
+    min-height: var(--tactic-card-height, auto);
     cursor: pointer;
     box-sizing: border-box;
   }
-  .zone-hour-btn :global(.stat-card) { height: 100%; }
+  .zone-hour-btn :global(.stat-card) { min-height: var(--tactic-card-height); }
   .zone-hour-btn:focus { outline: 2px solid rgba(0,123,255,0.4); outline-offset: 2px; }
 </style>

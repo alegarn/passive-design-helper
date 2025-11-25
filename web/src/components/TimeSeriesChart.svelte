@@ -1120,10 +1120,6 @@
 
 <style>
   .time-series-chart {
-    --tactic-card-min: 180px;
-    --tactic-card-height: 120px;
-    --tactic-card-max: 420px;
-    --tactic-card-basis: 220px;
     background: white;
     border-radius: 8px;
     padding: 1rem;
@@ -1228,7 +1224,7 @@
 
   /* Ensure dataset stat cards respect the computed container height */
   .dataset-stats__grid :global(.stat-card) {
-    height: var(--tactic-card-height, auto);
+    min-height: var(--tactic-card-height, auto);
     min-width: var(--tactic-card-min, auto);
     width: 100%;
   }
@@ -1290,12 +1286,12 @@
     min-width: var(--tactic-card-min);
     max-width: var(--tactic-card-max);
     width: 100%;
-    height: var(--tactic-card-height, auto);
+    min-height: var(--tactic-card-height, auto);
     cursor: pointer;
     text-align: left;
     box-sizing: border-box;
   }
-  .zone-btn :global(.stat-card) { height: 100%; }
+  .zone-btn :global(.stat-card) { min-height: var(--tactic-card-height); }
   .zone-btn:focus {
     outline: 2px solid rgba(0,123,255,0.5);
     outline-offset: 2px;
@@ -1325,5 +1321,9 @@
       grid-template-columns: 1fr; /* single column on small screens */
     }
     :global(.time-series-chart) { --tactic-card-min: 100%; }
+  }
+  /* On large screens, use the global large-height var for predominant layouts */
+  @media (min-width: 1200px) {
+    :global(.time-series-chart) { --tactic-card-height: var(--tactic-card-height-large); }
   }
 </style>

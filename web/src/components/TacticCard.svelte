@@ -41,7 +41,7 @@
 </div>
 
 <style>
-  .card { display:flex; gap:0.75rem; padding: 0.8rem; border-radius: 0.6rem; background: #fff; box-shadow: 0 1px 4px rgba(0,0,0,0.06); cursor:pointer; transition: transform .12s ease; align-items:flex-start; }
+  .card { display:flex; gap:0.75rem; padding: 0.8rem; border-radius: 0.6rem; background: #fff; box-shadow: 0 1px 4px rgba(0,0,0,0.06); cursor:pointer; transition: transform .12s ease; align-items:flex-start; min-width: var(--tactic-card-min); min-height: var(--tactic-card-height); }
   .card:focus, .card:hover { transform: translateY(-3px); box-shadow: 0 6px 18px rgba(0,0,0,0.08); }
   .left { display:flex; align-items:center; }
   .icon { font-size:1.6rem; }
