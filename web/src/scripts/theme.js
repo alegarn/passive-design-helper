@@ -5,7 +5,7 @@ export const ZONE_COLORS = {
   'Ventilation': '#ebcb8b',
   'Mass Cooling': '#5e81ac',
   'Evaporative Cooling': '#88c0d0',
-  'Mass Cooling & Night Ventilation (or Air Conditioning)': '#5e81ac',
+  'Mass Cooling & Night Ventilation (or AC)': '#5e81ac',
   'Air Conditioning + Dehumidifier': '#bf616a',
   'Air Conditioning': '#d08770',
   'Unclassified': '#999999'

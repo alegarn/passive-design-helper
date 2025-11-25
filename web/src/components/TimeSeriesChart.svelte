@@ -139,6 +139,8 @@
     }
   });
 
+  // No dynamic JS equalization required; use simple CSS min-width/height defaults instead.
+
   // no $: runes allowed; template uses $maxMetrics directly
   
   // Calculate zone totals for passive design zones - reactive to aggregatedData/timeSeries and currentPeriod
@@ -921,9 +923,11 @@
     chartOptions = state.chartOptions;
     sourceDateRange = state.sourceDateRange;
   });
+
+  // No JS-driven equalization; rely on CSS variables for sizing.
   
   // Debugging: log derived timeSeries and processed chart state to diagnose missing StatCards
-  $effect(() => {
+  /* $effect(() => {
     try {
       // console.debug('[TimeSeriesChart] $filteredTimeSeries length:', $filteredTimeSeries?.length ?? 0);
       if ($filteredTimeSeries && $filteredTimeSeries.length > 0) {
@@ -936,7 +940,11 @@
     } catch (e) {
       // console.debug('[TimeSeriesChart] logging failed:', e);
     }
-  });
+  }); */
+
+  // No JS-driven ResizeObserver necessary for simple, responsive sizing.
+
+  // No onDestroy cleanup required for CSS-only sizing.
 </script>
 
 <div class="time-series-chart">
@@ -1112,6 +1120,10 @@
 
 <style>
   .time-series-chart {
+    --tactic-card-min: 180px;
+    --tactic-card-height: 120px;
+    --tactic-card-max: 420px;
+    --tactic-card-basis: 220px;
     background: white;
     border-radius: 8px;
     padding: 1rem;
@@ -1210,8 +1222,15 @@
   
   .dataset-stats__grid {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    grid-template-columns: repeat(auto-fit, minmax(var(--tactic-card-min, 180px), 1fr));
     gap: 0.75rem;
+  }
+
+  /* Ensure dataset stat cards respect the computed container height */
+  .dataset-stats__grid :global(.stat-card) {
+    height: var(--tactic-card-height, auto);
+    min-width: var(--tactic-card-min, auto);
+    width: 100%;
   }
 
   .dataset-stats__header {
@@ -1260,20 +1279,23 @@
   
   .zone-stats__grid {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    grid-template-columns: repeat(auto-fit, minmax(var(--tactic-card-min, 180px), 1fr));
     gap: 0.75rem;
   }
 
   .zone-btn {
     all: unset; /* remove UA styles */
-    display: inline-block;
-    flex: 0 1 240px; /* align with grid column size */
-    min-width: 180px;
-    max-width: 100%;
+    display: block;
+    flex: 0 1 var(--tactic-card-basis);
+    min-width: var(--tactic-card-min);
+    max-width: var(--tactic-card-max);
+    width: 100%;
+    height: var(--tactic-card-height, auto);
     cursor: pointer;
     text-align: left;
     box-sizing: border-box;
   }
+  .zone-btn :global(.stat-card) { height: 100%; }
   .zone-btn:focus {
     outline: 2px solid rgba(0,123,255,0.5);
     outline-offset: 2px;
@@ -1295,5 +1317,13 @@
     .chart-container {
       height: 300px;
     }
+    /* Avoid overflowing on very small screens by using full width cards */
+    :global(.time-series-chart) {
+      overflow-x: hidden;
+    }
+    .zone-stats__grid, .dataset-stats__grid {
+      grid-template-columns: 1fr; /* single column on small screens */
+    }
+    :global(.time-series-chart) { --tactic-card-min: 100%; }
   }
 </style>

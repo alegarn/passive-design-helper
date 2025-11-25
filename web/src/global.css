@@ -26,6 +26,29 @@ body {
   padding: 0;
 }
 
+/* Card sizing variables used for tactic/stat cards across the app */
+:root {
+  --tactic-card-basis: 260px; /* preferred card width */
+  --tactic-card-min: 180px;   /* min card width */
+  --tactic-card-max: 360px;   /* max card width */
+}
+
+/* Breakpoints: mobile and tablet adjustments */
+@media (max-width: 640px) {
+  :root {
+    --tactic-card-basis: calc(100% - 2rem); /* full-width minus page padding */
+    --tactic-card-min: calc(100% - 2rem);
+    --tactic-card-max: calc(100% - 2rem);
+  }
+}
+@media (min-width: 641px) and (max-width: 1024px) {
+  :root {
+    --tactic-card-basis: 220px;
+    --tactic-card-min: 160px;
+    --tactic-card-max: 320px;
+  }
+}
+
 /* Minimal app container styling */
 #app {
   min-height: 100vh;

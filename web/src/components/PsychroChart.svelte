@@ -8,6 +8,7 @@
   
   let canvasElement = $state();
   let selectedZoneId = $state(null);
+  // No JS variable needed for size equalization; using simple CSS defaults
   let renderer = null;
   let resizeObserver = null;
   let isLoading = $state(true);
@@ -136,6 +137,8 @@
     }
   });
 
+  // No JS equalization needed — use CSS-only min-width/height defaults
+
   // Reactive effect to handle psychrometric points changes
   $effect(() => {
     const points = psychrometricPoints();
@@ -172,6 +175,12 @@
       // console.log('PsychroChart: Renderer not yet initialized');
     }
   });
+
+  // Re-equalize zone hours whenever the summary data or container size changes
+  // No JS-driven ResizeObserver; CSS provides a simple, responsive layout.
+
+  // Re-run equalization when summaryData changes
+  // No JS-driven equalization; rely on CSS-only approach for card sizes.
   
   
   onDestroy(() => {
@@ -230,6 +239,12 @@
     height: 400px;
     position: relative;
   }
+
+  :global(.zone-hours-container) {
+    --tactic-card-min: 180px;
+    --tactic-card-height: 120px;
+    --tactic-card-basis: 220px;
+  }
   
   .psychro-chart {
     width: 100%;
@@ -262,16 +277,27 @@
     width: 100%;
     align-items: stretch;
     justify-content: flex-start;
+    /* Ensure children can wrap into multiple columns, controlled by global card variables */
   }
 
+  @media (max-width: 480px) {
+    .zone-hours-container { gap: 0.5rem; }
+    .zone-hour-btn { min-width: 100%; }
+  }
+  @media (max-width: 480px) {
+    :global(.zone-hours-container) { --tactic-card-min: 100%; }
+  }
   .zone-hour-btn {
     all: unset;
     display: block;
-    flex: 0 1 260px; /* allow wrapping while keeping a grid-like width */
-    min-width: 200px;
-    max-width: calc(100% - 2rem);
+    flex: 0 1 var(--tactic-card-basis);
+    min-width: var(--tactic-card-min);
+    max-width: var(--tactic-card-max);
+    width: 100%;
+    height: var(--tactic-card-height, auto);
     cursor: pointer;
     box-sizing: border-box;
   }
+  .zone-hour-btn :global(.stat-card) { height: 100%; }
   .zone-hour-btn:focus { outline: 2px solid rgba(0,123,255,0.4); outline-offset: 2px; }
 </style>

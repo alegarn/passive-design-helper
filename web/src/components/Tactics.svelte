@@ -65,6 +65,6 @@
   .controls { display:flex; gap:.5rem; margin-bottom:.75rem; align-items:center; }
   input { flex:1; padding:.5rem; border-radius:8px; border:1px solid #ddd; }
   select { padding:.4rem; }
-  .grid { display:grid; gap: .75rem; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); }
+  .grid { display:grid; gap: .75rem; grid-template-columns: repeat(auto-fill, minmax(var(--tactic-card-min, 260px), 1fr)); }
   /* .compare-strip removed */
 </style>
