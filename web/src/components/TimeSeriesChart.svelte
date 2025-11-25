@@ -17,7 +17,7 @@
   } from '../utils/timeSeriesAggregator.js';
   import { getSourceDateRange, buildDailyBuckets } from '../utils/dataProcessor.js';
   import StatCard from './StatCard.svelte';
-  import { filteredTimeSeries, selectedMonth } from '../stores/fileStore.js';
+  import { filteredTimeSeries, selectedMonth, maxMetrics, minMetrics } from '../stores/fileStore.js';
   import 'chartjs-adapter-date-fns';
 
   // Register Chart.js components only once and check if already registered to avoid conflicts
@@ -76,6 +76,7 @@
   let chartData = $state(null);
   let chartOptions = $state({});
   let sourceDateRange = $state(null); // Store actual source date range
+  let showMaxDebug = $state(false);
   
   // Calculate averages for displayed datasets - reactive to chartData changes
   const datasetAverages = $derived(() => {
@@ -103,6 +104,13 @@
       });
     }
   });
+
+  // Debug: Log maxMetrics to console when it changes (dev-only)
+  $effect(() => {
+    try {
+      console.debug('[TimeSeriesChart] $maxMetrics:', $maxMetrics);
+    } catch (e) {}
+  });
   
   // Local cached values of the derived stores so template can consume plain arrays.
   // The project's custom $derived returns a callable store, so referencing the store
@@ -110,17 +118,21 @@
   // Use these local variables (updated via $effect) to drive the StatCard rendering.
   let datasetAveragesVal = $state([]);
   let zoneTotalsVal = $state([]);
+  // max metrics derived store is read via $maxMetrics in markup
   
   $effect(() => {
     try {
       datasetAveragesVal = typeof datasetAverages === 'function' ? datasetAverages() : datasetAverages;
       zoneTotalsVal = typeof zoneTotals === 'function' ? zoneTotals() : zoneTotals;
+      // maxMetrics read implicitly by template via $maxMetrics
     } catch (e) {
       // console.debug('[TimeSeriesChart] failed to hydrate derived values:', e);
       datasetAveragesVal = [];
       zoneTotalsVal = [];
     }
   });
+
+  // no $: runes allowed; template uses $maxMetrics directly
   
   // Calculate zone totals for passive design zones - reactive to aggregatedData/timeSeries and currentPeriod
   // For hourly (average-day) view we scale each hourly-average point by number of days
@@ -945,6 +957,7 @@
       >
         {showChart ? 'Hide Chart' : 'Show Chart'}
       </button>
+      <button type="button" class="toggle-button" onclick={() => showMaxDebug = !showMaxDebug}>{showMaxDebug ? 'Hide Max Debug' : 'Show Max Debug'}</button>
     </div>
   </div>
 
@@ -966,6 +979,10 @@
     </div>
   {/if}
 
+  {#if showMaxDebug}
+    <pre class="max-debug">{JSON.stringify($maxMetrics, null, 2)}</pre>
+  {/if}
+
   <!-- Dataset Statistics (replaces Chart.js dataset legend) -->
   {#if datasetAveragesVal && datasetAveragesVal.length > 0}
     <div class="dataset-stats" role="list">
@@ -981,6 +998,53 @@
             />
           {/if}
         {/each}
+      </div>
+    </div>
+  {/if}
+
+  {#if $maxMetrics && ($maxMetrics.maxTemp !== null || $maxMetrics.maxRh !== null)}
+    <div class="max-metrics" role="list">
+      <h4>Peak values</h4>
+      <div class="dataset-stats__grid">
+        {#if $maxMetrics.maxTemp !== null}
+          <StatCard
+            label="Max Temperature (°C)"
+            value={Number($maxMetrics.maxTemp)}
+            color="#ff4444"
+            decimals={1}
+          />
+        {/if}
+        {#if $maxMetrics.maxRh !== null}
+          <StatCard
+            label="Max Humidity (%)"
+            value={Number($maxMetrics.maxRh)}
+            color="#4488ff"
+            decimals={0}
+          />
+        {/if}
+      </div>
+    </div>
+  {/if}
+  {#if $minMetrics && ($minMetrics.minTemp !== null || $minMetrics.minRh !== null)}
+    <div class="min-metrics" role="list">
+      <h4>Min values</h4>
+      <div class="dataset-stats__grid">
+        {#if $minMetrics.minTemp !== null}
+          <StatCard
+            label="Min Temperature (°C)"
+            value={Number($minMetrics.minTemp)}
+            color="#007bff"
+            decimals={1}
+          />
+        {/if}
+        {#if $minMetrics.minRh !== null}
+          <StatCard
+            label="Min Humidity (%)"
+            value={Number($minMetrics.minRh)}
+            color="#0044bb"
+            decimals={0}
+          />
+        {/if}
       </div>
     </div>
   {/if}
@@ -1153,6 +1217,27 @@
     gap: 0.75rem;
   }
 
+  .max-metrics {
+    margin-top: 1rem;
+    padding: 0.5rem;
+    background: #fff7f7;
+    border-radius: 4px;
+    font-size: 0.9rem;
+    border-left: 3px solid #ff4444;
+  }
+
+  .max-metrics h4 { color: #b71c1c; margin: 0 0 0.5rem 0; }
+
+  .max-debug {
+    margin-top: 0.5rem;
+    padding: 0.5rem;
+    background: #f9f9f9;
+    border: 1px dashed #ccc;
+    font-size: 0.85rem;
+    max-height: 240px;
+    overflow: auto;
+  }
+
   .zone-stats {
     margin-top: 1rem;
     padding: 0.5rem;
@@ -1172,6 +1257,17 @@
     grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
     gap: 0.75rem;
   }
+
+  .min-metrics {
+    margin-top: 1rem;
+    padding: 0.5rem;
+    background: #f0f7ff;
+    border-radius: 4px;
+    font-size: 0.9rem;
+    border-left: 3px solid #007bff;
+  }
+
+  .min-metrics h4 { color: #054a96; margin: 0 0 0.5rem 0; }
 
   @media (max-width: 768px) {
     .chart-controls {

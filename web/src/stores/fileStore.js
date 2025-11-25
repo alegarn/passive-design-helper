@@ -743,6 +743,222 @@ const _currentSummaryData = derived([fileStore, selectedMonth], ([$s, $selected]
 export const currentSummaryData = readonly(_currentSummaryData);
 
 /**
+ * Max metrics derived store: returns the maximum temperature and maximum RH in
+ * currentSummaryData (per-month when selected, otherwise global)
+ * { maxTemp, maxTempTs, maxRh, maxRhTs }
+ */
+const _maxMetrics = derived([currentSummaryData, filteredTimeSeries], ([$current, $filteredTS]) => {
+  if (!$current) return { maxTemp: null, maxTempTs: null, maxRh: null, maxRhTs: null };
+  // Prefer rowsWithDur when available - they contain temp & rh values
+  const rows = $current?.rowsWithDur || $current?.rows || $filteredTS || [];
+  let maxTemp = null;
+  let maxTempTs = null;
+  let maxRh = null;
+  let maxRhTs = null;
+
+  const parseNumber = (value) => {
+    if (value === undefined || value === null) return NaN;
+    if (typeof value === 'number') return value;
+    // Try to parse strings or numeric-like values
+    const n = Number(String(value).replace(/[^0-9.+-eE]/g, ''));
+    return Number.isFinite(n) ? n : NaN;
+  };
+
+  for (const r of rows) {
+    // Attempt to find temperature and RH values by property names heuristics
+    function findNumericByParts(obj, parts) {
+      for (const key of Object.keys(obj || {})) {
+        const lower = String(key || '').toLowerCase();
+        for (const p of parts) {
+          if (lower === p || lower.includes(p)) {
+            const val = parseNumber(obj[key]);
+            if (Number.isFinite(val)) return val;
+          }
+        }
+      }
+      return NaN;
+    }
+
+    const t = findNumericByParts(r, ['temp', 'temperature', 'air_temp', 'temp_c', 'temp_celsius']);
+    let rh = findNumericByParts(r, ['rh', 'relative_humidity', 'humidity', 'hum', 'rhpercent', 'rh_pct']);
+
+    // If RH is a fraction (0 to 1), scale to percentage
+    if (Number.isFinite(rh) && rh > 0 && rh <= 1) {
+      rh = rh * 100;
+    }
+
+    const ts = r.ts !== undefined ? (typeof r.ts === 'number' ? r.ts : (new Date(r.ts)).getTime()) : null;
+
+    // Fallback scanning: if not found by key heuristic, scan all numeric properties
+    let tCandidates = Number.isFinite(t) ? [t] : [];
+    let rhCandidates = Number.isFinite(rh) ? [rh] : [];
+    if (!Number.isFinite(t) || !Number.isFinite(rh)) {
+      for (const key of Object.keys(r || {})) {
+        if (key === 'ts' || key === 'dur' || key === 'durMs' || key === 'zone' || key === 'raw') continue;
+        const val = parseNumber(r[key]);
+        if (!Number.isFinite(val)) continue;
+        // classify by plausible ranges
+        if (!Number.isFinite(t) && val >= -50 && val <= 80) {
+          tCandidates.push(val);
+        }
+        if (!Number.isFinite(rh) && val >= 0 && val <= 100) {
+          rhCandidates.push(val);
+        }
+      }
+    }
+    // If still not found, do a shallow recursive scan of nested objects
+    function deepFindNumericByParts(obj, parts, depth = 0, maxDepth = 2) {
+      if (!obj || typeof obj !== 'object' || depth > maxDepth) return NaN;
+      for (const key of Object.keys(obj)) {
+        const val = obj[key];
+        const lower = String(key || '').toLowerCase();
+        for (const p of parts) {
+          if (lower === p || lower.includes(p)) {
+            const n = parseNumber(val);
+            if (Number.isFinite(n)) return n;
+          }
+        }
+        if (typeof val === 'object') {
+          const found = deepFindNumericByParts(val, parts, depth + 1, maxDepth);
+          if (Number.isFinite(found)) return found;
+        }
+      }
+      return NaN;
+    }
+    if (tCandidates.length === 0) {
+      const deepT = deepFindNumericByParts(r, ['temp', 'temperature', 'air_temp', 'temp_c', 'temp_celsius']);
+      if (Number.isFinite(deepT)) tCandidates.push(deepT);
+    }
+    if (rhCandidates.length === 0) {
+      const deepRh = deepFindNumericByParts(r, ['rh', 'relative_humidity', 'humidity', 'hum']);
+      if (Number.isFinite(deepRh)) rhCandidates.push(deepRh);
+    }
+    const tFinal = tCandidates.length ? Math.max(...tCandidates) : NaN;
+    const rhFinal = rhCandidates.length ? Math.max(...rhCandidates) : NaN;
+
+    if (Number.isFinite(tFinal)) {
+      if (maxTemp === null || tFinal > maxTemp) {
+        maxTemp = tFinal;
+        maxTempTs = ts;
+      }
+    }
+    if (Number.isFinite(rhFinal)) {
+      if (maxRh === null || rhFinal > maxRh) {
+        maxRh = rhFinal;
+        maxRhTs = ts;
+      }
+    }
+  }
+
+  // Guard: convert NaN to null for stability
+  if (!Number.isFinite(maxTemp)) maxTemp = null;
+  if (!Number.isFinite(maxRh)) maxRh = null;
+
+  return { maxTemp, maxTempTs, maxRh, maxRhTs };
+});
+export const maxMetrics = readonly(_maxMetrics);
+
+/**
+ * Min metrics derived store: returns the minimum temperature and minimum RH in
+ * currentSummaryData (per-month when selected, otherwise global)
+ * { minTemp, minTempTs, minRh, minRhTs }
+ */
+const _minMetrics = derived([currentSummaryData, filteredTimeSeries], ([$current, $filteredTS]) => {
+  if (!$current) return { minTemp: null, minTempTs: null, minRh: null, minRhTs: null };
+  const rows = $current?.rowsWithDur || $current?.rows || $filteredTS || [];
+  let minTemp = null;
+  let minTempTs = null;
+  let minRh = null;
+  let minRhTs = null;
+
+  const parseNumber = (value) => {
+    if (value === undefined || value === null) return NaN;
+    if (typeof value === 'number') return value;
+    const n = Number(String(value).replace(/[^0-9.+-eE]/g, ''));
+    return Number.isFinite(n) ? n : NaN;
+  };
+
+  const findNumericByParts = (obj, parts) => {
+    for (const key of Object.keys(obj || {})) {
+      const lower = String(key || '').toLowerCase();
+      for (const p of parts) {
+        if (lower === p || lower.includes(p)) {
+          const val = parseNumber(obj[key]);
+          if (Number.isFinite(val)) return val;
+        }
+      }
+    }
+    return NaN;
+  };
+
+  function deepFindNumericByParts(obj, parts, depth = 0, maxDepth = 2) {
+    if (!obj || typeof obj !== 'object' || depth > maxDepth) return NaN;
+    for (const key of Object.keys(obj)) {
+      const val = obj[key];
+      const lower = String(key || '').toLowerCase();
+      for (const p of parts) {
+        if (lower === p || lower.includes(p)) {
+          const n = parseNumber(val);
+          if (Number.isFinite(n)) return n;
+        }
+      }
+      if (typeof val === 'object') {
+        const found = deepFindNumericByParts(val, parts, depth + 1, maxDepth);
+        if (Number.isFinite(found)) return found;
+      }
+    }
+    return NaN;
+  }
+
+  for (const r of rows) {
+    const t = findNumericByParts(r, ['temp', 'temperature', 'air_temp', 'temp_c', 'temp_celsius']);
+    let rh = findNumericByParts(r, ['rh', 'relative_humidity', 'humidity', 'hum', 'rhpercent', 'rh_pct']);
+    if (Number.isFinite(rh) && rh > 0 && rh <= 1) rh = rh * 100;
+    const ts = r.ts !== undefined ? (typeof r.ts === 'number' ? r.ts : (new Date(r.ts)).getTime()) : null;
+
+    let tCandidates = Number.isFinite(t) ? [t] : [];
+    let rhCandidates = Number.isFinite(rh) ? [rh] : [];
+    if (!Number.isFinite(t) || !Number.isFinite(rh)) {
+      for (const key of Object.keys(r || {})) {
+        if (key === 'ts' || key === 'dur' || key === 'durMs' || key === 'zone' || key === 'raw') continue;
+        const val = parseNumber(r[key]);
+        if (!Number.isFinite(val)) continue;
+        if (!Number.isFinite(t) && val >= -100 && val <= 100) tCandidates.push(val);
+        if (!Number.isFinite(rh) && val >= 0 && val <= 100) rhCandidates.push(val);
+      }
+    }
+    if (tCandidates.length === 0) {
+      const deepT = deepFindNumericByParts(r, ['temp', 'temperature', 'air_temp', 'temp_c', 'temp_celsius']);
+      if (Number.isFinite(deepT)) tCandidates.push(deepT);
+    }
+    if (rhCandidates.length === 0) {
+      const deepRh = deepFindNumericByParts(r, ['rh', 'relative_humidity', 'humidity', 'hum']);
+      if (Number.isFinite(deepRh)) rhCandidates.push(deepRh);
+    }
+    const tFinal = tCandidates.length ? Math.min(...tCandidates) : NaN;
+    const rhFinal = rhCandidates.length ? Math.min(...rhCandidates) : NaN;
+
+    if (Number.isFinite(tFinal)) {
+      if (minTemp === null || tFinal < minTemp) {
+        minTemp = tFinal;
+        minTempTs = ts;
+      }
+    }
+    if (Number.isFinite(rhFinal)) {
+      if (minRh === null || rhFinal < minRh) {
+        minRh = rhFinal;
+        minRhTs = ts;
+      }
+    }
+  }
+
+  if (!Number.isFinite(minTemp)) minTemp = null;
+  if (!Number.isFinite(minRh)) minRh = null;
+  return { minTemp, minTempTs, minRh, minRhTs };
+});
+export const minMetrics = readonly(_minMetrics);
+
+/**
  * isLoading derived from meta.loadingCount
  */
 const _isLoading = derived(fileStore, $s => Boolean($s?.meta?.loadingCount > 0));
