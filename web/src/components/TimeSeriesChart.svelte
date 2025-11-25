@@ -17,7 +17,7 @@
   } from '../utils/timeSeriesAggregator.js';
   import { getSourceDateRange, buildDailyBuckets } from '../utils/dataProcessor.js';
   import StatCard from './StatCard.svelte';
-  import { timeSeries } from '../stores/fileStore.js';
+  import { filteredTimeSeries, selectedMonth, maxMetrics, minMetrics } from '../stores/fileStore.js';
   import 'chartjs-adapter-date-fns';
 
   // Register Chart.js components only once and check if already registered to avoid conflicts
@@ -71,11 +71,14 @@
 
   // Component state
   let showChart = $state(true);
+  let showMinMax = $state(false);
   let currentPeriod = $state(selectedPeriod);
   let aggregatedData = $state([]);
   let chartData = $state(null);
   let chartOptions = $state({});
   let sourceDateRange = $state(null); // Store actual source date range
+  // Debug toggle for displaying $maxMetrics in the UI. Keep this around but commented out for now.
+  // let showMaxDebug = $state(false);
   
   // Calculate averages for displayed datasets - reactive to chartData changes
   const datasetAverages = $derived(() => {
@@ -103,6 +106,14 @@
       });
     }
   });
+
+  // Debug: Log maxMetrics to console when it changes (dev-only)
+  // Commented out to reduce console noise in normal usage. Uncomment for debugging.
+  // $effect(() => {
+  //   try {
+  //     console.debug('[TimeSeriesChart] $maxMetrics:', $maxMetrics);
+  //   } catch (e) {}
+  // });
   
   // Local cached values of the derived stores so template can consume plain arrays.
   // The project's custom $derived returns a callable store, so referencing the store
@@ -110,17 +121,21 @@
   // Use these local variables (updated via $effect) to drive the StatCard rendering.
   let datasetAveragesVal = $state([]);
   let zoneTotalsVal = $state([]);
+  // max metrics derived store is read via $maxMetrics in markup
   
   $effect(() => {
     try {
       datasetAveragesVal = typeof datasetAverages === 'function' ? datasetAverages() : datasetAverages;
       zoneTotalsVal = typeof zoneTotals === 'function' ? zoneTotals() : zoneTotals;
+      // maxMetrics read implicitly by template via $maxMetrics
     } catch (e) {
       // console.debug('[TimeSeriesChart] failed to hydrate derived values:', e);
       datasetAveragesVal = [];
       zoneTotalsVal = [];
     }
   });
+
+  // no $: runes allowed; template uses $maxMetrics directly
   
   // Calculate zone totals for passive design zones - reactive to aggregatedData/timeSeries and currentPeriod
   // For hourly (average-day) view we scale each hourly-average point by number of days
@@ -128,7 +143,7 @@
   // with daily/weekly behavior) instead of listing every single sample hour.
   const zoneTotals = $derived(() => {
     const agg = aggregatedData;
-    const raw = $timeSeries;
+    const raw = $filteredTimeSeries;
     const period = currentPeriod;
     const totals = {};
     ZONES.forEach(z => (totals[z.id] = 0));
@@ -808,7 +823,7 @@
 
   // Process data for chart (legacy function for backward compatibility)
   function processDataForChart() {
-    const result = processDataForChartPure($timeSeries, currentPeriod, selectedPeriod);
+    const result = processDataForChartPure($filteredTimeSeries, currentPeriod, selectedPeriod);
     aggregatedData = result.aggregatedData;
     chartData = result.chartData;
     chartOptions = result.chartOptions;
@@ -871,7 +886,7 @@
   
   // Create a derived value for processed chart data to avoid state updates in effects
   const processedChartState = $derived(() => {
-    if (!$timeSeries || $timeSeries.length === 0) {
+    if (!$filteredTimeSeries || $filteredTimeSeries.length === 0) {
       return {
         aggregatedData: [],
         chartData: null,
@@ -882,7 +897,7 @@
     
     try {
       // Create a pure version of processDataForChart that returns values instead of updating state
-      return processDataForChartPure($timeSeries, currentPeriod, selectedPeriod);
+      return processDataForChartPure($filteredTimeSeries, currentPeriod, selectedPeriod);
     } catch (error) {
       console.error('Error processing chart data:', error);
       return {
@@ -906,9 +921,9 @@
   // Debugging: log derived timeSeries and processed chart state to diagnose missing StatCards
   $effect(() => {
     try {
-      // console.debug('[TimeSeriesChart] $timeSeries length:', $timeSeries?.length ?? 0);
-      if ($timeSeries && $timeSeries.length > 0) {
-        // console.debug('[TimeSeriesChart] $timeSeries sample:', $timeSeries[0]);
+      // console.debug('[TimeSeriesChart] $filteredTimeSeries length:', $filteredTimeSeries?.length ?? 0);
+      if ($filteredTimeSeries && $filteredTimeSeries.length > 0) {
+        // console.debug('[TimeSeriesChart] $filteredTimeSeries sample:', $filteredTimeSeries[0]);
       }
       // console.debug('[TimeSeriesChart] processedChartState aggregatedData length:', processedChartState().aggregatedData?.length ?? 0);
       // console.debug('[TimeSeriesChart] processedChartState chartData datasets:', processedChartState().chartData?.datasets?.length ?? 0);
@@ -945,13 +960,15 @@
       >
         {showChart ? 'Hide Chart' : 'Show Chart'}
       </button>
+      <!-- Debug toggle for development only. Commented out so regular users don't see the debug state. -->
+      <!-- <button type="button" class="toggle-button" onclick={() => showMaxDebug = !showMaxDebug}>{showMaxDebug ? 'Hide Max Debug' : 'Show Max Debug'}</button> -->
     </div>
   </div>
 
   <!-- Chart Container -->
   {#if showChart}
     <div class="chart-container">
-      {#if $timeSeries && $timeSeries.length > 0 && chartData}
+      {#if $filteredTimeSeries && $filteredTimeSeries.length > 0 && chartData}
         <div class="chart-wrapper">
           <Line
             data={chartData}
@@ -966,24 +983,59 @@
     </div>
   {/if}
 
+  <!-- Developer-only debug output for max metrics. Remove the comments below to enable. -->
+  <!-- {#if showMaxDebug}
+    <pre class="max-debug">{JSON.stringify($maxMetrics, null, 2)}</pre>
+  {/if} -->
+
   <!-- Dataset Statistics (replaces Chart.js dataset legend) -->
   {#if datasetAveragesVal && datasetAveragesVal.length > 0}
     <div class="dataset-stats" role="list">
-      <h4>Dataset Averages</h4>
-      <div class="dataset-stats__grid">
-        {#each datasetAveragesVal as dataset (dataset.label)}
-          {#if dataset.value > 0}
-            <StatCard
-              label={dataset.label}
-              value={dataset.value}
-              color={dataset.color}
-              decimals={1}
-            />
-          {/if}
-        {/each}
+      <div class="dataset-stats__header">
+        <h4>Dataset Averages</h4>
+        <button
+          type="button"
+          class="minmax-toggle"
+          aria-pressed={showMinMax}
+          onclick={() => showMinMax = !showMinMax}
+        >
+          {showMinMax ? 'Hide Min / Max' : 'Show Min / Max'}
+        </button>
       </div>
+
+      {#if !showMinMax}
+        <div class="dataset-stats__grid">
+          {#each datasetAveragesVal as dataset (dataset.label)}
+            {#if dataset.value > 0}
+              <StatCard
+                label={dataset.label}
+                value={dataset.value}
+                color={dataset.color}
+                decimals={1}
+              />
+            {/if}
+          {/each}
+        </div>
+      {:else}
+        <div class="dataset-stats__grid">
+          {#if $maxMetrics && ($maxMetrics.maxTemp !== null)}
+            <StatCard label="Max Temperature (°C)" value={Number($maxMetrics.maxTemp)} color="#ff4444" decimals={1} />
+          {/if}
+          {#if $maxMetrics && ($maxMetrics.maxRh !== null)}
+            <StatCard label="Max Humidity (%)" value={Number($maxMetrics.maxRh)} color="#4488ff" decimals={0} />
+          {/if}
+          {#if $minMetrics && ($minMetrics.minTemp !== null)}
+            <StatCard label="Min Temperature (°C)" value={Number($minMetrics.minTemp)} color="#007bff" decimals={1} />
+          {/if}
+          {#if $minMetrics && ($minMetrics.minRh !== null)}
+            <StatCard label="Min Humidity (%)" value={Number($minMetrics.minRh)} color="#0044bb" decimals={0} />
+          {/if}
+        </div>
+      {/if}
     </div>
   {/if}
+
+  <!-- Max/Min metrics are shown inside the Dataset Averages area using the 'Show Min / Max' toggle -->
 
   <!-- Passive Design Zone StatCards (replaced custom zone legend at lines ~862-873) -->
   {#if zoneTotalsVal && zoneTotalsVal.length > 0}
@@ -1034,7 +1086,9 @@
           {:else}
             Showing {aggregatedData.length} {currentPeriod} data points
           {/if}
-          {#if sourceDateRange && sourceDateRange.minDate && sourceDateRange.maxDate}
+          {#if $selectedMonth}
+            Showing data for {new Date($selectedMonth + '-01').toLocaleDateString(undefined, { month: 'long', year: 'numeric' })}
+          {:else if sourceDateRange && sourceDateRange.minDate && sourceDateRange.maxDate}
             from {formatDateForDisplay(sourceDateRange.minDate.getTime(), currentPeriod)}
             to {formatDateForDisplay(sourceDateRange.maxDate.getTime(), currentPeriod)}
           {:else}
@@ -1151,6 +1205,36 @@
     gap: 0.75rem;
   }
 
+  .dataset-stats__header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.5rem;
+  }
+
+  .minmax-toggle {
+    padding: 0.4rem 0.6rem;
+    border-radius: 4px;
+    border: 1px solid #cbd5e0;
+    background: white;
+    cursor: pointer;
+    font-size: 0.85rem;
+  }
+
+  /* max metrics CSS removed; metrics render inside Dataset Averages area */
+
+  /* Debug developer output for max/min metrics. Kept in file for convenience, but commented out so it's unused during normal builds.
+  .max-debug {
+    margin-top: 0.5rem;
+    padding: 0.5rem;
+    background: #f9f9f9;
+    border: 1px dashed #ccc;
+    font-size: 0.85rem;
+    max-height: 240px;
+    overflow: auto;
+  }
+  */
+
   .zone-stats {
     margin-top: 1rem;
     padding: 0.5rem;
@@ -1170,6 +1254,8 @@
     grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
     gap: 0.75rem;
   }
+
+  /* min metrics CSS removed; metrics render inside Dataset Averages area */
 
   @media (max-width: 768px) {
     .chart-controls {

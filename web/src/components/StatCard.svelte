@@ -9,7 +9,7 @@
   
   // Format the value for display
   function formatValue(val, dec) {
-    if (val === null || val === undefined) {
+    if (val === null || val === undefined || !Number.isFinite(val)) {
       return '-';
     }
     

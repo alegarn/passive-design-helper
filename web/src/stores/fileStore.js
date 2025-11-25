@@ -4,6 +4,10 @@ import { normalizeOpenMeteoToFileData, parseCsvText, aggregateCsvStream } from '
 import { preferredZoneForPoint, ZONES } from '../scripts/zones.js';
 import { classifyPoint } from '../scripts/classify.js';
 import { ZONE_COLORS } from '../scripts/theme.js';
+import { W_from_RH_T } from '../scripts/psychro/math.js';
+
+// Selected month state exported for UI controls (YYYY-MM format or null for all)
+export const selectedMonth = writable(null);
 
 /**
  * @typedef {Object} Snapshot
@@ -508,6 +512,8 @@ export function createFileStore() {
       // console.debug('[fileStore] setAggregationResult logging failed:', e);
     }
     commit(newSnapshot);
+    // Reset selected month to 'all' when a new aggregation result is set to avoid stale selections
+    try { selectedMonth.set(null); } catch (e) {}
   }
 
   /**
@@ -528,6 +534,28 @@ export function createFileStore() {
     };
     commit(newSnapshot);
   }
+
+  /**
+   * Set selectedMonth value (YYYY-MM or null) - kept in module-level store `selectedMonth`.
+   * Provided here to keep callers using fileStore API able to set the current month selection.
+   * @param {string|null} monthKey
+   */
+  function setSelectedMonth(monthKey = null) {
+    try {
+      selectedMonth.set(monthKey);
+    } catch (e) {
+      // in case selectedMonth is not available, write directly to internal store snapshot
+      const currentSnapshot = getSnapshot();
+      const newSnapshot = {
+        ...currentSnapshot,
+        ui: {
+          ...(currentSnapshot.ui || {}),
+          selectedMonth: monthKey
+        }
+      };
+      commit(newSnapshot);
+    }
+  }
  
   // Return the store object with Svelte store interface and methods
   return {
@@ -545,6 +573,8 @@ export function createFileStore() {
     setMapping,
     setResults,
     setMetaLastError,
+    // New UI store helpers
+    setSelectedMonth
   };
 }
 
@@ -595,6 +625,338 @@ const _aggregationSummary = derived(fileStore, $s => {
   return { present: true };
 });
 export const aggregationSummary = readonly(_aggregationSummary);
+
+// selectedMonth is a module-level writable declared earlier
+
+/**
+ * Available months derived from the aggregation result: an array of YYYY-MM strings.
+ */
+const _availableMonths = derived(fileStore, $s => {
+  const agg = $s?.raw?.aggregationResult;
+  if (!agg) return [];
+  // Prefer explicit months list from aggregationResult
+  if (Array.isArray(agg.months) && agg.months.length) return agg.months;
+  // Fallback: try computing from perMonth, perBucket or rowsWithDur
+  if (agg.perMonth && typeof agg.perMonth === 'object') return Object.keys(agg.perMonth).sort();
+  if (agg.perBucket && typeof agg.perBucket === 'object') {
+    // If perBucket keys are month-like (YYYY-MM), use them
+    const keys = Object.keys(agg.perBucket).filter(k => /^\d{4}-\d{2}$/.test(k)).sort();
+    if (keys.length) return keys;
+  }
+  if (Array.isArray(agg.rowsWithDur) && agg.rowsWithDur.length) {
+    const months = new Set();
+    for (const r of agg.rowsWithDur) {
+      try {
+        const d = new Date(r.ts);
+        const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+        months.add(key);
+      } catch (e) {}
+    }
+    return Array.from(months).sort();
+  }
+  return [];
+});
+export const availableMonths = readonly(_availableMonths);
+
+/**
+ * Filtered timeSeries derived from fileStore.timeSeries and selectedMonth selection.
+ * When selectedMonth is null, returns the full timeSeries.
+ */
+const _filteredTimeSeries = derived([timeSeries, selectedMonth], ([$ts, $sel]) => {
+  if (!$ts || !$ts.length) return [];
+  if (!$sel) return $ts;
+  // Filter rows with month matching selectedMonth
+  try {
+    const [y, m] = $sel.split('-').map(n => Number(n));
+    const start = new Date(y, m - 1, 1).getTime();
+    const end = new Date(y, m, 0, 23, 59, 59, 999).getTime();
+    return $ts.filter(r => {
+      try {
+        const tsMs = typeof r.ts === 'number' ? r.ts : new Date(r.ts).getTime();
+        return tsMs >= start && tsMs <= end;
+      } catch (e) { return false; }
+    });
+  } catch (e) {
+    return $ts;
+  }
+});
+export const filteredTimeSeries = readonly(_filteredTimeSeries);
+
+/**
+ * Current summary data depending on the selected month
+ * If no selectedMonth, returns full aggregationResult; if a month is selected, returns
+ * an object with summary and psychrometricData limited to that month.
+ */
+const _currentSummaryData = derived([fileStore, selectedMonth], ([$s, $selected]) => {
+  const agg = $s?.raw?.aggregationResult;
+  if (!agg) return null;
+  if (!$selected) {
+    return agg;
+  }
+  // If we find perMonth data from aggregationResult, prefer it
+  const perMonth = agg.perMonth && agg.perMonth[$selected];
+  if (perMonth) {
+    // Build psychrometricData from perMonth.rows
+    const rows = perMonth.rows || [];
+    const psychrometricData = rows.map(r => ({
+      T: r.temp,
+      W: W_from_RH_T((r.rh || r.rhPercent || 0) / 100, r.temp),
+      zone: r.zone,
+      color: ZONE_COLORS[r.zone] || '#999999'
+    }));
+    return {
+      // Keep month-level summary fields, but present rows as rowsWithDur to match app's earlier expectations
+      rowsWithDur: rows,
+      summary: perMonth.summary || [],
+      perMonth: perMonth,
+      psychrometricData
+    };
+  }
+  // Fallback: filter rowsWithDur
+  if (Array.isArray(agg.rowsWithDur)) {
+    const rows = agg.rowsWithDur.filter(r => {
+      const d = new Date(r.ts);
+      const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+      return key === $selected;
+    });
+    const psychrometricData = rows.map(r => ({
+      T: r.temp,
+      W: W_from_RH_T((r.rh || r.rhPercent || 0) / 100, r.temp),
+      zone: r.zone,
+      color: ZONE_COLORS[r.zone] || '#999999'
+    }));
+    // Derive simple summary from rows
+    const zoneTotals = {};
+    for (const r of rows) {
+      zoneTotals[r.zone] = (zoneTotals[r.zone] || 0) + (r.dur || r.durMs || 0);
+    }
+    const msTotal = Object.values(zoneTotals).reduce((s, v) => s + v, 0) || 1;
+    const summary = Object.entries(zoneTotals).map(([zone, ms]) => ({ zone, hours: Number((ms / (1000 * 60 * 60)).toFixed(3)), percent: Number(((ms * 100) / msTotal).toFixed(2)), milliseconds: ms, color: ZONE_COLORS[zone] || '#999999' })).sort((a, b) => b.hours - a.hours);
+    return {
+      rowsWithDur: rows,
+      summary,
+      psychrometricData
+    };
+  }
+  return null;
+});
+export const currentSummaryData = readonly(_currentSummaryData);
+
+/**
+ * Max metrics derived store: returns the maximum temperature and maximum RH in
+ * currentSummaryData (per-month when selected, otherwise global)
+ * { maxTemp, maxTempTs, maxRh, maxRhTs }
+ */
+const _maxMetrics = derived([currentSummaryData, filteredTimeSeries], ([$current, $filteredTS]) => {
+  if (!$current) return { maxTemp: null, maxTempTs: null, maxRh: null, maxRhTs: null };
+  // Prefer rowsWithDur when available - they contain temp & rh values
+  const rows = $current?.rowsWithDur || $current?.rows || $filteredTS || [];
+  let maxTemp = null;
+  let maxTempTs = null;
+  let maxRh = null;
+  let maxRhTs = null;
+
+  const parseNumber = (value) => {
+    if (value === undefined || value === null) return NaN;
+    if (typeof value === 'number') return value;
+    // Try to parse strings or numeric-like values
+    const n = Number(String(value).replace(/[^0-9.+-eE]/g, ''));
+    return Number.isFinite(n) ? n : NaN;
+  };
+
+  for (const r of rows) {
+    // Attempt to find temperature and RH values by property names heuristics
+    function findNumericByParts(obj, parts) {
+      for (const key of Object.keys(obj || {})) {
+        const lower = String(key || '').toLowerCase();
+        for (const p of parts) {
+          if (lower === p || lower.includes(p)) {
+            const val = parseNumber(obj[key]);
+            if (Number.isFinite(val)) return val;
+          }
+        }
+      }
+      return NaN;
+    }
+
+    const t = findNumericByParts(r, ['temp', 'temperature', 'air_temp', 'temp_c', 'temp_celsius']);
+    let rh = findNumericByParts(r, ['rh', 'relative_humidity', 'humidity', 'hum', 'rhpercent', 'rh_pct']);
+
+    // If RH is a fraction (0 to 1), scale to percentage
+    if (Number.isFinite(rh) && rh > 0 && rh <= 1) {
+      rh = rh * 100;
+    }
+
+    const ts = r.ts !== undefined ? (typeof r.ts === 'number' ? r.ts : (new Date(r.ts)).getTime()) : null;
+
+    // Fallback scanning: if not found by key heuristic, scan all numeric properties
+    let tCandidates = Number.isFinite(t) ? [t] : [];
+    let rhCandidates = Number.isFinite(rh) ? [rh] : [];
+    if (!Number.isFinite(t) || !Number.isFinite(rh)) {
+      for (const key of Object.keys(r || {})) {
+        if (key === 'ts' || key === 'dur' || key === 'durMs' || key === 'zone' || key === 'raw') continue;
+        const val = parseNumber(r[key]);
+        if (!Number.isFinite(val)) continue;
+        // classify by plausible ranges
+        if (!Number.isFinite(t) && val >= -50 && val <= 80) {
+          tCandidates.push(val);
+        }
+        if (!Number.isFinite(rh) && val >= 0 && val <= 100) {
+          rhCandidates.push(val);
+        }
+      }
+    }
+    // If still not found, do a shallow recursive scan of nested objects
+    function deepFindNumericByParts(obj, parts, depth = 0, maxDepth = 2) {
+      if (!obj || typeof obj !== 'object' || depth > maxDepth) return NaN;
+      for (const key of Object.keys(obj)) {
+        const val = obj[key];
+        const lower = String(key || '').toLowerCase();
+        for (const p of parts) {
+          if (lower === p || lower.includes(p)) {
+            const n = parseNumber(val);
+            if (Number.isFinite(n)) return n;
+          }
+        }
+        if (typeof val === 'object') {
+          const found = deepFindNumericByParts(val, parts, depth + 1, maxDepth);
+          if (Number.isFinite(found)) return found;
+        }
+      }
+      return NaN;
+    }
+    if (tCandidates.length === 0) {
+      const deepT = deepFindNumericByParts(r, ['temp', 'temperature', 'air_temp', 'temp_c', 'temp_celsius']);
+      if (Number.isFinite(deepT)) tCandidates.push(deepT);
+    }
+    if (rhCandidates.length === 0) {
+      const deepRh = deepFindNumericByParts(r, ['rh', 'relative_humidity', 'humidity', 'hum']);
+      if (Number.isFinite(deepRh)) rhCandidates.push(deepRh);
+    }
+    const tFinal = tCandidates.length ? Math.max(...tCandidates) : NaN;
+    const rhFinal = rhCandidates.length ? Math.max(...rhCandidates) : NaN;
+
+    if (Number.isFinite(tFinal)) {
+      if (maxTemp === null || tFinal > maxTemp) {
+        maxTemp = tFinal;
+        maxTempTs = ts;
+      }
+    }
+    if (Number.isFinite(rhFinal)) {
+      if (maxRh === null || rhFinal > maxRh) {
+        maxRh = rhFinal;
+        maxRhTs = ts;
+      }
+    }
+  }
+
+  // Guard: convert NaN to null for stability
+  if (!Number.isFinite(maxTemp)) maxTemp = null;
+  if (!Number.isFinite(maxRh)) maxRh = null;
+
+  return { maxTemp, maxTempTs, maxRh, maxRhTs };
+});
+export const maxMetrics = readonly(_maxMetrics);
+
+/**
+ * Min metrics derived store: returns the minimum temperature and minimum RH in
+ * currentSummaryData (per-month when selected, otherwise global)
+ * { minTemp, minTempTs, minRh, minRhTs }
+ */
+const _minMetrics = derived([currentSummaryData, filteredTimeSeries], ([$current, $filteredTS]) => {
+  if (!$current) return { minTemp: null, minTempTs: null, minRh: null, minRhTs: null };
+  const rows = $current?.rowsWithDur || $current?.rows || $filteredTS || [];
+  let minTemp = null;
+  let minTempTs = null;
+  let minRh = null;
+  let minRhTs = null;
+
+  const parseNumber = (value) => {
+    if (value === undefined || value === null) return NaN;
+    if (typeof value === 'number') return value;
+    const n = Number(String(value).replace(/[^0-9.+-eE]/g, ''));
+    return Number.isFinite(n) ? n : NaN;
+  };
+
+  const findNumericByParts = (obj, parts) => {
+    for (const key of Object.keys(obj || {})) {
+      const lower = String(key || '').toLowerCase();
+      for (const p of parts) {
+        if (lower === p || lower.includes(p)) {
+          const val = parseNumber(obj[key]);
+          if (Number.isFinite(val)) return val;
+        }
+      }
+    }
+    return NaN;
+  };
+
+  function deepFindNumericByParts(obj, parts, depth = 0, maxDepth = 2) {
+    if (!obj || typeof obj !== 'object' || depth > maxDepth) return NaN;
+    for (const key of Object.keys(obj)) {
+      const val = obj[key];
+      const lower = String(key || '').toLowerCase();
+      for (const p of parts) {
+        if (lower === p || lower.includes(p)) {
+          const n = parseNumber(val);
+          if (Number.isFinite(n)) return n;
+        }
+      }
+      if (typeof val === 'object') {
+        const found = deepFindNumericByParts(val, parts, depth + 1, maxDepth);
+        if (Number.isFinite(found)) return found;
+      }
+    }
+    return NaN;
+  }
+
+  for (const r of rows) {
+    const t = findNumericByParts(r, ['temp', 'temperature', 'air_temp', 'temp_c', 'temp_celsius']);
+    let rh = findNumericByParts(r, ['rh', 'relative_humidity', 'humidity', 'hum', 'rhpercent', 'rh_pct']);
+    if (Number.isFinite(rh) && rh > 0 && rh <= 1) rh = rh * 100;
+    const ts = r.ts !== undefined ? (typeof r.ts === 'number' ? r.ts : (new Date(r.ts)).getTime()) : null;
+
+    let tCandidates = Number.isFinite(t) ? [t] : [];
+    let rhCandidates = Number.isFinite(rh) ? [rh] : [];
+    if (!Number.isFinite(t) || !Number.isFinite(rh)) {
+      for (const key of Object.keys(r || {})) {
+        if (key === 'ts' || key === 'dur' || key === 'durMs' || key === 'zone' || key === 'raw') continue;
+        const val = parseNumber(r[key]);
+        if (!Number.isFinite(val)) continue;
+        if (!Number.isFinite(t) && val >= -100 && val <= 100) tCandidates.push(val);
+        if (!Number.isFinite(rh) && val >= 0 && val <= 100) rhCandidates.push(val);
+      }
+    }
+    if (tCandidates.length === 0) {
+      const deepT = deepFindNumericByParts(r, ['temp', 'temperature', 'air_temp', 'temp_c', 'temp_celsius']);
+      if (Number.isFinite(deepT)) tCandidates.push(deepT);
+    }
+    if (rhCandidates.length === 0) {
+      const deepRh = deepFindNumericByParts(r, ['rh', 'relative_humidity', 'humidity', 'hum']);
+      if (Number.isFinite(deepRh)) rhCandidates.push(deepRh);
+    }
+    const tFinal = tCandidates.length ? Math.min(...tCandidates) : NaN;
+    const rhFinal = rhCandidates.length ? Math.min(...rhCandidates) : NaN;
+
+    if (Number.isFinite(tFinal)) {
+      if (minTemp === null || tFinal < minTemp) {
+        minTemp = tFinal;
+        minTempTs = ts;
+      }
+    }
+    if (Number.isFinite(rhFinal)) {
+      if (minRh === null || rhFinal < minRh) {
+        minRh = rhFinal;
+        minRhTs = ts;
+      }
+    }
+  }
+
+  if (!Number.isFinite(minTemp)) minTemp = null;
+  if (!Number.isFinite(minRh)) minRh = null;
+  return { minTemp, minTempTs, minRh, minRhTs };
+});
+export const minMetrics = readonly(_minMetrics);
 
 /**
  * isLoading derived from meta.loadingCount

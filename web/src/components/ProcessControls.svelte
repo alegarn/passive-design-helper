@@ -12,7 +12,7 @@
   
   // Import fileStore to check for remotely fetched data
   import { fileStore } from '../stores/fileStore.js';
-  import { mapping } from '../stores/fileStore.js';
+  import { mapping, availableMonths, selectedMonth } from '../stores/fileStore.js';
 
   // Local state variables using $state
   let isProcessing = $state(false);
@@ -330,6 +330,16 @@
       console.error("Export error:", error);
     }
   }
+
+  // Function to set selected month in shared fileStore
+  function handleSelectMonth(monthKey) {
+    try {
+      fileStore.setSelectedMonth(monthKey);
+    } catch (e) {
+      // Fallback: store selection locally (no-op)
+      selectedMonth.set(monthKey);
+    }
+  }
 </script>
 
 {#if file && headerFields}
@@ -387,6 +397,11 @@
               <p>The data span detection analyzes your file to determine the time range, data frequency, and consistency of timestamps.</p>
               <p>Higher confidence indicates more regular time intervals between data points.</p>
             </div>
+            {#if detailedDataSpan && detailedDataSpan.monthsSpan && detailedDataSpan.monthsSpan > 2}
+              <div class="view-recommendation">
+                <strong>Recommendation:</strong> Your data spans {detailedDataSpan.monthsSpan} months. Consider using the monthly view for better clarity.
+              </div>
+            {/if}
           </div>
         </div>
       {/if}
@@ -554,6 +569,25 @@
             <p class="export-hint">Exports time_series.csv, summary.json, and summary.md</p>
           </div>
         </div>
+        <!-- Per-Month Selection -->
+        {#if $availableMonths && $availableMonths.length > 2}
+          <div class="per-month-section">
+            <h4>Per-month View</h4>
+            <div class="per-month-controls">
+              <button class="btn btn-secondary" onclick={() => handleSelectMonth(null)} aria-pressed={$selectedMonth === null}>All Months</button>
+              {#each $availableMonths as month}
+                <button
+                  type="button"
+                  class="btn per-month-btn"
+                  aria-pressed={$selectedMonth === month}
+                  onclick={() => handleSelectMonth(month)}
+                >
+                  {new Date(month + '-01').toLocaleDateString(undefined, { month: 'short', year: 'numeric' })}
+                </button>
+              {/each}
+            </div>
+          </div>
+        {/if}
       {/if}
     </div>
   </div>
@@ -610,6 +644,34 @@
   .export-buttons .btn {
     flex: 1;
     min-width: 150px;
+  }
+
+  .per-month-section {
+    border: 1px solid #e0e0e0;
+    border-radius: 4px;
+    padding: 1rem;
+    background-color: white;
+  }
+
+  .per-month-controls {
+    display: flex;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+  }
+
+  .per-month-btn {
+    min-width: 90px;
+    padding: 0.5rem 0.75rem;
+    background: white;
+    border: 1px solid #ccc;
+    border-radius: 4px;
+    cursor: pointer;
+  }
+
+  .per-month-btn[aria-pressed="true"] {
+    background: var(--primary-color, #3f51b5);
+    color: white;
+    border-color: var(--primary-color, #3f51b5);
   }
   
   .mapping-control, .option-control {
@@ -793,6 +855,16 @@
     padding: 0.75rem;
     border-radius: 4px;
     border-left: 3px solid #3f51b5;
+  }
+
+  .view-recommendation {
+    margin-top: 0.75rem;
+    padding: 0.5rem;
+    background-color: #fff8e1;
+    border-left: 3px solid #ffb300;
+    border-radius: 4px;
+    font-size: 0.9rem;
+    color: #5a3e00;
   }
   
   .data-span-explanation p {

@@ -365,6 +365,8 @@ export function detectDataSpan(records, options = {}) {
     likelyGranularity,
     dataDescription,
     confidence: Math.round(confidence * 100) / 100 // Round to 2 decimal places
+    ,
+    monthsSpan: (maxDate.getFullYear() - minDate.getFullYear()) * 12 + (maxDate.getMonth() - minDate.getMonth()) + 1
   };
 }
 
@@ -754,6 +756,35 @@ export async function aggregateCsvStream(file, classifyRow, options = {}) {
           const medianDelta = sortedDeltasFinal.length
             ? sortedDeltasFinal[Math.floor(sortedDeltasFinal.length / 2)]
             : (finalTimelineUnit === 'hour' ? 3600000 : finalTimelineUnit === 'day' ? 86400000 : 30 * 86400000);
+          // Build monthly buckets (YYYY-MM) from rowsWithDur to support per-month UI
+          const perMonth = {};
+          for (const r of rowsWithDur) {
+            try {
+              const d = new Date(r.ts);
+              const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+              perMonth[key] = perMonth[key] || { rows: [], perZone: {} };
+              perMonth[key].rows.push(r);
+              perMonth[key].perZone[r.zone] = (perMonth[key].perZone[r.zone] || 0) + (r.dur || r.durMs || 0);
+            } catch (e) {
+              // ignore invalid timestamps
+            }
+          }
+
+          const months = Object.keys(perMonth).sort();
+          // Compute summaries for each month
+          for (const key of months) {
+            const item = perMonth[key];
+            const perZone = item.perZone || {};
+            const msTotal = Object.values(perZone).reduce((s, v) => s + v, 0) || 1;
+            item.summary = Object.entries(perZone).map(([zone, ms]) => ({
+              zone,
+              hours: Number((ms / (1000 * 60 * 60)).toFixed(3)),
+              percent: Number(((ms * 100) / msTotal).toFixed(2)),
+              milliseconds: ms,
+              color: ZONE_COLORS[zone] || '#999999'
+            })).sort((a, b) => b.hours - a.hours);
+          }
+          const monthsSpan = months.length;
 
           resolve({
             perBucket,
@@ -767,6 +798,11 @@ export async function aggregateCsvStream(file, classifyRow, options = {}) {
             totalRows, // Include total rows count for accurate processing
             medianDelta,
             dataSpan
+            ,
+            // Expose per-month aggregates and metadata
+            perMonth,
+            months,
+            monthsSpan
           });
           return;
         }
@@ -819,6 +855,87 @@ export function formatSummaryMd(result) {
   
   for (const item of summary) {
     md += `| ${item.zone} | ${item.hours.toFixed(1)} | ${item.percent}% |\n`;
+  }
+
+  // Helper to compute avg/min/max metrics for temperature and relative humidity
+  function computeRowMetrics(rows = []) {
+    if (!Array.isArray(rows) || rows.length === 0) {
+      return null;
+    }
+    let minTemp = Number.POSITIVE_INFINITY, maxTemp = Number.NEGATIVE_INFINITY, sumTemp = 0, countTemp = 0;
+    let minRh = Number.POSITIVE_INFINITY, maxRh = Number.NEGATIVE_INFINITY, sumRh = 0, countRh = 0;
+    let minTempTs = null, maxTempTs = null, minRhTs = null, maxRhTs = null;
+    for (const r of rows) {
+      const t = r.temp !== undefined && r.temp !== null ? Number(r.temp) : NaN;
+      const rh = r.rh !== undefined && r.rh !== null ? Number(r.rh) : NaN;
+      const ts = r.ts !== undefined ? (typeof r.ts === 'number' ? r.ts : new Date(r.ts).getTime()) : null;
+      if (Number.isFinite(t)) {
+        sumTemp += t; countTemp++;
+        if (t < minTemp) { minTemp = t; minTempTs = ts; }
+        if (t > maxTemp) { maxTemp = t; maxTempTs = ts; }
+      }
+      if (Number.isFinite(rh)) {
+        sumRh += rh; countRh++;
+        if (rh < minRh) { minRh = rh; minRhTs = ts; }
+        if (rh > maxRh) { maxRh = rh; maxRhTs = ts; }
+      }
+    }
+    const avgTemp = countTemp ? (sumTemp / countTemp) : null;
+    const avgRh = countRh ? (sumRh / countRh) : null;
+    return {
+      avgTemp: avgTemp === null ? null : Number(avgTemp.toFixed(2)),
+      minTemp: minTemp === Number.POSITIVE_INFINITY ? null : Number(minTemp.toFixed(2)),
+      maxTemp: maxTemp === Number.NEGATIVE_INFINITY ? null : Number(maxTemp.toFixed(2)),
+      minTempTs, maxTempTs,
+      avgRh: avgRh === null ? null : Number(avgRh.toFixed(2)),
+      minRh: minRh === Number.POSITIVE_INFINITY ? null : Number(minRh.toFixed(2)),
+      maxRh: maxRh === Number.NEGATIVE_INFINITY ? null : Number(maxRh.toFixed(2)),
+      minRhTs, maxRhTs
+    };
+  }
+
+  // Overall stats for the full period using rowsWithDur if available
+  if (result && Array.isArray(result.rowsWithDur) && result.rowsWithDur.length > 0) {
+    const overallMetrics = computeRowMetrics(result.rowsWithDur);
+    if (overallMetrics) {
+      md += `\n## Overall Metrics\n\n`;
+      md += `- Average Temperature: ${overallMetrics.avgTemp !== null ? overallMetrics.avgTemp + ' °C' : '-'}\n`;
+      md += `- Min Temperature: ${overallMetrics.minTemp !== null ? overallMetrics.minTemp + ' °C' : '-'}${overallMetrics.minTempTs ? ` (at ${new Date(overallMetrics.minTempTs).toLocaleString()})` : ''}\n`;
+      md += `- Max Temperature: ${overallMetrics.maxTemp !== null ? overallMetrics.maxTemp + ' °C' : '-'}${overallMetrics.maxTempTs ? ` (at ${new Date(overallMetrics.maxTempTs).toLocaleString()})` : ''}\n`;
+      md += `- Average Humidity: ${overallMetrics.avgRh !== null ? overallMetrics.avgRh + ' %' : '-'}\n`;
+      md += `- Min Humidity: ${overallMetrics.minRh !== null ? overallMetrics.minRh + ' %' : '-'}${overallMetrics.minRhTs ? ` (at ${new Date(overallMetrics.minRhTs).toLocaleString()})` : ''}\n`;
+      md += `- Max Humidity: ${overallMetrics.maxRh !== null ? overallMetrics.maxRh + ' %' : '-'}${overallMetrics.maxRhTs ? ` (at ${new Date(overallMetrics.maxRhTs).toLocaleString()})` : ''}\n`;
+    }
+  }
+
+  // If perMonth data exists, include a per-month breakdown and metrics
+  if (result && result.perMonth && typeof result.perMonth === 'object' && Object.keys(result.perMonth).length > 0) {
+    const keys = Object.keys(result.perMonth).sort();
+    md += `\n---\n\n## Per-Month Breakdown\n\n`;
+    for (const key of keys) {
+      const item = result.perMonth[key];
+      md += `### ${new Date(key + '-01').toLocaleString(undefined, { month: 'long', year: 'numeric' })}\n\n`;
+      // Per-month zone distribution
+      md += `| Zone | Hours | Percentage |\n`;
+      md += `|------|-------|------------|\n`;
+      if (item && item.summary && Array.isArray(item.summary)) {
+        for (const s of item.summary) {
+          md += `| ${s.zone} | ${s.hours.toFixed(1)} | ${s.percent}% |\n`;
+        }
+      }
+      // Show per-month metrics
+      const monthMetrics = computeRowMetrics(item.rows || []);
+      if (monthMetrics) {
+        md += '\n**Metrics:**\n\n';
+        md += `- Average Temperature: ${monthMetrics.avgTemp !== null ? monthMetrics.avgTemp + ' °C' : '-'}\n`;
+        md += `- Min Temperature: ${monthMetrics.minTemp !== null ? monthMetrics.minTemp + ' °C' : '-'}${monthMetrics.minTempTs ? ` (at ${new Date(monthMetrics.minTempTs).toLocaleString()})` : ''}\n`;
+        md += `- Max Temperature: ${monthMetrics.maxTemp !== null ? monthMetrics.maxTemp + ' °C' : '-'}${monthMetrics.maxTempTs ? ` (at ${new Date(monthMetrics.maxTempTs).toLocaleString()})` : ''}\n`;
+        md += `- Average Humidity: ${monthMetrics.avgRh !== null ? monthMetrics.avgRh + ' %' : '-'}\n`;
+        md += `- Min Humidity: ${monthMetrics.minRh !== null ? monthMetrics.minRh + ' %' : '-'}${monthMetrics.minRhTs ? ` (at ${new Date(monthMetrics.minRhTs).toLocaleString()})` : ''}\n`;
+        md += `- Max Humidity: ${monthMetrics.maxRh !== null ? monthMetrics.maxRh + ' %' : '-'}${monthMetrics.maxRhTs ? ` (at ${new Date(monthMetrics.maxRhTs).toLocaleString()})` : ''}\n`;
+      }
+      md += '\n';
+    }
   }
   
   return md;
