@@ -71,6 +71,7 @@
 
   // Component state
   let showChart = $state(true);
+  let showMinMax = $state(false);
   let currentPeriod = $state(selectedPeriod);
   let aggregatedData = $state([]);
   let chartData = $state(null);
@@ -986,68 +987,51 @@
   <!-- Dataset Statistics (replaces Chart.js dataset legend) -->
   {#if datasetAveragesVal && datasetAveragesVal.length > 0}
     <div class="dataset-stats" role="list">
-      <h4>Dataset Averages</h4>
-      <div class="dataset-stats__grid">
-        {#each datasetAveragesVal as dataset (dataset.label)}
-          {#if dataset.value > 0}
-            <StatCard
-              label={dataset.label}
-              value={dataset.value}
-              color={dataset.color}
-              decimals={1}
-            />
-          {/if}
-        {/each}
+      <div class="dataset-stats__header">
+        <h4>Dataset Averages</h4>
+        <button
+          type="button"
+          class="minmax-toggle"
+          aria-pressed={showMinMax}
+          onclick={() => showMinMax = !showMinMax}
+        >
+          {showMinMax ? 'Hide Min / Max' : 'Show Min / Max'}
+        </button>
       </div>
+
+      {#if !showMinMax}
+        <div class="dataset-stats__grid">
+          {#each datasetAveragesVal as dataset (dataset.label)}
+            {#if dataset.value > 0}
+              <StatCard
+                label={dataset.label}
+                value={dataset.value}
+                color={dataset.color}
+                decimals={1}
+              />
+            {/if}
+          {/each}
+        </div>
+      {:else}
+        <div class="dataset-stats__grid">
+          {#if $maxMetrics && ($maxMetrics.maxTemp !== null)}
+            <StatCard label="Max Temperature (°C)" value={Number($maxMetrics.maxTemp)} color="#ff4444" decimals={1} />
+          {/if}
+          {#if $maxMetrics && ($maxMetrics.maxRh !== null)}
+            <StatCard label="Max Humidity (%)" value={Number($maxMetrics.maxRh)} color="#4488ff" decimals={0} />
+          {/if}
+          {#if $minMetrics && ($minMetrics.minTemp !== null)}
+            <StatCard label="Min Temperature (°C)" value={Number($minMetrics.minTemp)} color="#007bff" decimals={1} />
+          {/if}
+          {#if $minMetrics && ($minMetrics.minRh !== null)}
+            <StatCard label="Min Humidity (%)" value={Number($minMetrics.minRh)} color="#0044bb" decimals={0} />
+          {/if}
+        </div>
+      {/if}
     </div>
   {/if}
 
-  {#if $maxMetrics && ($maxMetrics.maxTemp !== null || $maxMetrics.maxRh !== null)}
-    <div class="max-metrics" role="list">
-      <h4>Peak values</h4>
-      <div class="dataset-stats__grid">
-        {#if $maxMetrics.maxTemp !== null}
-          <StatCard
-            label="Max Temperature (°C)"
-            value={Number($maxMetrics.maxTemp)}
-            color="#ff4444"
-            decimals={1}
-          />
-        {/if}
-        {#if $maxMetrics.maxRh !== null}
-          <StatCard
-            label="Max Humidity (%)"
-            value={Number($maxMetrics.maxRh)}
-            color="#4488ff"
-            decimals={0}
-          />
-        {/if}
-      </div>
-    </div>
-  {/if}
-  {#if $minMetrics && ($minMetrics.minTemp !== null || $minMetrics.minRh !== null)}
-    <div class="min-metrics" role="list">
-      <h4>Min values</h4>
-      <div class="dataset-stats__grid">
-        {#if $minMetrics.minTemp !== null}
-          <StatCard
-            label="Min Temperature (°C)"
-            value={Number($minMetrics.minTemp)}
-            color="#007bff"
-            decimals={1}
-          />
-        {/if}
-        {#if $minMetrics.minRh !== null}
-          <StatCard
-            label="Min Humidity (%)"
-            value={Number($minMetrics.minRh)}
-            color="#0044bb"
-            decimals={0}
-          />
-        {/if}
-      </div>
-    </div>
-  {/if}
+  <!-- Max/Min metrics are shown inside the Dataset Averages area using the 'Show Min / Max' toggle -->
 
   <!-- Passive Design Zone StatCards (replaced custom zone legend at lines ~862-873) -->
   {#if zoneTotalsVal && zoneTotalsVal.length > 0}
@@ -1217,16 +1201,23 @@
     gap: 0.75rem;
   }
 
-  .max-metrics {
-    margin-top: 1rem;
-    padding: 0.5rem;
-    background: #fff7f7;
-    border-radius: 4px;
-    font-size: 0.9rem;
-    border-left: 3px solid #ff4444;
+  .dataset-stats__header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.5rem;
   }
 
-  .max-metrics h4 { color: #b71c1c; margin: 0 0 0.5rem 0; }
+  .minmax-toggle {
+    padding: 0.4rem 0.6rem;
+    border-radius: 4px;
+    border: 1px solid #cbd5e0;
+    background: white;
+    cursor: pointer;
+    font-size: 0.85rem;
+  }
+
+  /* max metrics CSS removed; metrics render inside Dataset Averages area */
 
   .max-debug {
     margin-top: 0.5rem;
@@ -1258,16 +1249,7 @@
     gap: 0.75rem;
   }
 
-  .min-metrics {
-    margin-top: 1rem;
-    padding: 0.5rem;
-    background: #f0f7ff;
-    border-radius: 4px;
-    font-size: 0.9rem;
-    border-left: 3px solid #007bff;
-  }
-
-  .min-metrics h4 { color: #054a96; margin: 0 0 0.5rem 0; }
+  /* min metrics CSS removed; metrics render inside Dataset Averages area */
 
   @media (max-width: 768px) {
     .chart-controls {
