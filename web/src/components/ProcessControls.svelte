@@ -173,7 +173,7 @@
             jsonPayload = null;
           }
 
-          const { jsonToCsv } = await import('../utils/dataProcessor.js');
+          const { jsonToCsv } = await import('../utils/jsonToCsv.js');
 
           if (jsonPayload) {
             // Convert JSON payload to CSV
