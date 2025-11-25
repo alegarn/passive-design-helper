@@ -4,6 +4,7 @@
   import { onDestroy } from 'svelte';
   import { ZONE_COLORS } from '../scripts/theme.js';
   import { ZONES, preferredZoneForPoint } from '../scripts/zones.js';
+  import TacticModal from './TacticModal.svelte';
   import { classifyPoint } from '../scripts/classify.js';
   import {
     aggregateByHour,
@@ -40,6 +41,8 @@
    * based on data values. It accepts two formats:
    *
    * 1. Array of threshold objects:
+
+  
    *    zones = [
    *      { threshold: 30, color: '#ff0000' },  // Values >= 30: red
    *      { threshold: 20, color: '#ffaa00' },  // Values >= 20: orange
@@ -121,6 +124,7 @@
   // Use these local variables (updated via $effect) to drive the StatCard rendering.
   let datasetAveragesVal = $state([]);
   let zoneTotalsVal = $state([]);
+  let selectedZoneId = $state(null);
   // max metrics derived store is read via $maxMetrics in markup
   
   $effect(() => {
@@ -1043,19 +1047,24 @@
       <h4>Passive Design Zones (Hours)</h4>
       <div class="zone-stats__grid">
         {#each zoneTotalsVal as zone (zone.id)}
-          <StatCard
-            role="listitem"
-            aria-label={`Zone ${zone.name}: ${Math.round(zone.value)} hours`}
-            label={zone.name}
-            value={zone.value}
-            color={zone.color}
-            decimals={0}
-          />
+          <button type="button" class="zone-btn" onclick={() => selectedZoneId = zone.id} aria-label={`Open details for zone ${zone.name}`}>
+            <StatCard
+              role="listitem"
+              aria-label={`Zone ${zone.name}: ${Math.round(zone.value)} hours`}
+              label={zone.name}
+              value={zone.value}
+              color={zone.color}
+              decimals={0}
+            />
+          </button>
         {/each}
       </div>
     </div>
   {/if}
   
+  {#if selectedZoneId}
+    <TacticModal tactic={ZONES.find(z => z.id === selectedZoneId)} onClose={() => selectedZoneId = null} />
+  {/if}
   <!-- Original Custom Zone Legend (commented out - replaced with StatCards above) -->
   <!--
   {#if currentPeriod === 'hourly' || currentPeriod === 'daily'}
@@ -1237,9 +1246,9 @@
 
   .zone-stats {
     margin-top: 1rem;
-    padding: 0.5rem;
-    background: #f8f9fa;
-    border-radius: 4px;
+    padding: 0; /* match psychro card layout: no background block */
+    background: transparent;
+    border-radius: 0;
     font-size: 0.9rem;
   }
   
@@ -1253,6 +1262,21 @@
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
     gap: 0.75rem;
+  }
+
+  .zone-btn {
+    all: unset; /* remove UA styles */
+    display: inline-block;
+    flex: 0 1 240px; /* align with grid column size */
+    min-width: 180px;
+    max-width: 100%;
+    cursor: pointer;
+    text-align: left;
+    box-sizing: border-box;
+  }
+  .zone-btn:focus {
+    outline: 2px solid rgba(0,123,255,0.5);
+    outline-offset: 2px;
   }
 
   /* min metrics CSS removed; metrics render inside Dataset Averages area */

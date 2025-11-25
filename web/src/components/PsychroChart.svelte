@@ -1,10 +1,13 @@
 <script>
   import { onMount, onDestroy, tick } from 'svelte';
   import ZoneHours from './ZoneHours.svelte';
+  import TacticModal from './TacticModal.svelte';
+  import { ZONES } from '../scripts/zones.js';
 
   let { summaryData = null } = $props();
   
   let canvasElement = $state();
+  let selectedZoneId = $state(null);
   let renderer = null;
   let resizeObserver = null;
   let isLoading = $state(true);
@@ -207,12 +210,18 @@
   {/if}
 </div>
 
-{#if summaryData && summaryData.summary}
+  {#if summaryData && summaryData.summary}
   <div class="zone-hours-container" role="list" aria-label="Zone hours list">
     {#each summaryData.summary as zoneData (zoneData.zone)}
-      <ZoneHours {zoneData} />
+      <button type="button" class="zone-hour-btn" onclick={() => selectedZoneId = zoneData.zone} aria-label={`Open details for zone ${zoneData.zone}`}>
+        <ZoneHours {zoneData} />
+      </button>
     {/each}
   </div>
+{/if}
+
+{#if selectedZoneId}
+  <TacticModal tactic={ZONES.find(z => z.id === selectedZoneId)} onClose={() => selectedZoneId = null} />
 {/if}
 
 <style>
@@ -251,5 +260,18 @@
     gap: var(--space-md, 1rem);
     margin-top: var(--space-lg, 1.5rem);
     width: 100%;
+    align-items: stretch;
+    justify-content: flex-start;
   }
+
+  .zone-hour-btn {
+    all: unset;
+    display: block;
+    flex: 0 1 260px; /* allow wrapping while keeping a grid-like width */
+    min-width: 200px;
+    max-width: calc(100% - 2rem);
+    cursor: pointer;
+    box-sizing: border-box;
+  }
+  .zone-hour-btn:focus { outline: 2px solid rgba(0,123,255,0.4); outline-offset: 2px; }
 </style>

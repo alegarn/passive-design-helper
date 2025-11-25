@@ -4,6 +4,7 @@
   import PsychroChart from './components/PsychroChart.svelte';
   import TimeSeriesChart from './components/TimeSeriesChart.svelte';
   import FetchOpenMeteo from './components/FetchOpenMeteo.svelte';
+  import Tactics from './components/Tactics.svelte';
   import { fileStore, currentSummaryData } from './stores/fileStore.js';
   
   // Handle fileparsed event from UploadZone
@@ -79,6 +80,9 @@
         }}
       />
     {/if}
+
+    <!-- Tactics catalog -->
+    <Tactics />
   {/if}
 </main>
 

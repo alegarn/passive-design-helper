@@ -39,7 +39,9 @@ const ZONES = [
     ],
     description: 'Comfortable temperature/humidity where occupants are generally comfortable without mechanical systems.',
     complexity: 'Low',
-    examples: ['Well-insulated home with balanced windows', 'Low thermal variability interior spaces']
+    examples: ['Well-insulated home with balanced windows', 'Low thermal variability interior spaces'],
+    icon: '🛋️',
+    howToApply: { beginner: ['Maintain insulation and active ventilation when needed', 'Use light clothes, adjust indoor shading'], advanced: ['Use thermostat scheduling and passive design audits', 'Tune HVAC controls to exploit thermal shifts'] }
   },
   { 
     id: 'Ventilation', 
@@ -58,7 +60,9 @@ const ZONES = [
     ],
     description: 'Conditions where increased airflow or cross ventilation improves comfort; uses natural ventilation or low-energy fans.',
     complexity: 'Low',
-    examples: ['Openable windows on opposite walls', 'Operable vents and ceiling fans']
+    examples: ['Openable windows on opposite walls', 'Operable vents and ceiling fans'],
+    icon: '💨',
+    howToApply: { beginner: ['Open windows on opposite sides to create airflow', 'Use ceiling or pedestal fans to increase comfort'], advanced: ['Design cross-ventilation paths in the plan layout', 'Add controllable vents and night purge strategies'] }
   },
   // Additional zones deduced from the psychrometric chart image
   {
@@ -80,7 +84,9 @@ const ZONES = [
     note: 'Humidification applicability (approx)',
     description: 'Dry conditions where adding moisture increases occupant comfort; typically requires mechanical humidification.',
     complexity: 'Low',
-    examples: ['Portable humidifiers in bedrooms', 'Central humidification for airtight, sealed homes']
+    examples: ['Portable humidifiers in bedrooms', 'Central humidification for airtight, sealed homes'],
+    icon: '💧',
+    howToApply: { beginner: ['Use room humidifiers in occupied spaces or bedrooms', 'Monitor humidity with a hygrometer to avoid over-humidifying'], advanced: ['Install central humidification with sensors and controls', 'Integrate with ventilation to balance moisture'] }
   },
   {
     id: 'Heating',
@@ -91,7 +97,9 @@ const ZONES = [
     note: 'Heating band (approx)',
     description: 'Zones where space heating is required to maintain comfort; typically uses active systems.',
     complexity: 'Low',
-    examples: ['Gas or electric furnaces', 'Hydronic radiant heating']
+    examples: ['Gas or electric furnaces', 'Hydronic radiant heating'],
+    icon: '🔥',
+    howToApply: { beginner: ['Improve weatherization: seal gaps and insulate', 'Use programmable thermostats and zone thermostats'], advanced: ['Add high-efficiency heat source with zoning and controls', 'Integrate passive solar and thermal mass to reduce runtime'] }
   },
   {
     id: "Active Solar Heating",
@@ -101,7 +109,9 @@ const ZONES = [
     note: 'Active solar heating band (approx)',
     description: 'Solar systems that actively collect, store, and distribute heat (e.g., solar thermal panels with pumps).',
     complexity: 'Medium',
-    examples: ['Solar thermal collectors with a heat store', 'Pumped loop for hydronic distribution']
+    examples: ['Solar thermal collectors with a heat store', 'Pumped loop for hydronic distribution'],
+    icon: '☀️⚡',
+    howToApply: { beginner: ['Install solar thermal collectors and a simple pump loop', 'Provide a domestic hot water preheat or hydronic distribution'], advanced: ['Add a thermal store and smart controls to shift heating loads', 'Combine with heat pumps and backup gas/electric for peak loads'] }
   },
   {
     id: 'Passive Solar Heating',
@@ -112,7 +122,9 @@ const ZONES = [
     note: 'Passive solar heating region (approx)',
     description: 'Design strategies that use building geometry, glazing and thermal mass to collect and store solar heat without mechanical systems.',
     complexity: 'Medium',
-    examples: ['South-facing glazing with thermal mass flooring', 'Overhangs sized for seasonal shading']
+    examples: ['South-facing glazing with thermal mass flooring', 'Overhangs sized for seasonal shading'],
+    icon: '☀️',
+    howToApply: { beginner: ['Maximize south glazing and use appropriate overhangs', 'Expose north-south thermal mass to store daytime heat'], advanced: ['Optimize orientation and thermal mass distribution', 'Use dynamic shading and operable thermal insulation'] }
   },
   {
     id: 'Internal Gains',
@@ -123,7 +135,9 @@ const ZONES = [
     note: 'Internal gains influence (approx)',
     description: 'When heat from occupants, appliances or equipment helps maintain comfortable temperatures; may reduce heating needs.',
     complexity: 'Low',
-    examples: ['Compact apartments with many occupants', 'Kitchen or server rooms providing heat gain']
+    examples: ['Compact apartments with many occupants', 'Kitchen or server rooms providing heat gain'],
+    icon: '🏢',
+    howToApply: { beginner: ['Consolidate heat producing appliances when possible', 'Use efficient appliances to minimize heat spikes'], advanced: ['Manage internal heat through targeted ventilation and zoning', 'Design plans to keep heat-producing rooms co-located'] }
   },
   { 
     id: 'Mass Cooling', 
@@ -140,7 +154,9 @@ const ZONES = [
     ],
     description: 'Use of thermal mass to dampen daytime heat peaks and release heat when temperatures drop to keep interiors cool.',
     complexity: 'Medium',
-    examples: ['Heavy concrete floors exposed to night-time ventilation', 'Thick masonry walls with night purge ventilation']
+    examples: ['Heavy concrete floors exposed to night-time ventilation', 'Thick masonry walls with night purge ventilation'],
+    icon: '🪨',
+    howToApply: { beginner: ['Expose mass (concrete, masonry) to day/night cycles', 'Provide shading during day to avoid overheating'], advanced: ['Design thermal storage integration and night ventilation control', 'Combine with thermal insulation and controlled glazing'] }
   },
   { 
     id: 'Evaporative Cooling', 
@@ -159,7 +175,9 @@ const ZONES = [
     ],
     description: 'Cooling via water evaporation, effective in dry climates to reduce indoor temperatures substantially.',
     complexity: 'Low',
-    examples: ['Swamp coolers on a single storey house', 'Evaporative pads for controlled indirect cooling']
+    examples: ['Swamp coolers on a single storey house', 'Evaporative pads for controlled indirect cooling'],
+    icon: '🌬️💦',
+    howToApply: { beginner: ['Use a portable or window-mounted evaporative cooler', 'Ensure external air supply and exhaust for direct evaporative coolers'], advanced: ['Design an indirect evaporative matrix with pre-cooling', 'Size the system and integrate with ventilation to prevent humidity issues'] }
   },
   {
     id: 'Mass Cooling & Night Ventilation (or Air Conditioning)',
@@ -175,7 +193,9 @@ const ZONES = [
     ],
     description: 'Hybrid strategy using building mass plus night ventilation to cool; when insufficient, AC supplements performance.',
     complexity: 'Medium',
-    examples: ['High-mass homes with night purge ventilation', 'Night ventilation combined with zoned AC as backup']
+    examples: ['High-mass homes with night purge ventilation', 'Night ventilation combined with zoned AC as backup'],
+    icon: '🌙🪟',
+    howToApply: { beginner: ['Use night purge ventilation and ceiling fans to cool heavy mass', 'Use AC only as backup when comfort limits exceeded'], advanced: ['Automate ventilation controls to exploit nocturnal cooling', 'Combine with thermal storage and intelligent HVAC staging'] }
   },
   {
     id: 'Air Conditioning + Dehumidifier',
@@ -196,7 +216,9 @@ const ZONES = [
     note: 'Air conditioning with dehumidifier — refined to RH >= 40% (ventilation insufficient)',
     description: 'Mechanical cooling with simultaneous dehumidification is required to maintain comfortable humidity and temperature.',
     complexity: 'Medium',
-    examples: ['Packaged AC with integrated dehumidifier', 'Separate dehumidifier combined with split AC']
+    examples: ['Packaged AC with integrated dehumidifier', 'Separate dehumidifier combined with split AC'],
+    icon: '❄️+💧',
+    howToApply: { beginner: ['Ensure correct AC sizing and run for humidity control', 'Add portable dehumidifier to remove moisture when needed'], advanced: ['Use dedicated dehumidification integrated into HVAC', 'Add smart humidistat controls and ventilation management'] }
   },
   { 
     id: 'Air Conditioning', 
@@ -213,7 +235,9 @@ const ZONES = [
     ],
     description: 'Mechanical cooling used to lower temperatures and/or manage humidity when passive measures are insufficient.',
     complexity: 'Low',
-    examples: ['Split-system AC units', 'Ducted central air conditioning']
+    examples: ['Split-system AC units', 'Ducted central air conditioning'],
+    icon: '❄️',
+    howToApply: { beginner: ['Install appropriately sized AC units and maintain filter cleanliness', 'Use efficient setpoints and fan control to minimize runtime'], advanced: ['Implement zoned cooling with variable speed compressors', 'Use smart thermostats for schedule and integration with ventilation'] }
   }
 ];
 
