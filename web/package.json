@@ -6,18 +6,20 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "deploy": "gh-pages -d dist"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.1",
     "@sveltejs/vite-plugin-svelte": "^6.2.1",
+    "gh-pages": "^6.3.0",
     "svelte": "^5.0.0",
     "vite": "^6.0.0"
   },
   "dependencies": {
-    "leaflet": "^1.9.4",
     "chart.js": "^4.5.1",
     "chartjs-adapter-date-fns": "^3.0.0",
+    "leaflet": "^1.9.4",
     "psychrolib": "^1.1.1",
     "svelte5-chartjs": "^1.0.0"
   }
