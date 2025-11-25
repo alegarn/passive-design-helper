@@ -36,7 +36,10 @@ const ZONES = [
       p(27.8,67), 
       p(29.8,50), 
       p(29.8,20) 
-    ]
+    ],
+    description: 'Comfortable temperature/humidity where occupants are generally comfortable without mechanical systems.',
+    complexity: 'Low',
+    examples: ['Well-insulated home with balanced windows', 'Low thermal variability interior spaces']
   },
   { 
     id: 'Ventilation', 
@@ -52,7 +55,10 @@ const ZONES = [
       p(29.8,50),
       p(27.8,67),
       p(25,80),
-    ]
+    ],
+    description: 'Conditions where increased airflow or cross ventilation improves comfort; uses natural ventilation or low-energy fans.',
+    complexity: 'Low',
+    examples: ['Openable windows on opposite walls', 'Operable vents and ceiling fans']
   },
   // Additional zones deduced from the psychrometric chart image
   {
@@ -71,7 +77,10 @@ const ZONES = [
       p(31.3, 0),
       p(0,0)
     ],
-    note: 'Humidification applicability (approx)'
+    note: 'Humidification applicability (approx)',
+    description: 'Dry conditions where adding moisture increases occupant comfort; typically requires mechanical humidification.',
+    complexity: 'Low',
+    examples: ['Portable humidifiers in bedrooms', 'Central humidification for airtight, sealed homes']
   },
   {
     id: 'Heating',
@@ -79,14 +88,20 @@ const ZONES = [
     type: 'active',
     // Approx DBT 0-10 °C, RH 10-50%
     poly: [ p(0,0), p(0,100), p(6.8,100), p(6.8,0) ],
-    note: 'Heating band (approx)'
+    note: 'Heating band (approx)',
+    description: 'Zones where space heating is required to maintain comfort; typically uses active systems.',
+    complexity: 'Low',
+    examples: ['Gas or electric furnaces', 'Hydronic radiant heating']
   },
   {
     id: "Active Solar Heating",
     color: ZONE_COLORS['Active Solar Heating'],
     type: 'mechanical',
     poly: [ p(6.8,0), p(6.8,100), p(10.8,100), p(10.8,0) ],
-    note: 'Active solar heating band (approx)'
+    note: 'Active solar heating band (approx)',
+    description: 'Solar systems that actively collect, store, and distribute heat (e.g., solar thermal panels with pumps).',
+    complexity: 'Medium',
+    examples: ['Solar thermal collectors with a heat store', 'Pumped loop for hydronic distribution']
   },
   {
     id: 'Passive Solar Heating',
@@ -94,7 +109,10 @@ const ZONES = [
     type: 'passive',
     // Approx DBT 8-16 °C, RH 20-60%
     poly: [ p(10.8,0), p(10.8,100), p(22.8,100), p(22.8,0) ],
-    note: 'Passive solar heating region (approx)'
+    note: 'Passive solar heating region (approx)',
+    description: 'Design strategies that use building geometry, glazing and thermal mass to collect and store solar heat without mechanical systems.',
+    complexity: 'Medium',
+    examples: ['South-facing glazing with thermal mass flooring', 'Overhangs sized for seasonal shading']
   },
   {
     id: 'Internal Gains',
@@ -102,7 +120,10 @@ const ZONES = [
     type: 'passive',
     // Approx DBT 15-22 °C, RH 30-60%
     poly: [ p(15.3,20), p(15.3,80), p(22.8,80), p(22.8,20) ],
-    note: 'Internal gains influence (approx)'
+    note: 'Internal gains influence (approx)',
+    description: 'When heat from occupants, appliances or equipment helps maintain comfortable temperatures; may reduce heating needs.',
+    complexity: 'Low',
+    examples: ['Compact apartments with many occupants', 'Kitchen or server rooms providing heat gain']
   },
   { 
     id: 'Mass Cooling', 
@@ -116,7 +137,10 @@ const ZONES = [
       p(35.8,41.76), 
       p(39.8,30), 
       p(39.8,7) 
-    ]
+    ],
+    description: 'Use of thermal mass to dampen daytime heat peaks and release heat when temperatures drop to keep interiors cool.',
+    complexity: 'Medium',
+    examples: ['Heavy concrete floors exposed to night-time ventilation', 'Thick masonry walls with night purge ventilation']
   },
   { 
     id: 'Evaporative Cooling', 
@@ -132,7 +156,10 @@ const ZONES = [
       p(41.7,20), 
       p(43.8,10), 
       p(43.8,0), 
-    ]
+    ],
+    description: 'Cooling via water evaporation, effective in dry climates to reduce indoor temperatures substantially.',
+    complexity: 'Low',
+    examples: ['Swamp coolers on a single storey house', 'Evaporative pads for controlled indirect cooling']
   },
   {
     id: 'Mass Cooling & Night Ventilation (or Air Conditioning)',
@@ -145,7 +172,10 @@ const ZONES = [
       p(42.8, 27.89),
       p(46.86, 20),
       p(46.86, 4.86),
-    ]
+    ],
+    description: 'Hybrid strategy using building mass plus night ventilation to cool; when insufficient, AC supplements performance.',
+    complexity: 'Medium',
+    examples: ['High-mass homes with night purge ventilation', 'Night ventilation combined with zoned AC as backup']
   },
   {
     id: 'Air Conditioning + Dehumidifier',
@@ -163,7 +193,10 @@ const ZONES = [
       p(35.8, 41.76),
       p(34.8, 44.28),
     ],
-    note: 'Air conditioning with dehumidifier — refined to RH >= 40% (ventilation insufficient)'
+    note: 'Air conditioning with dehumidifier — refined to RH >= 40% (ventilation insufficient)',
+    description: 'Mechanical cooling with simultaneous dehumidification is required to maintain comfortable humidity and temperature.',
+    complexity: 'Medium',
+    examples: ['Packaged AC with integrated dehumidifier', 'Separate dehumidifier combined with split AC']
   },
   { 
     id: 'Air Conditioning', 
@@ -177,7 +210,10 @@ const ZONES = [
       p(42.8, 27.89),
       p(50.0, 18.54),
       p(50.0,  0)
-    ]
+    ],
+    description: 'Mechanical cooling used to lower temperatures and/or manage humidity when passive measures are insufficient.',
+    complexity: 'Low',
+    examples: ['Split-system AC units', 'Ducted central air conditioning']
   }
 ];
 
