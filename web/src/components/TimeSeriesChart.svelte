@@ -4,6 +4,14 @@
   import { onDestroy } from 'svelte';
   import { ZONE_COLORS } from '../scripts/theme.js';
   import { ZONES, preferredZoneForPoint } from '../scripts/zones.js';
+  // Dynamic import: load the modal only when needed
+  let TacticModalComponent = $state(null);
+  async function loadTacticModal() {
+    if (!TacticModalComponent) {
+      const mod = await import('./TacticModal.svelte');
+      TacticModalComponent = mod.default;
+    }
+  }
   import { classifyPoint } from '../scripts/classify.js';
   import {
     aggregateByHour,
@@ -40,6 +48,8 @@
    * based on data values. It accepts two formats:
    *
    * 1. Array of threshold objects:
+
+  
    *    zones = [
    *      { threshold: 30, color: '#ff0000' },  // Values >= 30: red
    *      { threshold: 20, color: '#ffaa00' },  // Values >= 20: orange
@@ -119,21 +129,18 @@
   // The project's custom $derived returns a callable store, so referencing the store
   // directly in the template yields the store function instead of its value.
   // Use these local variables (updated via $effect) to drive the StatCard rendering.
-  let datasetAveragesVal = $state([]);
-  let zoneTotalsVal = $state([]);
+  // Use the project's callable derived stores directly in the template (call with ())
+  let selectedZoneId = $state(null);
   // max metrics derived store is read via $maxMetrics in markup
   
+  // We now call the derived stores directly in the template using datasetAverages() / zoneTotals().
+
+  // If a zone is selected, start pre-loading the modal so it's ready by the time user clicks
   $effect(() => {
-    try {
-      datasetAveragesVal = typeof datasetAverages === 'function' ? datasetAverages() : datasetAverages;
-      zoneTotalsVal = typeof zoneTotals === 'function' ? zoneTotals() : zoneTotals;
-      // maxMetrics read implicitly by template via $maxMetrics
-    } catch (e) {
-      // console.debug('[TimeSeriesChart] failed to hydrate derived values:', e);
-      datasetAveragesVal = [];
-      zoneTotalsVal = [];
-    }
+    if (selectedZoneId) loadTacticModal();
   });
+
+  // No dynamic JS equalization required; use simple CSS min-width/height defaults instead.
 
   // no $: runes allowed; template uses $maxMetrics directly
   
@@ -917,9 +924,11 @@
     chartOptions = state.chartOptions;
     sourceDateRange = state.sourceDateRange;
   });
+
+  // No JS-driven equalization; rely on CSS variables for sizing.
   
   // Debugging: log derived timeSeries and processed chart state to diagnose missing StatCards
-  $effect(() => {
+  /* $effect(() => {
     try {
       // console.debug('[TimeSeriesChart] $filteredTimeSeries length:', $filteredTimeSeries?.length ?? 0);
       if ($filteredTimeSeries && $filteredTimeSeries.length > 0) {
@@ -932,7 +941,11 @@
     } catch (e) {
       // console.debug('[TimeSeriesChart] logging failed:', e);
     }
-  });
+  }); */
+
+  // No JS-driven ResizeObserver necessary for simple, responsive sizing.
+
+  // No onDestroy cleanup required for CSS-only sizing.
 </script>
 
 <div class="time-series-chart">
@@ -989,7 +1002,7 @@
   {/if} -->
 
   <!-- Dataset Statistics (replaces Chart.js dataset legend) -->
-  {#if datasetAveragesVal && datasetAveragesVal.length > 0}
+  {#if datasetAverages() && datasetAverages().length > 0}
     <div class="dataset-stats" role="list">
       <div class="dataset-stats__header">
         <h4>Dataset Averages</h4>
@@ -1005,7 +1018,7 @@
 
       {#if !showMinMax}
         <div class="dataset-stats__grid">
-          {#each datasetAveragesVal as dataset (dataset.label)}
+          {#each datasetAverages() as dataset (dataset.label)}
             {#if dataset.value > 0}
               <StatCard
                 label={dataset.label}
@@ -1038,24 +1051,33 @@
   <!-- Max/Min metrics are shown inside the Dataset Averages area using the 'Show Min / Max' toggle -->
 
   <!-- Passive Design Zone StatCards (replaced custom zone legend at lines ~862-873) -->
-  {#if zoneTotalsVal && zoneTotalsVal.length > 0}
+  {#if zoneTotals() && zoneTotals().length > 0}
     <div class="zone-stats" role="list">
       <h4>Passive Design Zones (Hours)</h4>
       <div class="zone-stats__grid">
-        {#each zoneTotalsVal as zone (zone.id)}
-          <StatCard
-            role="listitem"
-            aria-label={`Zone ${zone.name}: ${Math.round(zone.value)} hours`}
-            label={zone.name}
-            value={zone.value}
-            color={zone.color}
-            decimals={0}
-          />
+        {#each zoneTotals() as zone (zone.id)}
+          <button type="button" class="zone-btn" onclick={() => selectedZoneId = zone.id} aria-label={`Open details for zone ${zone.name}`}>
+            <StatCard
+              role="listitem"
+              aria-label={`Zone ${zone.name}: ${Math.round(zone.value)} hours`}
+              label={zone.name}
+              value={zone.value}
+              color={zone.color}
+              decimals={0}
+            />
+          </button>
         {/each}
       </div>
     </div>
   {/if}
   
+  {#if selectedZoneId}
+    {#if TacticModalComponent}
+      <TacticModalComponent tactic={ZONES.find(z => z.id === selectedZoneId)} onClose={() => selectedZoneId = null} />
+    {:else}
+      <div class="modal-loading">Loading details…</div>
+    {/if}
+  {/if}
   <!-- Original Custom Zone Legend (commented out - replaced with StatCards above) -->
   <!--
   {#if currentPeriod === 'hourly' || currentPeriod === 'daily'}
@@ -1201,8 +1223,15 @@
   
   .dataset-stats__grid {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    grid-template-columns: repeat(auto-fit, minmax(var(--tactic-card-min, 180px), 1fr));
     gap: 0.75rem;
+  }
+
+  /* Ensure dataset stat cards respect the computed container height */
+  .dataset-stats__grid :global(.stat-card) {
+    min-height: var(--tactic-card-height, auto);
+    min-width: var(--tactic-card-min, auto);
+    width: 100%;
   }
 
   .dataset-stats__header {
@@ -1237,9 +1266,9 @@
 
   .zone-stats {
     margin-top: 1rem;
-    padding: 0.5rem;
-    background: #f8f9fa;
-    border-radius: 4px;
+    padding: 0; /* match psychro card layout: no background block */
+    background: transparent;
+    border-radius: 0;
     font-size: 0.9rem;
   }
   
@@ -1251,8 +1280,26 @@
   
   .zone-stats__grid {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    grid-template-columns: repeat(auto-fit, minmax(var(--tactic-card-min, 180px), 1fr));
     gap: 0.75rem;
+  }
+
+  .zone-btn {
+    all: unset; /* remove UA styles */
+    display: block;
+    flex: 0 1 var(--tactic-card-basis);
+    min-width: var(--tactic-card-min);
+    max-width: var(--tactic-card-max);
+    width: 100%;
+    min-height: var(--tactic-card-height, auto);
+    cursor: pointer;
+    text-align: left;
+    box-sizing: border-box;
+  }
+  .zone-btn :global(.stat-card) { min-height: var(--tactic-card-height); }
+  .zone-btn:focus {
+    outline: 2px solid rgba(0,123,255,0.5);
+    outline-offset: 2px;
   }
 
   /* min metrics CSS removed; metrics render inside Dataset Averages area */
@@ -1271,5 +1318,17 @@
     .chart-container {
       height: 300px;
     }
+    /* Avoid overflowing on very small screens by using full width cards */
+    :global(.time-series-chart) {
+      overflow-x: hidden;
+    }
+    .zone-stats__grid, .dataset-stats__grid {
+      grid-template-columns: 1fr; /* single column on small screens */
+    }
+    :global(.time-series-chart) { --tactic-card-min: 100%; }
+  }
+  /* On large screens, use the global large-height var for predominant layouts */
+  @media (min-width: 1200px) {
+    :global(.time-series-chart) { --tactic-card-height: var(--tactic-card-height-large); }
   }
 </style>

@@ -1,10 +1,21 @@
 <script>
   import { onMount, onDestroy, tick } from 'svelte';
   import ZoneHours from './ZoneHours.svelte';
+  // Dynamic import for TacticModal - load only when needed
+  let TacticModalComponent = $state(null);
+  async function loadTacticModal() {
+    if (!TacticModalComponent) {
+      const mod = await import('./TacticModal.svelte');
+      TacticModalComponent = mod.default;
+    }
+  }
+  import { ZONES } from '../scripts/zones.js';
 
   let { summaryData = null } = $props();
   
   let canvasElement = $state();
+  let selectedZoneId = $state(null);
+  // No JS variable needed for size equalization; using simple CSS defaults
   let renderer = null;
   let resizeObserver = null;
   let isLoading = $state(true);
@@ -133,6 +144,12 @@
     }
   });
 
+  $effect(() => {
+    if (selectedZoneId) loadTacticModal();
+  });
+
+  // No JS equalization needed — use CSS-only min-width/height defaults
+
   // Reactive effect to handle psychrometric points changes
   $effect(() => {
     const points = psychrometricPoints();
@@ -169,6 +186,12 @@
       // console.log('PsychroChart: Renderer not yet initialized');
     }
   });
+
+  // Re-equalize zone hours whenever the summary data or container size changes
+  // No JS-driven ResizeObserver; CSS provides a simple, responsive layout.
+
+  // Re-run equalization when summaryData changes
+  // No JS-driven equalization; rely on CSS-only approach for card sizes.
   
   
   onDestroy(() => {
@@ -207,12 +230,24 @@
   {/if}
 </div>
 
-{#if summaryData && summaryData.summary}
+  {#if summaryData && summaryData.summary}
   <div class="zone-hours-container" role="list" aria-label="Zone hours list">
     {#each summaryData.summary as zoneData (zoneData.zone)}
-      <ZoneHours {zoneData} />
+      <button type="button" class="zone-hour-btn" onclick={() => selectedZoneId = zoneData.zone} aria-label={`Open details for zone ${zoneData.zone}`}>
+        <ZoneHours {zoneData} />
+      </button>
     {/each}
   </div>
+{/if}
+
+{#if selectedZoneId}
+  {#if selectedZoneId}
+    {#if TacticModalComponent}
+      <TacticModalComponent tactic={ZONES.find(z => z.id === selectedZoneId)} onClose={() => selectedZoneId = null} />
+    {:else}
+      <div class="modal-loading">Loading details…</div>
+    {/if}
+  {/if}
 {/if}
 
 <style>
@@ -221,6 +256,8 @@
     height: 400px;
     position: relative;
   }
+
+  /* rely on global default variables for tactic cards */
   
   .psychro-chart {
     width: 100%;
@@ -251,5 +288,33 @@
     gap: var(--space-md, 1rem);
     margin-top: var(--space-lg, 1.5rem);
     width: 100%;
+    align-items: stretch;
+    justify-content: center;
+    /* Ensure children can wrap into multiple columns, controlled by global card variables */
   }
+
+  @media (max-width: 480px) {
+    .zone-hours-container { gap: 0.5rem; }
+    .zone-hour-btn { min-width: 100%; }
+  }
+  /* On large screens, use global --tactic-card-height-large so we can configure across the app */
+  @media (min-width: 1200px) {
+    :global(.zone-hours-container) { --tactic-card-height: var(--tactic-card-height-large); }
+  }
+  @media (max-width: 480px) {
+    :global(.zone-hours-container) { --tactic-card-min: 100%; }
+  }
+  .zone-hour-btn {
+    all: unset;
+    display: block;
+    flex: 0 1 var(--tactic-card-basis);
+    min-width: var(--tactic-card-min);
+    max-width: var(--tactic-card-max);
+    width: 100%;
+    min-height: var(--tactic-card-height, auto);
+    cursor: pointer;
+    box-sizing: border-box;
+  }
+  .zone-hour-btn :global(.stat-card) { min-height: var(--tactic-card-height); }
+  .zone-hour-btn:focus { outline: 2px solid rgba(0,123,255,0.4); outline-offset: 2px; }
 </style>

@@ -4,6 +4,7 @@
   import PsychroChart from './components/PsychroChart.svelte';
   import TimeSeriesChart from './components/TimeSeriesChart.svelte';
   import FetchOpenMeteo from './components/FetchOpenMeteo.svelte';
+  // Tactics catalog removed from main flow; import lazily where needed
   import { fileStore, currentSummaryData } from './stores/fileStore.js';
   
   // Handle fileparsed event from UploadZone
@@ -79,6 +80,8 @@
         }}
       />
     {/if}
+
+    <!-- Tactics catalog is removed from the main flow (displayed in the Tactics page/screen only) -->
   {/if}
 </main>
 
