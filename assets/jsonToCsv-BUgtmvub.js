@@ -1,0 +1,4 @@
+function o(r){if(!r)return"";if(r.hourly&&Array.isArray(r.hourly.time)){const t=["time",...Object.keys(r.hourly).filter(n=>n!=="time")],i=r.hourly.time.map((n,e)=>[n,...t.slice(1).map(s=>{const u=r.hourly[s]&&r.hourly[s][e];return u==null?"":String(u)})].join(","));return[t.join(","),...i].join(`
+`)}if(Array.isArray(r)&&r.length>0&&typeof r[0]=="object"){const t=Array.from(r.reduce((n,e)=>(Object.keys(e).forEach(s=>n.add(s)),n),new Set)),i=r.map(n=>t.map(e=>n[e]==null?"":String(n[e])).join(","));return[t.join(","),...i].join(`
+`)}if(typeof r=="object"){const t=Object.keys(r).filter(i=>Array.isArray(r[i]));if(t.length>0){const i=r[t[0]].length,n=[];for(let e=0;e<i;e++)n.push(t.map(s=>r[s][e]==null?"":String(r[s][e])).join(","));return[t.join(","),...n].join(`
+`)}}return JSON.stringify(r,null,2)}export{o as jsonToCsv};
