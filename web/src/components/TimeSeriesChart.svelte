@@ -17,7 +17,7 @@
   } from '../utils/timeSeriesAggregator.js';
   import { getSourceDateRange, buildDailyBuckets } from '../utils/dataProcessor.js';
   import StatCard from './StatCard.svelte';
-  import { timeSeries } from '../stores/fileStore.js';
+  import { filteredTimeSeries, selectedMonth } from '../stores/fileStore.js';
   import 'chartjs-adapter-date-fns';
 
   // Register Chart.js components only once and check if already registered to avoid conflicts
@@ -128,7 +128,7 @@
   // with daily/weekly behavior) instead of listing every single sample hour.
   const zoneTotals = $derived(() => {
     const agg = aggregatedData;
-    const raw = $timeSeries;
+    const raw = $filteredTimeSeries;
     const period = currentPeriod;
     const totals = {};
     ZONES.forEach(z => (totals[z.id] = 0));
@@ -808,7 +808,7 @@
 
   // Process data for chart (legacy function for backward compatibility)
   function processDataForChart() {
-    const result = processDataForChartPure($timeSeries, currentPeriod, selectedPeriod);
+    const result = processDataForChartPure($filteredTimeSeries, currentPeriod, selectedPeriod);
     aggregatedData = result.aggregatedData;
     chartData = result.chartData;
     chartOptions = result.chartOptions;
@@ -871,7 +871,7 @@
   
   // Create a derived value for processed chart data to avoid state updates in effects
   const processedChartState = $derived(() => {
-    if (!$timeSeries || $timeSeries.length === 0) {
+    if (!$filteredTimeSeries || $filteredTimeSeries.length === 0) {
       return {
         aggregatedData: [],
         chartData: null,
@@ -882,7 +882,7 @@
     
     try {
       // Create a pure version of processDataForChart that returns values instead of updating state
-      return processDataForChartPure($timeSeries, currentPeriod, selectedPeriod);
+      return processDataForChartPure($filteredTimeSeries, currentPeriod, selectedPeriod);
     } catch (error) {
       console.error('Error processing chart data:', error);
       return {
@@ -906,9 +906,9 @@
   // Debugging: log derived timeSeries and processed chart state to diagnose missing StatCards
   $effect(() => {
     try {
-      // console.debug('[TimeSeriesChart] $timeSeries length:', $timeSeries?.length ?? 0);
-      if ($timeSeries && $timeSeries.length > 0) {
-        // console.debug('[TimeSeriesChart] $timeSeries sample:', $timeSeries[0]);
+      // console.debug('[TimeSeriesChart] $filteredTimeSeries length:', $filteredTimeSeries?.length ?? 0);
+      if ($filteredTimeSeries && $filteredTimeSeries.length > 0) {
+        // console.debug('[TimeSeriesChart] $filteredTimeSeries sample:', $filteredTimeSeries[0]);
       }
       // console.debug('[TimeSeriesChart] processedChartState aggregatedData length:', processedChartState().aggregatedData?.length ?? 0);
       // console.debug('[TimeSeriesChart] processedChartState chartData datasets:', processedChartState().chartData?.datasets?.length ?? 0);
@@ -951,7 +951,7 @@
   <!-- Chart Container -->
   {#if showChart}
     <div class="chart-container">
-      {#if $timeSeries && $timeSeries.length > 0 && chartData}
+      {#if $filteredTimeSeries && $filteredTimeSeries.length > 0 && chartData}
         <div class="chart-wrapper">
           <Line
             data={chartData}
@@ -1034,7 +1034,9 @@
           {:else}
             Showing {aggregatedData.length} {currentPeriod} data points
           {/if}
-          {#if sourceDateRange && sourceDateRange.minDate && sourceDateRange.maxDate}
+          {#if $selectedMonth}
+            Showing data for {new Date($selectedMonth + '-01').toLocaleDateString(undefined, { month: 'long', year: 'numeric' })}
+          {:else if sourceDateRange && sourceDateRange.minDate && sourceDateRange.maxDate}
             from {formatDateForDisplay(sourceDateRange.minDate.getTime(), currentPeriod)}
             to {formatDateForDisplay(sourceDateRange.maxDate.getTime(), currentPeriod)}
           {:else}

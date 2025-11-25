@@ -365,6 +365,8 @@ export function detectDataSpan(records, options = {}) {
     likelyGranularity,
     dataDescription,
     confidence: Math.round(confidence * 100) / 100 // Round to 2 decimal places
+    ,
+    monthsSpan: (maxDate.getFullYear() - minDate.getFullYear()) * 12 + (maxDate.getMonth() - minDate.getMonth()) + 1
   };
 }
 
@@ -754,6 +756,35 @@ export async function aggregateCsvStream(file, classifyRow, options = {}) {
           const medianDelta = sortedDeltasFinal.length
             ? sortedDeltasFinal[Math.floor(sortedDeltasFinal.length / 2)]
             : (finalTimelineUnit === 'hour' ? 3600000 : finalTimelineUnit === 'day' ? 86400000 : 30 * 86400000);
+          // Build monthly buckets (YYYY-MM) from rowsWithDur to support per-month UI
+          const perMonth = {};
+          for (const r of rowsWithDur) {
+            try {
+              const d = new Date(r.ts);
+              const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+              perMonth[key] = perMonth[key] || { rows: [], perZone: {} };
+              perMonth[key].rows.push(r);
+              perMonth[key].perZone[r.zone] = (perMonth[key].perZone[r.zone] || 0) + (r.dur || r.durMs || 0);
+            } catch (e) {
+              // ignore invalid timestamps
+            }
+          }
+
+          const months = Object.keys(perMonth).sort();
+          // Compute summaries for each month
+          for (const key of months) {
+            const item = perMonth[key];
+            const perZone = item.perZone || {};
+            const msTotal = Object.values(perZone).reduce((s, v) => s + v, 0) || 1;
+            item.summary = Object.entries(perZone).map(([zone, ms]) => ({
+              zone,
+              hours: Number((ms / (1000 * 60 * 60)).toFixed(3)),
+              percent: Number(((ms * 100) / msTotal).toFixed(2)),
+              milliseconds: ms,
+              color: ZONE_COLORS[zone] || '#999999'
+            })).sort((a, b) => b.hours - a.hours);
+          }
+          const monthsSpan = months.length;
 
           resolve({
             perBucket,
@@ -767,6 +798,11 @@ export async function aggregateCsvStream(file, classifyRow, options = {}) {
             totalRows, // Include total rows count for accurate processing
             medianDelta,
             dataSpan
+            ,
+            // Expose per-month aggregates and metadata
+            perMonth,
+            months,
+            monthsSpan
           });
           return;
         }

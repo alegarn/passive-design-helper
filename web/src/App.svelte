@@ -4,7 +4,7 @@
   import PsychroChart from './components/PsychroChart.svelte';
   import TimeSeriesChart from './components/TimeSeriesChart.svelte';
   import FetchOpenMeteo from './components/FetchOpenMeteo.svelte';
-  import { fileStore } from './stores/fileStore.js';
+  import { fileStore, currentSummaryData } from './stores/fileStore.js';
   
   // Handle fileparsed event from UploadZone
   function handleFileParsed(event) {
@@ -45,15 +45,15 @@
     />
   {/if}
   
-  {#if $fileStore.raw.aggregationResult}
+  {#if $currentSummaryData}
     <!-- Debug: Log what we're passing to PsychroChart -->
     <!-- {#if typeof window !== 'undefined'}
       {console.log('App.svelte: Passing aggregationResult to PsychroChart:', $fileStore.raw.aggregationResult)}
     {/if} -->
-    <PsychroChart summaryData={$fileStore.raw.aggregationResult} />
+    <PsychroChart summaryData={$currentSummaryData} />
     
     <!-- Time Series Chart -->
-    {#if $fileStore.raw.aggregationResult.rowsWithDur}
+    {#if $currentSummaryData && $currentSummaryData.rowsWithDur}
       <!-- Example 1: Hourly average day with zones as threshold array -->
       <TimeSeriesChart
         selectedPeriod="hourly"

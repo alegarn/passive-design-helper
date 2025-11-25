@@ -4,6 +4,10 @@ import { normalizeOpenMeteoToFileData, parseCsvText, aggregateCsvStream } from '
 import { preferredZoneForPoint, ZONES } from '../scripts/zones.js';
 import { classifyPoint } from '../scripts/classify.js';
 import { ZONE_COLORS } from '../scripts/theme.js';
+import { W_from_RH_T } from '../scripts/psychro/math.js';
+
+// Selected month state exported for UI controls (YYYY-MM format or null for all)
+export const selectedMonth = writable(null);
 
 /**
  * @typedef {Object} Snapshot
@@ -508,6 +512,8 @@ export function createFileStore() {
       // console.debug('[fileStore] setAggregationResult logging failed:', e);
     }
     commit(newSnapshot);
+    // Reset selected month to 'all' when a new aggregation result is set to avoid stale selections
+    try { selectedMonth.set(null); } catch (e) {}
   }
 
   /**
@@ -528,6 +534,28 @@ export function createFileStore() {
     };
     commit(newSnapshot);
   }
+
+  /**
+   * Set selectedMonth value (YYYY-MM or null) - kept in module-level store `selectedMonth`.
+   * Provided here to keep callers using fileStore API able to set the current month selection.
+   * @param {string|null} monthKey
+   */
+  function setSelectedMonth(monthKey = null) {
+    try {
+      selectedMonth.set(monthKey);
+    } catch (e) {
+      // in case selectedMonth is not available, write directly to internal store snapshot
+      const currentSnapshot = getSnapshot();
+      const newSnapshot = {
+        ...currentSnapshot,
+        ui: {
+          ...(currentSnapshot.ui || {}),
+          selectedMonth: monthKey
+        }
+      };
+      commit(newSnapshot);
+    }
+  }
  
   // Return the store object with Svelte store interface and methods
   return {
@@ -545,6 +573,8 @@ export function createFileStore() {
     setMapping,
     setResults,
     setMetaLastError,
+    // New UI store helpers
+    setSelectedMonth
   };
 }
 
@@ -595,6 +625,122 @@ const _aggregationSummary = derived(fileStore, $s => {
   return { present: true };
 });
 export const aggregationSummary = readonly(_aggregationSummary);
+
+// selectedMonth is a module-level writable declared earlier
+
+/**
+ * Available months derived from the aggregation result: an array of YYYY-MM strings.
+ */
+const _availableMonths = derived(fileStore, $s => {
+  const agg = $s?.raw?.aggregationResult;
+  if (!agg) return [];
+  // Prefer explicit months list from aggregationResult
+  if (Array.isArray(agg.months) && agg.months.length) return agg.months;
+  // Fallback: try computing from perMonth, perBucket or rowsWithDur
+  if (agg.perMonth && typeof agg.perMonth === 'object') return Object.keys(agg.perMonth).sort();
+  if (agg.perBucket && typeof agg.perBucket === 'object') {
+    // If perBucket keys are month-like (YYYY-MM), use them
+    const keys = Object.keys(agg.perBucket).filter(k => /^\d{4}-\d{2}$/.test(k)).sort();
+    if (keys.length) return keys;
+  }
+  if (Array.isArray(agg.rowsWithDur) && agg.rowsWithDur.length) {
+    const months = new Set();
+    for (const r of agg.rowsWithDur) {
+      try {
+        const d = new Date(r.ts);
+        const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+        months.add(key);
+      } catch (e) {}
+    }
+    return Array.from(months).sort();
+  }
+  return [];
+});
+export const availableMonths = readonly(_availableMonths);
+
+/**
+ * Filtered timeSeries derived from fileStore.timeSeries and selectedMonth selection.
+ * When selectedMonth is null, returns the full timeSeries.
+ */
+const _filteredTimeSeries = derived([timeSeries, selectedMonth], ([$ts, $sel]) => {
+  if (!$ts || !$ts.length) return [];
+  if (!$sel) return $ts;
+  // Filter rows with month matching selectedMonth
+  try {
+    const [y, m] = $sel.split('-').map(n => Number(n));
+    const start = new Date(y, m - 1, 1).getTime();
+    const end = new Date(y, m, 0, 23, 59, 59, 999).getTime();
+    return $ts.filter(r => {
+      try {
+        const tsMs = typeof r.ts === 'number' ? r.ts : new Date(r.ts).getTime();
+        return tsMs >= start && tsMs <= end;
+      } catch (e) { return false; }
+    });
+  } catch (e) {
+    return $ts;
+  }
+});
+export const filteredTimeSeries = readonly(_filteredTimeSeries);
+
+/**
+ * Current summary data depending on the selected month
+ * If no selectedMonth, returns full aggregationResult; if a month is selected, returns
+ * an object with summary and psychrometricData limited to that month.
+ */
+const _currentSummaryData = derived([fileStore, selectedMonth], ([$s, $selected]) => {
+  const agg = $s?.raw?.aggregationResult;
+  if (!agg) return null;
+  if (!$selected) {
+    return agg;
+  }
+  // If we find perMonth data from aggregationResult, prefer it
+  const perMonth = agg.perMonth && agg.perMonth[$selected];
+  if (perMonth) {
+    // Build psychrometricData from perMonth.rows
+    const rows = perMonth.rows || [];
+    const psychrometricData = rows.map(r => ({
+      T: r.temp,
+      W: W_from_RH_T((r.rh || r.rhPercent || 0) / 100, r.temp),
+      zone: r.zone,
+      color: ZONE_COLORS[r.zone] || '#999999'
+    }));
+    return {
+      // Keep month-level summary fields, but present rows as rowsWithDur to match app's earlier expectations
+      rowsWithDur: rows,
+      summary: perMonth.summary || [],
+      perMonth: perMonth,
+      psychrometricData
+    };
+  }
+  // Fallback: filter rowsWithDur
+  if (Array.isArray(agg.rowsWithDur)) {
+    const rows = agg.rowsWithDur.filter(r => {
+      const d = new Date(r.ts);
+      const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+      return key === $selected;
+    });
+    const psychrometricData = rows.map(r => ({
+      T: r.temp,
+      W: W_from_RH_T((r.rh || r.rhPercent || 0) / 100, r.temp),
+      zone: r.zone,
+      color: ZONE_COLORS[r.zone] || '#999999'
+    }));
+    // Derive simple summary from rows
+    const zoneTotals = {};
+    for (const r of rows) {
+      zoneTotals[r.zone] = (zoneTotals[r.zone] || 0) + (r.dur || r.durMs || 0);
+    }
+    const msTotal = Object.values(zoneTotals).reduce((s, v) => s + v, 0) || 1;
+    const summary = Object.entries(zoneTotals).map(([zone, ms]) => ({ zone, hours: Number((ms / (1000 * 60 * 60)).toFixed(3)), percent: Number(((ms * 100) / msTotal).toFixed(2)), milliseconds: ms, color: ZONE_COLORS[zone] || '#999999' })).sort((a, b) => b.hours - a.hours);
+    return {
+      rowsWithDur: rows,
+      summary,
+      psychrometricData
+    };
+  }
+  return null;
+});
+export const currentSummaryData = readonly(_currentSummaryData);
 
 /**
  * isLoading derived from meta.loadingCount
