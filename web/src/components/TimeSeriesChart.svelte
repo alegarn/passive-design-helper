@@ -77,7 +77,8 @@
   let chartData = $state(null);
   let chartOptions = $state({});
   let sourceDateRange = $state(null); // Store actual source date range
-  let showMaxDebug = $state(false);
+  // Debug toggle for displaying $maxMetrics in the UI. Keep this around but commented out for now.
+  // let showMaxDebug = $state(false);
   
   // Calculate averages for displayed datasets - reactive to chartData changes
   const datasetAverages = $derived(() => {
@@ -107,11 +108,12 @@
   });
 
   // Debug: Log maxMetrics to console when it changes (dev-only)
-  $effect(() => {
-    try {
-      console.debug('[TimeSeriesChart] $maxMetrics:', $maxMetrics);
-    } catch (e) {}
-  });
+  // Commented out to reduce console noise in normal usage. Uncomment for debugging.
+  // $effect(() => {
+  //   try {
+  //     console.debug('[TimeSeriesChart] $maxMetrics:', $maxMetrics);
+  //   } catch (e) {}
+  // });
   
   // Local cached values of the derived stores so template can consume plain arrays.
   // The project's custom $derived returns a callable store, so referencing the store
@@ -958,7 +960,8 @@
       >
         {showChart ? 'Hide Chart' : 'Show Chart'}
       </button>
-      <button type="button" class="toggle-button" onclick={() => showMaxDebug = !showMaxDebug}>{showMaxDebug ? 'Hide Max Debug' : 'Show Max Debug'}</button>
+      <!-- Debug toggle for development only. Commented out so regular users don't see the debug state. -->
+      <!-- <button type="button" class="toggle-button" onclick={() => showMaxDebug = !showMaxDebug}>{showMaxDebug ? 'Hide Max Debug' : 'Show Max Debug'}</button> -->
     </div>
   </div>
 
@@ -980,9 +983,10 @@
     </div>
   {/if}
 
-  {#if showMaxDebug}
+  <!-- Developer-only debug output for max metrics. Remove the comments below to enable. -->
+  <!-- {#if showMaxDebug}
     <pre class="max-debug">{JSON.stringify($maxMetrics, null, 2)}</pre>
-  {/if}
+  {/if} -->
 
   <!-- Dataset Statistics (replaces Chart.js dataset legend) -->
   {#if datasetAveragesVal && datasetAveragesVal.length > 0}
@@ -1219,6 +1223,7 @@
 
   /* max metrics CSS removed; metrics render inside Dataset Averages area */
 
+  /* Debug developer output for max/min metrics. Kept in file for convenience, but commented out so it's unused during normal builds.
   .max-debug {
     margin-top: 0.5rem;
     padding: 0.5rem;
@@ -1228,6 +1233,7 @@
     max-height: 240px;
     overflow: auto;
   }
+  */
 
   .zone-stats {
     margin-top: 1rem;
