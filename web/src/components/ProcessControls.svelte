@@ -25,6 +25,15 @@
   let timeColumn = $state('');
   let tempColumn = $state('');
   let rhColumn = $state('');
+
+  let _prevFile = $state(null);
+  // Reset aggregationResult when file changes to avoid showing old data
+  $effect(() => {
+    if (file !== _prevFile) {
+      _prevFile = file;
+      aggregationResult = null;
+    }
+  });
   
   // Processing options
   let timelineUnit = $state('auto');
@@ -32,8 +41,8 @@
   let capMultiplier = $state(4);
 
   // Reactive values for median and effective cap (populated after processing)
-  const medianMs = $derived(() => aggregationResult && aggregationResult.medianDelta !== undefined ? aggregationResult.medianDelta : null);
-  const effectiveCapMs = $derived(() => {
+  const medianMs = $derived(aggregationResult && aggregationResult.medianDelta !== undefined ? aggregationResult.medianDelta : null);
+  const effectiveCapMs = $derived.by(() => {
     const m = (aggregationResult && aggregationResult.medianDelta !== undefined) ? aggregationResult.medianDelta : null;
     return (m !== null && m !== undefined) ? (m * capMultiplier) : null;
   });

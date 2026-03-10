@@ -1,3 +1,4 @@
+/* eslint-env browser */
 // UI bridge utilities - thin adapter layer for UI-specific data transformations
 
 import { ZONES } from './zones.js';
@@ -72,11 +73,11 @@ export function debounce(func, wait) {
   let timeout;
   return function executedFunction(...args) {
     const later = () => {
-      clearTimeout(timeout);
+      if (typeof globalThis.clearTimeout === 'function') globalThis.clearTimeout(timeout);
       func(...args);
     };
-    clearTimeout(timeout);
-    timeout = setTimeout(later, wait);
+    if (typeof globalThis.clearTimeout === 'function') globalThis.clearTimeout(timeout);
+    timeout = (typeof globalThis.setTimeout === 'function') ? globalThis.setTimeout(later, wait) : null;
   };
 }
 
@@ -88,7 +89,7 @@ export function throttle(func, limit) {
     if (!inThrottle) {
       func.apply(context, args);
       inThrottle = true;
-      setTimeout(() => inThrottle = false, limit);
+      if (typeof globalThis.setTimeout === 'function') globalThis.setTimeout(() => inThrottle = false, limit);
     }
   };
 }

@@ -1,5 +1,10 @@
 // Refactor derived from logic.js
 const INF_T = 1e6;
+// Median-based zone shifting constants
+const BASELINE_MEDIAN_T = 28.0; // baseline median for which the polygon coordinates were authored
+const MEDIAN_SLOPE_C_PER_C = 0.3111111111111111; // degrees C shift per 1C median change (approx 0.3111)
+const MIN_MEDIAN_T = -40.0; // soft-clamp below
+const MAX_MEDIAN_T = 40.0; // soft-clamp above
 function p(t, rh) {
   if (typeof t === 'string' && t.trim().endsWith('+')) {
     return [INF_T, Number(rh)];
@@ -65,11 +70,11 @@ function distancePointToPoly(px, py, poly) {
   return minDist;
 }
 
-function nearestZoneForPoint(temp, rh) {
+function nearestZoneForPoint(temp, rh, zones = ZONES) {
   const t = Number(temp), h = Number(rh);
   let nearestZone = null, minDist = Infinity;
   const rank = { passive: 0, mechanical: 1, hybrid: 2, active: 3 };
-  for (const zone of ZONES) {
+  for (const zone of zones) {
     if (!zone.poly) continue;
     const dist = distancePointToPoly(t, h, zone.poly);
     if (dist < minDist - 1e-9) { minDist = dist; nearestZone = zone; }
@@ -88,10 +93,10 @@ function nearestZoneForPoint(temp, rh) {
   return nearestZone;
 }
 
-function zonesContainingPoint(temp, rh) {
+function zonesContainingPoint(temp, rh, zones = ZONES) {
   const t = Number(temp), h = Number(rh);
   const found = []; let coldZone = null;
-  for (const z of ZONES) {
+  for (const z of zones) {
     if (!z.poly) { if (z.id === 'Cold') coldZone = z; continue; }
     if (pointInPoly(t, h, z.poly)) found.push(z);
   }
@@ -99,9 +104,9 @@ function zonesContainingPoint(temp, rh) {
   return found;
 }
 
-function preferredZoneForPoint(temp, rh) {
-  const matches = zonesContainingPoint(temp, rh);
-  if (matches.length === 0) return nearestZoneForPoint(temp, rh);
+function preferredZoneForPoint(temp, rh, zones = ZONES) {
+  const matches = zonesContainingPoint(temp, rh, zones);
+  if (matches.length === 0) return nearestZoneForPoint(temp, rh, zones);
   const rank = { passive: 0, mechanical: 1, hybrid: 2, active: 3 };
   matches.sort((a, b) => {
     const ra = rank[a.type] ?? 99, rb = rank[b.type] ?? 99;
@@ -110,12 +115,12 @@ function preferredZoneForPoint(temp, rh) {
   return matches[0];
 }
 
-function summarizeTimeSeries(points, hourPerPoint = 1) {
+function summarizeTimeSeries(points, hourPerPoint = 1, zones = ZONES) {
   const comboCounts = new Map(); const preferredCounts = new Map(); const timeline = [];
   for (const entry of points) {
     let t, h; if (Array.isArray(entry)) { t = entry[0]; h = entry[1]; } else { t = entry.t ?? entry.temp; h = entry.rh ?? entry.humidity; }
-    const matches = zonesContainingPoint(t, h).map(z => z.id).sort();
-    const pref = preferredZoneForPoint(t, h); const prefId = pref ? pref.id : 'Unclassified';
+    const matches = zonesContainingPoint(t, h, zones).map(z => z.id).sort();
+    const pref = preferredZoneForPoint(t, h, zones); const prefId = pref ? pref.id : 'Unclassified';
     let key; if (matches.length === 0) key = prefId; else key = matches.join(' & ');
     comboCounts.set(key, (comboCounts.get(key) || 0) + hourPerPoint);
     preferredCounts.set(prefId, (preferredCounts.get(prefId) || 0) + hourPerPoint);
@@ -185,3 +190,90 @@ function classifyClimate(input = {}) {
 }
 
 export { computeWetBulb, actualVaporPressure_hPa, vaporContent_g_per_kg, classifyClimate };
+
+// --- New helpers and median-based zone factory ---
+
+function clampMedian(median) {
+  if (median == null || !Number.isFinite(median)) return BASELINE_MEDIAN_T;
+  if (median < MIN_MEDIAN_T) {
+    console.warn(`createZonesForMedianTemp: median ${median}°C below MIN_MEDIAN_T (${MIN_MEDIAN_T}°C); clamping`);
+    return MIN_MEDIAN_T;
+  }
+  if (median > MAX_MEDIAN_T) {
+    console.warn(`createZonesForMedianTemp: median ${median}°C above MAX_MEDIAN_T (${MAX_MEDIAN_T}°C); clamping`);
+    return MAX_MEDIAN_T;
+  }
+  return median;
+}
+
+function rhFromWgPerKg(T, W_g_per_kg, p_hPa = 1013.25) {
+  if (!Number.isFinite(T) || !Number.isFinite(W_g_per_kg)) return null;
+  const W = Number(W_g_per_kg) / 1000.0; // convert g/kg -> kg/kg
+  if (W <= 0) return 0;
+  const e_hPa = (W * p_hPa) / (0.62198 + W);
+  const es = 6.112 * Math.exp((17.62 * T) / (243.12 + T));
+  let rh = (e_hPa / es) * 100;
+  if (!Number.isFinite(rh)) return null;
+  return Math.max(0, Math.min(100, rh));
+}
+
+function wgPerKgFromTRH(T, RH, p_hPa = 1013.25) {
+  if (!Number.isFinite(T) || !Number.isFinite(RH)) return null;
+  const e = actualVaporPressure_hPa(T, RH);
+  if (!e || !Number.isFinite(e.hPa)) return null;
+  const w = vaporContent_g_per_kg(e.hPa, p_hPa);
+  return w; // g/kg
+}
+
+// Anchor interpolation for comfort-related points
+const ANCHOR_MEDIAN_T = 19.0;
+const COMFORT_ANCHOR_POINT = { t: 25.0, rh: 80 };
+
+function almostEqual(a,b,eps=1e-9) { return Math.abs(a-b) <= eps; }
+
+function createZonesForMedianTemp(medianTemp, opts={}) {
+  const median = clampMedian(medianTemp == null ? BASELINE_MEDIAN_T : Number(medianTemp));
+  const offset = (median - BASELINE_MEDIAN_T) * MEDIAN_SLOPE_C_PER_C; // positive if median>BASELINE
+  const useZones = (opts.zones || ZONES);
+  // compute anchor alpha: 0 when median == ANCHOR_MEDIAN_T, 1 when median==BASELINE_MEDIAN_T
+  const denom = (BASELINE_MEDIAN_T - ANCHOR_MEDIAN_T) || 1;
+  const alpha = (median - ANCHOR_MEDIAN_T) / denom;
+  // Detect W-constant points based on baseline W ~= 16 g/kg
+  const W_CONST_G_PER_KG = 16.0; // The intended horizontal limit
+  const W_THRESHOLD_GPKG = 2.0; // +/- 2.0 g/kg threshold catches the 14.37 to 15.5 baseline points
+
+  const outZones = useZones.map(z => {
+    if (!z || !z.poly) return { ...z };
+    const newPoly = z.poly.map(pt => {
+      const t_old = Number(pt[0]); const rh_old = Number(pt[1]);
+      // First, check if this point corresponds to the comfort anchor (near 27.8,67)
+      if (almostEqual(t_old, 27.8) && almostEqual(rh_old, 67)) {
+        // Interpolate in T/RH between baseline and anchor
+        const t_base = t_old + offset; // baseline point shifted by offset alone
+        const rh_base = rh_old;
+        const t_anchor = COMFORT_ANCHOR_POINT.t;
+        const rh_anchor = COMFORT_ANCHOR_POINT.rh;
+        // linear interpolation by alpha
+        const t_new = t_anchor + alpha * (t_base - t_anchor);
+        const rh_new = rh_anchor + alpha * (rh_base - rh_anchor);
+        // if median <= anchor, enforce at least anchor RH
+        const finalRh = (median <= ANCHOR_MEDIAN_T) ? Math.max(rh_new, rh_anchor) : rh_new;
+        return [Number(t_new), Number(finalRh)];
+      }
+      // Else: check if this point is W-constant (around 16 g/kg)
+      const w_baseline = wgPerKgFromTRH(t_old, rh_old);
+      if (Number.isFinite(w_baseline) && Math.abs(w_baseline - W_CONST_G_PER_KG) <= W_THRESHOLD_GPKG) {
+        // Keep W constant at W_CONST_G_PER_KG while shifting T accordingly
+        const t_new = t_old + offset;
+        const rh_new = rhFromWgPerKg(t_new, W_CONST_G_PER_KG);
+        return [Number(t_new), Number(rh_new !== null ? rh_new : rh_old)];
+      }
+      // Default: shift T by offset only, keep RH unchanged
+      return [t_old + offset, rh_old];
+    });
+    return { ...z, poly: newPoly };
+  });
+  return outZones;
+}
+
+export { createZonesForMedianTemp, rhFromWgPerKg };

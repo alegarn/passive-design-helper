@@ -2,11 +2,13 @@
 function tryParseDate(raw, preferDayFirst) {
   if (!raw || !raw.trim()) return NaN;
   const s = raw.trim();
-  
+
   let d = Date.parse(s);
-  if (!isNaN(d) && preferDayFirst && s.match(/^\d{1,2}[\/\-]\d{1,2}[\/\-]\d{2,4}/)) {
-  } else if (!isNaN(d)) {
-    return d;
+  if (!isNaN(d)) {
+    // If preferDayFirst is set and the unqualified parse looks like day-first, refuse the fast path
+    if (!(preferDayFirst && s.match(/^\d{1,2}[\/\-]\d{1,2}[\/\-]\d{2,4}/))) {
+      return d;
+    }
   }
   
   const norm = s.replace(/\s+/g, ' ').trim();
@@ -152,14 +154,14 @@ function parseTimestampOrThrow(raw, preferDayFirst, filenameHint = '') {
     throw new Error(`DateParseError: Unable to parse date "${raw}"`);
   }
 
-  const _globalContext = (typeof window !== 'undefined') ? window : (typeof global !== 'undefined' ? global : {});
+  const _globalContext = (typeof globalThis !== 'undefined') ? globalThis : {};
   try {
     _globalContext._dateParseMappings = _globalContext._dateParseMappings || [];
     if (_globalContext._dateParseMappings.length < 10) {
       _globalContext._dateParseMappings.push({ raw: String(raw), iso: new Date(tms).toISOString() });
-      try { if (_globalContext._dateParseDebug) console.debug && console.debug(`DateParse: "${raw}" -> ${new Date(tms).toISOString()}`); } catch (e) {}
+      try { if (_globalContext._dateParseDebug) console.debug && console.debug(`DateParse: "${raw}" -> ${new Date(tms).toISOString()}`); } catch (err) { if (typeof console !== 'undefined' && typeof console.debug === 'function') console.debug('dateParse debug log failed', err); }
     }
-  } catch (e) {}
+  } catch (err) { if (typeof console !== 'undefined' && typeof console.debug === 'function') console.debug('dateParse mappings push failed', err); }
   
   return tms;
 }

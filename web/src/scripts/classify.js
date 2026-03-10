@@ -21,14 +21,14 @@ function pointInPoly(px, py, poly) {
 
 const ENERGY_PRIORITY = ['Comfort', 'Ventilation', 'Mass Cooling', 'Evaporative Cooling', 'Air Conditioning + Dehumidifier', 'Air Conditioning', 'Cold', 'Unclassified'];
 
-function classifyPoint(temp, rh) {
+function classifyPoint(temp, rh, zones = undefined) {
   const T = Number(temp);
   const H = Number(rh);
 
   if (T > 43.5) return 'Air Conditioning';
   if (T < 0) return 'Heating';
 
-  const pref = preferredZoneForPoint(T, H);
+  const pref = preferredZoneForPoint(T, H, zones);
   if (pref && pref.id) return pref.id;
   if (T < 23) return 'Cold';
   return 'Unclassified';

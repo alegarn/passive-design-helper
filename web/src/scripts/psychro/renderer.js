@@ -4,14 +4,17 @@
  * Derived from canonical renderer with drawLabels adapted for responsive small screens
  */
 
+/* eslint-env browser */
+/* global window OffscreenCanvas Path2D HTMLCanvasElement performance requestAnimationFrame cancelAnimationFrame clearTimeout */
 import { e_s_Pa, W_from_RH_T, dewPoint_C_from_e, enthalpy_kJkg, wetBulbSolver } from './math.js';
 import { CurveCache } from './curveCache.js';
-import { ZONES } from '../zones.js';
+import { ZONES as BASE_ZONES } from '../zones.js';
 
 // Silence verbose renderer debug logs (non-destructive)
 try {
+  // In some hosted environments a console may be readonly — ensure we disable verbose logs safely
   console.debug = console.trace = () => {};
-} catch (e) { /* ignore if console is read-only */ }
+} catch (err) { if (typeof console !== 'undefined' && typeof console.warn === 'function') console.warn('Unable to set console.handlers', err); }
 
 export function createPsychroRenderer(containerEl, options = {}) {
   const opts = {
@@ -32,6 +35,7 @@ export function createPsychroRenderer(containerEl, options = {}) {
   let canvas, offscreenCanvas, ctx, offscreenCtx;
   let width = 300, height = 150;
   let curveCache = new CurveCache();
+  let currentZones = opts.zones || BASE_ZONES;
   let resizeTimeout;
   let rafId;
   let lastFrameTime = 0;
@@ -48,7 +52,7 @@ export function createPsychroRenderer(containerEl, options = {}) {
       containerEl.appendChild(canvas);
     }
 
-    const dpr = Math.min(window.devicePixelRatio || 1, opts.dprCap);
+    const dpr = Math.min((typeof window !== 'undefined' && window.devicePixelRatio) ? window.devicePixelRatio : 1, opts.dprCap);
 
     ctx = canvas.getContext('2d');
     if (!ctx) throw new Error('Failed to obtain 2D context from canvas');
@@ -69,7 +73,7 @@ export function createPsychroRenderer(containerEl, options = {}) {
   }
 
   function handleResize() {
-    clearTimeout(resizeTimeout);
+    if (typeof clearTimeout === 'function') clearTimeout(resizeTimeout);
     resizeTimeout = setTimeout(() => {
       resize();
       renderBackground();
@@ -87,7 +91,7 @@ export function createPsychroRenderer(containerEl, options = {}) {
       height = rect ? rect.height : 150;
     }
 
-    const dpr = Math.min(window.devicePixelRatio || 1, opts.dprCap);
+    const dpr = Math.min((typeof window !== 'undefined' && window.devicePixelRatio) ? window.devicePixelRatio : 1, opts.dprCap);
 
     canvas.width = width * dpr;
     canvas.height = height * dpr;
@@ -95,11 +99,11 @@ export function createPsychroRenderer(containerEl, options = {}) {
     canvas.style.height = `${height}px`;
 
     if (ctx) {
-      try { ctx.setTransform(1, 0, 0, 1, 0, 0); } catch (e) { }
+      try { ctx.setTransform(1, 0, 0, 1, 0, 0); } catch (err) { if (typeof console !== 'undefined' && typeof console.debug === 'function') console.debug('ctx.setTransform not available', err); }
       ctx.scale(dpr, dpr);
     }
     if (offscreenCanvas) { offscreenCanvas.width = width * dpr; offscreenCanvas.height = height * dpr; }
-    if (offscreenCtx) { try { offscreenCtx.setTransform(1, 0, 0, 1, 0, 0); } catch (e) { } offscreenCtx.scale(dpr, dpr); }
+    if (offscreenCtx) { try { offscreenCtx.setTransform(1, 0, 0, 1, 0, 0); } catch (err) { if (typeof console !== 'undefined' && typeof console.debug === 'function') console.debug('offscreenCtx.setTransform not available', err); } offscreenCtx.scale(dpr, dpr); }
     curveCache.clear();
   }
 
@@ -159,17 +163,61 @@ export function createPsychroRenderer(containerEl, options = {}) {
     offscreenCtx.clearRect(0, 0, width, height);
     try {
       offscreenCtx.save();
-      for (const zone of (ZONES || [])) {
+      for (const zone of (currentZones || [])) {
         if (!zone || !zone.poly || zone.poly.length === 0) continue;
         const path = new Path2D();
         let first = true;
-        for (const pt of zone.poly) {
-          const T = Number(pt[0]); const RH = Number(pt[1]); const W = (typeof W_from_RH_T === 'function') ? W_from_RH_T(RH / 100, T, opts.p) : null; const Wclamped = (typeof W === 'number' && Number.isFinite(W)) ? Math.min(W, opts.Wmax * 1.000001) : null; const canvasPt = (Wclamped !== null) ? psychroToCanvas(T, Wclamped) : psychroToCanvas(T, Math.max(0, opts.Wmax * 0.5)); if (first) { path.moveTo(canvasPt.x, canvasPt.y); first = false; } else { path.lineTo(canvasPt.x, canvasPt.y); } }
+        
+        // Helper to interpolate between two points if RH is constant
+        const interpolateEdge = (pt1, pt2) => {
+          const [T1, RH1] = pt1;
+          const [T2, RH2] = pt2;
+          
+          // Draw straight line if RH is different, or if very small segment
+          if (Math.abs(RH1 - RH2) > 0.01 || Math.abs(T1 - T2) < 0.5) {
+            const W = (typeof W_from_RH_T === 'function') ? W_from_RH_T(RH2 / 100, T2, opts.p) : null; 
+            const Wclamped = (typeof W === 'number' && Number.isFinite(W)) ? Math.min(W, opts.Wmax * 1.000001) : null; 
+            const canvasPt = (Wclamped !== null) ? psychroToCanvas(T2, Wclamped) : psychroToCanvas(T2, Math.max(0, opts.Wmax * 0.5)); 
+            path.lineTo(canvasPt.x, canvasPt.y);
+            return;
+          }
+          
+          // Interpolate constant RH curve
+          const steps = Math.max(2, Math.ceil(Math.abs(T2 - T1) * 2)); // ~2 steps per °C
+          for (let i = 1; i <= steps; i++) {
+            const tInterp = T1 + (T2 - T1) * (i / steps);
+            const W = (typeof W_from_RH_T === 'function') ? W_from_RH_T(RH2 / 100, tInterp, opts.p) : null; 
+            const Wclamped = (typeof W === 'number' && Number.isFinite(W)) ? Math.min(W, opts.Wmax * 1.000001) : null; 
+            const canvasPt = (Wclamped !== null) ? psychroToCanvas(tInterp, Wclamped) : psychroToCanvas(tInterp, Math.max(0, opts.Wmax * 0.5)); 
+            path.lineTo(canvasPt.x, canvasPt.y);
+          }
+        };
+
+        for (let i = 0; i < zone.poly.length; i++) {
+          const pt = zone.poly[i];
+          const T = Number(pt[0]); const RH = Number(pt[1]); 
+          
+          if (first) { 
+            const W = (typeof W_from_RH_T === 'function') ? W_from_RH_T(RH / 100, T, opts.p) : null; 
+            const Wclamped = (typeof W === 'number' && Number.isFinite(W)) ? Math.min(W, opts.Wmax * 1.000001) : null; 
+            const canvasPt = (Wclamped !== null) ? psychroToCanvas(T, Wclamped) : psychroToCanvas(T, Math.max(0, opts.Wmax * 0.5)); 
+            path.moveTo(canvasPt.x, canvasPt.y); 
+            first = false; 
+          } else { 
+            interpolateEdge(zone.poly[i-1], pt);
+          } 
+        }
+        
+        // Close polygon properly by checking connection to first point
+        if (zone.poly.length > 2) {
+          interpolateEdge(zone.poly[zone.poly.length - 1], zone.poly[0]);
+        }
+        
         path.closePath();
-        try { const fillColor = zone.color || 'rgba(200,200,200,0.15)'; offscreenCtx.fillStyle = fillColor; offscreenCtx.globalAlpha = 0.12; offscreenCtx.fill(path); offscreenCtx.globalAlpha = 1.0; offscreenCtx.strokeStyle = zone.color || '#666'; offscreenCtx.lineWidth = 1; offscreenCtx.stroke(path); } catch (e) {}
+        try { const fillColor = zone.color || 'rgba(200,200,200,0.15)'; offscreenCtx.fillStyle = fillColor; offscreenCtx.globalAlpha = 0.12; offscreenCtx.fill(path); offscreenCtx.globalAlpha = 1.0; offscreenCtx.strokeStyle = zone.color || '#666'; offscreenCtx.lineWidth = 1; offscreenCtx.stroke(path); } catch (err) { if (typeof console !== 'undefined' && typeof console.debug === 'function') console.debug('Failed to draw zone poly', err); }
       }
       offscreenCtx.restore();
-    } catch (e) {}
+    } catch (err) { if (typeof console !== 'undefined' && typeof console.debug === 'function') console.debug('renderBackground failed', err); }
 
     offscreenCtx.strokeStyle = '#e0e0e0'; offscreenCtx.lineWidth = 1;
     for (let T = Math.ceil(opts.Tmin); T <= opts.Tmax; T += 5) { const curveKey = `temp_${T}`; const path = curveCache.getOrCompute(curveKey, () => generateConstantTempCurve(T)); offscreenCtx.stroke(path); }
@@ -177,12 +225,19 @@ export function createPsychroRenderer(containerEl, options = {}) {
     offscreenCtx.strokeStyle = '#a0a0a0'; for (let RH = 0.1; RH <= 1.0; RH += 0.1) { const curveKey = `rh_${RH.toFixed(1)}`; const path = curveCache.getOrCompute(curveKey, () => generateConstantRHCureve(RH)); offscreenCtx.stroke(path); }
     offscreenCtx.strokeStyle = '#808080'; offscreenCtx.setLineDash([5, 5]); for (let h = 20; h <= 100; h += 10) { const curveKey = `h_${h}`; const path = curveCache.getOrCompute(curveKey, () => generateConstantEnthalpyCurve(h)); offscreenCtx.stroke(path); } offscreenCtx.setLineDash([]);
     offscreenCtx.strokeStyle = '#333'; offscreenCtx.lineWidth = 2; offscreenCtx.strokeRect(0, 0, width, height);
-    ctx.clearRect(0, 0, width, height); try { ctx.drawImage(offscreenCanvas, 0, 0, width, height); } catch (e) {}
+    ctx.clearRect(0, 0, width, height); try { ctx.drawImage(offscreenCanvas, 0, 0, width, height); } catch (err) { if (typeof console !== 'undefined' && typeof console.debug === 'function') console.debug('drawImage offscreen failed', err); }
     drawLabels(ctx);
   }
 
+  function setZones(newZones) {
+    currentZones = newZones || BASE_ZONES;
+    curveCache.clear();
+    renderBackground();
+  }
+
   function drawLabels(ctx) {
-    try { const debugInfo = { dpr: window.devicePixelRatio || 1, width, height, Tmin: opts.Tmin, Tmax: opts.Tmax, Wmax: opts.Wmax }; } catch (e) {}
+    // Build a small debug info object if needed (use globalThis for cross-env safety)
+    const debugInfo = { dpr: (typeof globalThis !== 'undefined' && typeof globalThis.devicePixelRatio === 'number') ? globalThis.devicePixelRatio : 1, width, height, Tmin: opts.Tmin, Tmax: opts.Tmax, Wmax: opts.Wmax };
 
     // Determine scale factor based on layout size (avoid relying on DPR here)
     const baseWidth = 420; const baseHeight = 300;
@@ -266,7 +321,7 @@ export function createPsychroRenderer(containerEl, options = {}) {
       const actualMaxW = Math.max(maxWInPoints, pointsExceedingWmax.length > 0 ? Math.max(...pointsExceedingWmax.map(p => p.W)) : 0);
       const targetWmax = Math.max(opts.Wmax, actualMaxW * 1.2);
       if (targetWmax > opts.Wmax) { opts.Wmax = targetWmax; curveCache.clear(); renderBackground(); }
-    } catch (e) {}
+    } catch (err) { if (typeof console !== 'undefined' && typeof console.debug === 'function') console.debug('renderDataPoints failed', err); }
     try {
       const validTs = dataPoints.filter(p => p && typeof p.T === 'number' && Number.isFinite(p.T)).map(p => p.T);
       if (validTs.length > 0) {
@@ -277,15 +332,15 @@ export function createPsychroRenderer(containerEl, options = {}) {
         const desiredTmax = Math.max(opts.Tmax, maxT + marginT);
         if (desiredTmin !== opts.Tmin || desiredTmax !== opts.Tmax) { opts.Tmin = desiredTmin; opts.Tmax = desiredTmax; curveCache.clear(); renderBackground(); }
       }
-    } catch (e) {}
+    } catch (err) { if (typeof console !== 'undefined' && typeof console.debug === 'function') console.debug('renderDataPoints bounds calc failed', err); }
     const useThrottle = dataPoints.length > opts.rafThrottleThreshold;
     const targetFPS = useThrottle ? 30 : 60;
     const frameInterval = 1000 / targetFPS;
     const render = (timestamp) => {
-      if (typeof timestamp !== 'number' || !isFinite(timestamp)) timestamp = performance && typeof performance.now === 'function' ? performance.now() : Date.now();
+      if (typeof timestamp !== 'number' || !isFinite(timestamp)) timestamp = (typeof performance !== 'undefined' && typeof performance.now === 'function') ? performance.now() : Date.now();
       if (timestamp - lastFrameTime >= frameInterval) {
         ctx.clearRect(0, 0, width, height);
-        try { ctx.drawImage(offscreenCanvas, 0, 0, width, height); } catch(e){}
+        try { ctx.drawImage(offscreenCanvas, 0, 0, width, height); } catch (err) { if (typeof console !== 'undefined' && typeof console.debug === 'function') console.debug('ctx.drawImage failed', err); }
         drawLabels(ctx);
         ctx.fillStyle = '#ff4444';
         dataPoints.forEach((point, i) => {
@@ -294,27 +349,27 @@ export function createPsychroRenderer(containerEl, options = {}) {
           const Wclamped = Math.min(point.W, opts.Wmax * 1.000001);
           const canvasPoint = psychroToCanvas(point.T, Wclamped);
           const { x, y } = canvasPoint;
-          const rSafe = (typeof r !== 'undefined' && r > 0) ? r : 2;
-          if (canvasPoint.x < -10 || canvasPoint.x > width + 10 || canvasPoint.y < -10 || canvasPoint.y > height + 10) return;
-          ctx.beginPath(); ctx.arc(canvasPoint.x, canvasPoint.y, rSafe, 0, 2 * Math.PI); ctx.fill();
+          const rSafe = 2;
+          if (x < -10 || x > width + 10 || y < -10 || y > height + 10) return;
+          ctx.beginPath(); ctx.arc(x, y, rSafe, 0, 2 * Math.PI); ctx.fill();
         });
         lastFrameTime = timestamp;
       }
-      if (useThrottle) rafId = requestAnimationFrame(render);
+      if (useThrottle) rafId = (typeof requestAnimationFrame === 'function') ? requestAnimationFrame(render) : setTimeout(() => render(Date.now()), 1000 / 30);
     };
-    if (rafId) cancelAnimationFrame(rafId);
-    if (useThrottle) rafId = requestAnimationFrame(render); else render(performance && typeof performance.now === 'function' ? performance.now() : Date.now());
+    if (rafId) { if (typeof cancelAnimationFrame === 'function') cancelAnimationFrame(rafId); else clearTimeout(rafId); }
+    if (useThrottle) rafId = (typeof requestAnimationFrame === 'function') ? requestAnimationFrame(render) : setTimeout(() => render(Date.now()), 1000 / 30); else render((typeof performance !== 'undefined' && typeof performance.now === 'function') ? performance.now() : Date.now());
   }
 
   function dataDataMaxW(pointsArr) { if (!pointsArr || pointsArr.length === 0) return 0; let max = 0; for (const pt of pointsArr) { if (!pt || typeof pt.W !== 'number') continue; if (!Number.isFinite(pt.W)) continue; if (pt.W > max) max = pt.W; } return max; }
 
   function destroy() {
-    if (rafId) cancelAnimationFrame(rafId);
-    window.removeEventListener('resize', handleResize);
-    clearTimeout(resizeTimeout);
+    if (rafId) { if (typeof cancelAnimationFrame === 'function') cancelAnimationFrame(rafId); else clearTimeout(rafId); }
+    if (typeof window !== 'undefined' && window.removeEventListener) window.removeEventListener('resize', handleResize);
+    if (typeof clearTimeout === 'function') clearTimeout(resizeTimeout);
     if (canvas && canvas.parentNode && (!opts.canvasEl || canvas !== opts.canvasEl)) { canvas.parentNode.removeChild(canvas); }
     curveCache.clear();
   }
 
-  return { init, renderBackground, renderDataPoints, resize, destroy };
+  return { init, renderBackground, renderDataPoints, resize, destroy, setZones };
 };

@@ -1,7 +1,9 @@
 <script>
-  import { ZONES } from '../scripts/zones.js';
+  import { createZonesForMedianTemp } from '../scripts/zones.js';
+  import { medianTemp } from '../stores/fileStore.js';
   let { zoneData: zone } = $props();
-  const zoneInfo = ZONES.find(z => z.id === zone.zone) || {};
+  const dynamicZones = $derived(createZonesForMedianTemp($medianTemp ?? 28));
+  const zoneInfo = $derived(dynamicZones.find(z => z.id === zone.zone) || {});
 </script>
 
 <article class="stat-card" role="listitem">

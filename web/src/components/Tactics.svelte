@@ -9,7 +9,8 @@
       TacticModalComponent = mod.default;
     }
   }
-  import { ZONES } from '../scripts/zones.js';
+  import { createZonesForMedianTemp } from '../scripts/zones.js';
+  import { medianTemp } from '../stores/fileStore.js';
 
   // Svelte 5 rune state
   let query = $state('');
@@ -19,9 +20,10 @@
 
   // no persisting favorites
 
-  let filtered = $derived(() => {
+  let filtered = $derived.by(() => {
     const q = String(query).trim().toLowerCase();
-    return ZONES.filter(z => {
+    const dynZones = createZonesForMedianTemp($medianTemp || 28);
+    return dynZones.filter(z => {
       if (filterCategory !== 'All' && z.type !== filterCategory.toLowerCase()) return false;
       if (!q) return true;
       const hay = `${z.id} ${z.description ?? ''} ${z.examples?.join(' ') ?? ''}`.toLowerCase();
@@ -65,7 +67,7 @@
 
   {#if selectedId}
     {#if TacticModalComponent}
-      <TacticModalComponent tactic={ZONES.find(z => z.id === selectedId)} onClose={closeTactic} />
+      <TacticModalComponent tactic={createZonesForMedianTemp($medianTemp || 28).find(z => z.id === selectedId)} onClose={closeTactic} />
     {:else}
       <div class="modal-loading">Loading details…</div>
     {/if}
