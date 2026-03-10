@@ -237,7 +237,7 @@ function createZonesForMedianTemp(medianTemp, opts={}) {
   const useZones = (opts.zones || ZONES);
   // compute anchor alpha: 0 when median == ANCHOR_MEDIAN_T, 1 when median==BASELINE_MEDIAN_T
   const denom = (BASELINE_MEDIAN_T - ANCHOR_MEDIAN_T) || 1;
-  const alpha = (median - ANCHOR_MEDIAN_T) / denom;
+  const alpha = Math.max(0, Math.min(1, (median - ANCHOR_MEDIAN_T) / denom));
   // Detect W-constant points based on baseline W ~= 16 g/kg
   const W_CONST_G_PER_KG = 16.0; // The intended horizontal limit
   const W_THRESHOLD_GPKG = 2.0; // +/- 2.0 g/kg threshold catches the 14.37 to 15.5 baseline points

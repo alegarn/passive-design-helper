@@ -69,17 +69,17 @@
     
     <div class="median-slider" style="width: 100%; max-width: 600px; padding: 1rem; background: rgba(0,0,0,0.02); border-radius: 8px; border: 1px solid rgba(0,0,0,0.05); flex-shrink: 0;">
       <label for="median-slider-input" style="display: block; margin-bottom: 0.5rem; font-weight: 500; text-align: left;">
-        Comfort Zones Median T° (-40°C to 40°C) {isProcessingMedian ? ' (Calculating...)' : ''}
+        Comfort Zones Median T° (-15°C to 40°C) {isProcessingMedian ? ' (Calculating...)' : ''}
       </label>
       <div style="display: flex; flex-direction: column; gap: 0.5rem;">
         <div style="display: flex; align-items: flex-start; gap: 1rem;">
           <div style="flex: 1; display: flex; flex-direction: column; gap: 0.25rem;">
-            <input id="median-slider-input" style="width: 100%; height: 2rem; cursor: pointer; display: block; margin: 0;" type="range" min="-40" max="40" step="0.1" bind:value={sliderValue} oninput={handleSlider} />
+            <input id="median-slider-input" style="width: 100%; height: 2rem; cursor: pointer; display: block; margin: 0;" type="range" min="-15" max="40" step="0.1" bind:value={sliderValue} oninput={handleSlider} />
             
             <!-- Responsive Scale aligned with slider track -->
             <div style="position: relative; width: 100%; height: 20px; font-size: 0.7rem; color: #666; pointer-events: none; margin-top: -0.2rem;">
-              {#each [-40, -30, -20, -10, 0, 10, 20, 30, 40] as tick}
-                <div style="position: absolute; left: {(tick + 40) * 100 / 80}%; transform: translateX(-50%); display: flex; flex-direction: column; align-items: center;">
+              {#each [-15, -10, 0, 10, 20, 30, 40] as tick}
+                <div style="position: absolute; left: {(tick + 15) * 100 / 55}%; transform: translateX(-50%); display: flex; flex-direction: column; align-items: center;">
                   <div style="width: 1px; height: 4px; background: #ccc; margin-bottom: 2px;"></div>
                   <span>{tick}</span>
                 </div>
@@ -88,7 +88,7 @@
           </div>
 
           <div style="display: flex; align-items: center; gap: 0.25rem; padding-top: 0.2rem;">
-            <input type="number" step="0.1" min="-40" max="40" 
+            <input type="number" step="0.1" min="-15" max="40" 
               value={sliderValue} 
               oninput={(e) => { sliderValue = Number(e.target.value); handleSlider(e); }}
               style="width: 70px; padding: 0.3rem; border: 1px solid #ccc; border-radius: 4px; text-align: center; font-size: 0.9rem;"
@@ -135,29 +135,14 @@
     
     <!-- Time Series Chart -->
     {#if $currentSummaryData && $currentSummaryData.rowsWithDur}
-      <!-- Example 1: Hourly average day with zones as threshold array -->
       <TimeSeriesChart
         selectedPeriod="hourly"
-        zones={[
-          { threshold: 30, color: '#ff4444' },  // Hot: red
-          { threshold: 25, color: '#ff8844' },  // Warm: orange
-          { threshold: 20, color: '#ffcc44' },  // Mild: yellow
-          { threshold: 15, color: '#44cc44' },  // Cool: light green
-          { threshold: 10, color: '#4488ff' }   // Cold: blue
-        ]}
+        median={$medianTemp}
       />
       
-      <!-- Example 2: Daily chart with zones as function -->
       <TimeSeriesChart
         selectedPeriod="daily"
-        zones={(value) => {
-          if (value > 28) return '#ff0000';  // Very hot
-          if (value > 24) return '#ff8800';  // Hot
-          if (value > 20) return '#ffcc00';  // Warm
-          if (value > 16) return '#88ff00';  // Mild
-          if (value > 12) return '#00ccff';  // Cool
-          return '#0088ff';  // Cold
-        }}
+        median={$medianTemp}
       />
     {/if}
 

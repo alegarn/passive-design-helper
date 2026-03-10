@@ -37,36 +37,10 @@
   // Props
   let {
     selectedPeriod = 'daily',
-    colorSegments = null, // Multi-color line configuration (deprecated, use zones instead)
-    zones = null // Zone-based color gradient configuration
+    median = null
   } = $props();
   
   /*
-   * Zone-based color gradient support:
-   *
-   * The zones prop allows rendering a single line with multiple colors
-   * based on data values. It accepts two formats:
-   *
-   * 1. Array of threshold objects:
-
-  
-   *    zones = [
-   *      { threshold: 30, color: '#ff0000' },  // Values >= 30: red
-   *      { threshold: 20, color: '#ffaa00' },  // Values >= 20: orange
-   *      { threshold: 10, color: '#00aa00' }   // Values >= 10: green
-   *    ]
-   *
-   * 2. Function that returns color based on value:
-   *    zones = (value) => {
-   *      if (value > 25) return '#ff0000';
-   *      if (value > 15) return '#ffaa00';
-   *      return '#00aa00';
-   *    }
-   *
-   * When zones is provided, each segment of the line between data points
-   * will be colored according to the end point's value using Chart.js segment styling.
-   * The default zone color is used as fallback when no segment color matches.
-   *
    * Hourly chart behavior:
    * - When selectedPeriod is 'hourly', the chart shows an "average day" line
    * - This means exactly 24 points (hours 0-23) showing the average value for each hour
@@ -131,7 +105,7 @@
   // Use these local variables (updated via $effect) to drive the StatCard rendering.
   // Use the project's callable derived stores directly in the template
   let selectedZoneId = $state(null);
-  const currentDynamicZones = $derived.by(() => createZonesForMedianTemp($medianTemp ?? 28));
+  const currentDynamicZones = $derived.by(() => createZonesForMedianTemp(median ?? $medianTemp ?? 28));
   // max metrics derived store is read via $maxMetrics in markup
   
   // We now call the derived stores directly in the template using datasetAverages / zoneTotals.
@@ -157,8 +131,8 @@
     const raw = $filteredTimeSeries;
     const period = currentPeriod;
     const totals = {};
-    const median = $medianTemp || 28;
-    const dynamicZones = createZonesForMedianTemp(median);
+    const medianVal = median ?? $medianTemp ?? 28;
+    const dynamicZones = createZonesForMedianTemp(medianVal);
     dynamicZones.forEach(z => (totals[z.id] = 0));
   
     if (period === 'hourly') {
@@ -259,33 +233,6 @@
     }
   }
 
-  // Helper function to get color for a value based on zones configuration
-  function getZoneColor(value, defaultColor) {
-    // Use zones if provided, otherwise fallback to colorSegments for backwards compatibility
-    const zoneConfig = zones || colorSegments;
-    
-    if (!zoneConfig) {
-      return defaultColor;
-    }
-    
-    if (typeof zoneConfig === 'function') {
-      return zoneConfig(value);
-    }
-    
-    if (Array.isArray(zoneConfig)) {
-      // Find the first threshold that the value exceeds
-      for (const segment of zoneConfig) {
-        if (value >= segment.threshold) {
-          return segment.color;
-        }
-      }
-      // If no threshold matched, return default color
-      return defaultColor;
-    }
-    
-    return defaultColor;
-  }
-  
   // Helper function to get zone color based on both temperature and humidity
   function getPassiveDesignZoneColor(temp, rh) {
     const zoneId = classifyPoint ? classifyPoint(temp, rh, currentDynamicZones) : (preferredZoneForPoint(temp, rh, currentDynamicZones) && preferredZoneForPoint(temp, rh, currentDynamicZones).id);
@@ -409,7 +356,7 @@
     // Some aggregation paths (e.g. buildDailyBuckets) produce points with `zone: null`.
     // We should triage each point to a single zone for consistent downstream rendering
     // and to avoid leaving many points as 'Unclassified' or multi-match combo strings.
-    const medianForChart = $medianTemp || 28;
+    const medianForChart = median ?? $medianTemp ?? 28;
     const dynamicZonesForChart = createZonesForMedianTemp(medianForChart);
     aggregatedData = aggregatedData.map(pt => {
       const t = pt.temp;
