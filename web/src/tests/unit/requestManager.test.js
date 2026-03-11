@@ -32,7 +32,7 @@ describe('Request Manager', () => {
   });
 
   it('handles slow responses', async () => {
-    const executor = (signal) => new Promise((resolve) => {
+    const executor = () => new Promise((resolve) => {
       setTimeout(() => resolve('done'), 10);
     });
     

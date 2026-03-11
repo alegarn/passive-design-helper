@@ -5,8 +5,7 @@
  */
 
 /* eslint-env browser */
-/* global window OffscreenCanvas Path2D HTMLCanvasElement performance requestAnimationFrame cancelAnimationFrame clearTimeout */
-import { e_s_Pa, W_from_RH_T, dewPoint_C_from_e, enthalpy_kJkg, wetBulbSolver } from './math.js';
+import { W_from_RH_T } from './math.js';
 import { CurveCache } from './curveCache.js';
 import { ZONES as BASE_ZONES } from '../zones.js';
 
@@ -236,9 +235,6 @@ export function createPsychroRenderer(containerEl, options = {}) {
   }
 
   function drawLabels(ctx) {
-    // Build a small debug info object if needed (use globalThis for cross-env safety)
-    const debugInfo = { dpr: (typeof globalThis !== 'undefined' && typeof globalThis.devicePixelRatio === 'number') ? globalThis.devicePixelRatio : 1, width, height, Tmin: opts.Tmin, Tmax: opts.Tmax, Wmax: opts.Wmax };
-
     // Determine scale factor based on layout size (avoid relying on DPR here)
     const baseWidth = 420; const baseHeight = 300;
     const sizeScale = Math.max(0.45, Math.min(1.0, Math.min(width / baseWidth, height / baseHeight)));

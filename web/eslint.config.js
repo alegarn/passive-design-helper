@@ -1,6 +1,9 @@
 import js from '@eslint/js';
 
 export default [
+  {
+    ignores: ['dist/**', '**/dist/**']
+  },
   js.configs.recommended,
   {
     languageOptions: {
@@ -10,15 +13,24 @@ export default [
         console: 'readonly',
         process: 'readonly',
         // Browser globals for dataProcessor
+        window: 'readonly',
+        navigator: 'readonly',
+        MutationObserver: 'readonly',
         document: 'readonly',
         Blob: 'readonly',
         URL: 'readonly',
         setTimeout: 'readonly',
+        clearTimeout: 'readonly',
         File: 'readonly',
         AbortController: 'readonly',
         TextDecoder: 'readonly',
+        TextEncoder: 'readonly',
         DOMException: 'readonly',
-        fetch: 'readonly'
+        fetch: 'readonly',
+        vi: 'readonly',
+        describe: 'readonly',
+        it: 'readonly',
+        expect: 'readonly'
       }
     },
     rules: {
