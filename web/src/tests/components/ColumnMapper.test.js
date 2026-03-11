@@ -1,5 +1,5 @@
 import { render, fireEvent } from '@testing-library/svelte';
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach } from 'vitest';
 import ColumnMapper from '../../components/ColumnMapper.svelte';
 import { fileStore, mapping } from '../../stores/fileStore.js';
 import { get } from 'svelte/store';

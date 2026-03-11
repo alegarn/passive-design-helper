@@ -1,5 +1,5 @@
 import { render } from '@testing-library/svelte';
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, vi } from 'vitest';
 import TimeSeriesChart from '../../components/TimeSeriesChart.svelte';
 
 // Mock Chart.js and svelte5-chartjs
@@ -28,7 +28,7 @@ vi.mock('chartjs-adapter-date-fns', () => ({}));
 
 describe('TimeSeriesChart', () => {
   it('renders without crashing', () => {
-    const { getByTestId } = render(TimeSeriesChart, { 
+    render(TimeSeriesChart, { 
       selectedPeriod: 'daily',
       median: 25
     });
