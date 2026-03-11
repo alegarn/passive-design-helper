@@ -16,10 +16,12 @@ function aggregateByPeriod(data, getPeriodKey) {
   const groups = {};
   
   data.forEach(record => {
+    // Validate record exists
+    if (!record) return;
+
     // Validate record has required fields (check both timestamp and ts fields)
     const timestampField = record.timestamp || record.ts;
-    if (!record || 
-        (!record.timestamp && !record.ts) || 
+    if ((!record.timestamp && !record.ts) || 
         typeof record.temp !== 'number' || 
         typeof record.rh !== 'number') {
       console.warn('Skipping invalid record:', record);
