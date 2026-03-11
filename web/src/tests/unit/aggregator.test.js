@@ -33,4 +33,43 @@ describe('Time Series Aggregator', () => {
     expect(result.length).toBe(1);
     expect(result[0].temp).toBe(20);
   });
+
+  it('handles gaps in data correctly', () => {
+    // 10:00 and 12:00, gap at 11:00
+    const gappedData = [
+      { timestamp: '2024-01-01T10:00:00Z', temp: 20, rh: 50, dur_hours: 1 },
+      { timestamp: '2024-01-01T12:00:00Z', temp: 22, rh: 60, dur_hours: 1 }
+    ];
+    
+    const result = aggregateByHour(gappedData);
+    expect(result.length).toBe(2);
+    expect(result[0].timestamp).toContain('10:00');
+    expect(result[1].timestamp).toContain('12:00');
+    // Ensure no 11:00 entry in result
+    expect(result.find(d => d.timestamp.includes('11:00'))).toBeUndefined();
+  });
+
+  it('handles duplicate timestamps by averaging', () => {
+    // Two records at exactly the same time
+    const duplicateData = [
+      { timestamp: '2024-01-01T10:00:00Z', temp: 20, rh: 50, dur_hours: 1 },
+      { timestamp: '2024-01-01T10:00:00Z', temp: 24, rh: 60, dur_hours: 1 }
+    ];
+    
+    const result = aggregateByHour(duplicateData);
+    expect(result.length).toBe(1);
+    expect(result[0].temp).toBe(22); // (20+24)/2
+    expect(result[0].dur_hours).toBe(2);
+  });
+
+  it('handles different timezone inputs correctly', () => {
+    // One UTC, one with offset. They are the same hour in UTC.
+    const tzData = [
+      { timestamp: '2024-01-01T10:00:00Z', temp: 20, rh: 50, dur_hours: 1 },
+      { timestamp: '2024-01-01T11:00:00+01:00', temp: 24, rh: 60, dur_hours: 1 }
+    ];
+    const result = aggregateByHour(tzData);
+    expect(result.length).toBe(1); // Same UTC hour
+    expect(result[0].temp).toBe(22);
+  });
 });

@@ -28,4 +28,41 @@ describe('Psychrometric Math', () => {
     // Approx 38.5 kJ/kg
     expect(h).toBeCloseTo(38.5, 0);
   });
+
+  it('handles extremely high/low humidity correctly', () => {
+    // 0% RH
+    const w0 = W_from_RH_T(0, 25);
+    expect(w0).toBe(0);
+    expect(enthalpy_kJkg(25, w0)).toBeCloseTo(25.15, 1); // Only dry air enthalpy
+
+    // 100% RH
+    const w100 = W_from_RH_T(1.0, 30);
+    expect(w100).toBeGreaterThan(0.026);
+    expect(w100).toBeLessThan(0.028);
+
+    // Over 100% (supersaturated) - check if it blows up
+    const wSuper = W_from_RH_T(1.1, 25);
+    expect(wSuper).toBeGreaterThan(0);
+    expect(isFinite(wSuper)).toBe(true);
+  });
+
+  it('handles pressure variations correctly', () => {
+    // Sea level vs altitude
+    const wSea = W_from_RH_T(0.5, 25, 101325);
+    const wHigh = W_from_RH_T(0.5, 25, 80000); // Higher altitude, lower pressure
+    
+    // At lower pressure, same RH and T should result in higher humidity ratio
+    expect(wHigh).toBeGreaterThan(wSea);
+  });
+
+  it('handles extreme temperatures comfortably', () => {
+    // Below zero
+    const wCold = W_from_RH_T(0.5, -10);
+    expect(wCold).toBeGreaterThan(0);
+    expect(wCold).toBeLessThan(0.002);
+    
+    // Very hot
+    const wHot = W_from_RH_T(0.5, 60);
+    expect(wHot).toBeGreaterThan(0.06);
+  });
 });
