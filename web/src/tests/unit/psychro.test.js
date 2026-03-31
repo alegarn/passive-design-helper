@@ -40,10 +40,8 @@ describe('Psychrometric Math', () => {
     expect(w100).toBeGreaterThan(0.026);
     expect(w100).toBeLessThan(0.028);
 
-    // Over 100% (supersaturated) - check if it blows up
-    const wSuper = W_from_RH_T(1.1, 25);
-    expect(wSuper).toBeGreaterThan(0);
-    expect(isFinite(wSuper)).toBe(true);
+    // Over 100% (supersaturated) — psychrolib enforces [0,1]; expect a throw
+    expect(() => W_from_RH_T(1.1, 25)).toThrow();
   });
 
   it('handles pressure variations correctly', () => {
