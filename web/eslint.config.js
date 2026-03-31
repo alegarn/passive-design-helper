@@ -22,6 +22,7 @@ export default [
         setTimeout: 'readonly',
         clearTimeout: 'readonly',
         File: 'readonly',
+        Event: 'readonly',
         AbortController: 'readonly',
         TextDecoder: 'readonly',
         TextEncoder: 'readonly',
