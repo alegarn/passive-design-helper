@@ -58,8 +58,8 @@
   let showMinMax = $state(false);
   let currentPeriod = $state(selectedPeriod);
   let aggregatedData = $state([]);
-  let chartData = $state(null);
-  let chartOptions = $state({});
+  let chartData = $state.raw(null);
+  let chartOptions = $state.raw({});
   let sourceDateRange = $state(null); // Store actual source date range
   // Debug toggle for displaying $maxMetrics in the UI. Keep this around but commented out for now.
   // let showMaxDebug = $state(false);
