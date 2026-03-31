@@ -70,18 +70,18 @@ export function start({ dedupeKey, executor }) {
       const result = executor(controller.signal, requestId);
       // Handle both sync and async executors
       if (result && typeof result.then === 'function') {
-        // Async executor - wait for result
-        result.then(resolve).catch(reject);
+        // Async executor - chain cleanup so it runs after the async work settles
+        result.then(resolve, reject);
       } else {
         // Sync executor - resolve immediately
         resolve(result);
       }
     } catch (error) {
       reject(error);
-    } finally {
-      // Cleanup when promise settles
-      cleanup(requestId, dedupeKey);
     }
+  }).finally(() => {
+    // Cleanup when promise settles (works correctly for both sync and async)
+    cleanup(requestId, dedupeKey);
   });
 
   // Store request details

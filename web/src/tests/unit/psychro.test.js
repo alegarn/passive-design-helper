@@ -32,7 +32,7 @@ describe('Psychrometric Math', () => {
   it('handles extremely high/low humidity correctly', () => {
     // 0% RH
     const w0 = W_from_RH_T(0, 25);
-    expect(w0).toBe(0);
+    expect(w0).toBeCloseTo(0, 5); // allow tiny floating-point from psychrolib
     expect(enthalpy_kJkg(25, w0)).toBeCloseTo(25.15, 1); // Only dry air enthalpy
 
     // 100% RH
