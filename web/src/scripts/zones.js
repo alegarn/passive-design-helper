@@ -19,17 +19,18 @@ import { ZONE_COLORS } from './theme.js';
 const ZONES = [
   // Comfort zone (at 28°C median baseline):
   // T1: 22.8°C / 20% RH  (anchor)
-  // T2: 22.8°C / 80% RH  (same T°, upper humidity ~11.7 g/kg)
-  // T3: 27.8°C / 67% RH  (T1+5°C / min(80%, 16g/kg) — at 19°C median T3=25°C/80%≈16g/kg)
+  // T2: 22.8°C / 80% RH  (same T°, upper humidity)
+  // T3: ~25.1°C / 80% RH (where 80% RH meets 16g/kg isoline — only present at warm medians)
+  // T4: 27.8°C / 67% RH  (T1+5°C on 16g/kg — at ≤19°C median T3=T4 both at 80%)
   // P5: 29.8°C / 50% RH  (T1 + 7°C)
   // P6: 29.8°C / 20% RH  (T1 + 7°C)
-  { id: 'Comfort', color: ZONE_COLORS['Comfort'], type: 'passive', poly: [ p(22.8,20), p(22.8,80), p(27.8,67), p(29.8,50), p(29.8,20) ], description: 'Comfortable temperature/humidity where occupants are generally comfortable without mechanical systems.', complexity: 'Low', examples: ['Nothing to do in that condition', 'Mostly found in well-insulated home with balanced windows', 'Found in low thermal variability interior spaces'], icon: '🛋️', howToApply: { beginner: ['Maintain insulation and active ventilation when needed', 'Use light clothes, adjust indoor shading'], advanced: ['Use thermostat scheduling and passive design audits', 'Tune HVAC controls to exploit thermal shifts'] } },
+  { id: 'Comfort', color: ZONE_COLORS['Comfort'], type: 'passive', poly: [ p(22.8,20), p(22.8,80), p(25.1,80), p(27.8,67), p(29.8,50), p(29.8,20) ], description: 'Comfortable temperature/humidity where occupants are generally comfortable without mechanical systems.', complexity: 'Low', examples: ['Nothing to do in that condition', 'Mostly found in well-insulated home with balanced windows', 'Found in low thermal variability interior spaces'], icon: '🛋️', howToApply: { beginner: ['Maintain insulation and active ventilation when needed', 'Use light clothes, adjust indoor shading'], advanced: ['Use thermostat scheduling and passive design audits', 'Tune HVAC controls to exploit thermal shifts'] } },
   // Ventilation zone (at 28°C median baseline):
-  // Shares Comfort T2/T3/P5/P6 as lower-left boundary (no intermediate P3 vertex).
+  // Shares Comfort T2/T3/T4/P5/P6 as inner boundary.
   // Upper boundary: follows 100% RH from T1+0°C up to T1+7°C (saturation curve),
   //   then drops along 50% line to T1+12°C, then follows 20% line back.
   // NOTE: top points (100% RH) are capped by W=16g/kg in createZonesForMedianTemp.
-  { id: 'Ventilation', color: ZONE_COLORS['Ventilation'], type: 'passive', poly: [ p(22.8, 80), p(22.8, 100), p(29.8,100), p(34.8,50), p(34.8,20), p(29.8,20), p(29.8,50), p(27.8,67), ], description: 'Conditions where increased airflow or cross ventilation improves comfort; uses natural ventilation or low-energy fans.', complexity: 'Low', examples: ['Openable windows on opposite walls', 'Operable vents and ceiling fans'], icon: '💨', howToApply: { beginner: ['Open windows on opposite sides to create airflow', 'Use ceiling or pedestal fans to increase comfort'], advanced: ['Design cross-ventilation paths in the plan layout', 'Add controllable vents and night purge strategies'] } },
+  { id: 'Ventilation', color: ZONE_COLORS['Ventilation'], type: 'passive', poly: [ p(22.8, 80), p(22.8, 100), p(29.8,100), p(34.8,50), p(34.8,20), p(29.8,20), p(29.8,50), p(27.8,67), p(25.1,80), ], description: 'Conditions where increased airflow or cross ventilation improves comfort; uses natural ventilation or low-energy fans.', complexity: 'Low', examples: ['Openable windows on opposite walls', 'Operable vents and ceiling fans'], icon: '💨', howToApply: { beginner: ['Open windows on opposite sides to create airflow', 'Use ceiling or pedestal fans to increase comfort'], advanced: ['Design cross-ventilation paths in the plan layout', 'Add controllable vents and night purge strategies'] } },
   { id: 'Humidification', color: ZONE_COLORS['Humidification'], type: 'mechanical', poly: [ p(0,0), p(0,20), p(5,20), p(10,20), p(15,20), p(20,20), p(22.8,20), p(31.3, 0), p(0,0) ], note: 'Humidification applicability (approx)', description: 'Dry conditions where adding moisture increases occupant comfort; typically requires mechanical humidification.', complexity: 'Low', examples: ['Portable humidifiers in bedrooms', 'Central humidification for airtight, sealed homes'], icon: '💧', howToApply: { beginner: ['Use room humidifiers in occupied spaces or bedrooms', 'Monitor humidity with a hygrometer to avoid over-humidifying'], advanced: ['Install central humidification with sensors and controls', 'Integrate with ventilation to balance moisture'] } },
   { id: 'Heating', color: ZONE_COLORS['Heating'], type: 'active', poly: [ p(0,0), p(0,100), p(6.8,100), p(6.8,0) ], note: 'Heating band (approx)', description: 'Zones where space heating is required to maintain comfort; typically uses active systems.', complexity: 'Low', examples: ['Gas or electric furnaces', 'Hydronic radiant heating'], icon: '🔥', howToApply: { beginner: ['Improve weatherization: seal gaps and insulate', 'Use programmable thermostats and zone thermostats'], advanced: ['Add high-efficiency heat source with zoning and controls', 'Integrate passive solar and thermal mass to reduce runtime'] } },
   { id: 'Active Solar Heating', color: ZONE_COLORS['Active Solar Heating'], type: 'mechanical', poly: [ p(6.8,0), p(6.8,100), p(10.8,100), p(10.8,0) ], note: 'Active solar heating band (approx)', description: 'Solar systems that actively collect, store, and distribute heat (e.g., solar thermal panels with pumps).', complexity: 'Medium', examples: ['Solar thermal collectors with a heat store', 'Pumped loop for hydronic distribution'], icon: '☀️⚡', howToApply: { beginner: ['Install solar thermal collectors and a simple pump loop', 'Provide a domestic hot water preheat or hydronic distribution'], advanced: ['Add a thermal store and smart controls to shift heating loads', 'Combine with heat pumps and backup gas/electric for peak loads'] } },
@@ -304,8 +305,20 @@ function createZonesForMedianTemp(medianTemp, opts = {}) {
   const T_chart_max = opts.Tmax || 50;
 
   // Pre-compute all shared anchor vertices
-  const T_p4  = T1 + 5;    const rh_p4  = rhAtWLimit(T_p4);          // P4: on 16g/kg line (MassCool/shared)
-  const rh_T3  = Math.min(80, rh_p4);                                   // T3: T1+5 / min(80%, 16g/kg) — top-right Comfort/Ventilation
+  const T_p4  = T1 + 5;    const rh_p4  = rhAtWLimit(T_p4);          // T1+5 on 16g/kg (MassCool/shared)
+  const rh_T4  = Math.min(80, rh_p4);                                   // T4: T1+5 / min(80%, 16g/kg)
+
+  // T_w16_80: fixed temperature where the 80% RH line crosses the 16 g/kg isoline (~25.1°C).
+  // When T_w16_80 falls between T1 and T1+5, Comfort has a separate T3 vertex.
+  // When median ≤ ~19°C, crossing is at or beyond T1+5 → T3 merges with T4.
+  let _lo = 10, _hi = 40;
+  for (let _i = 0; _i < 40; _i++) {
+    const _mid = (_lo + _hi) / 2;
+    if (rhAtWLimit(_mid) > 80) _lo = _mid; else _hi = _mid;
+  }
+  const T_w16_80 = (_lo + _hi) / 2;  // ~25.08°C
+  const hasT3 = T_w16_80 > T1 + 0.05 && T_w16_80 < T_p4 - 0.05;
+
   const T_p5  = T1 + 7;    // P5/P6: Comfort/Vent/MassCool/Evap corner at T1+7
   const T_pm  = T1 + 12;   const rh_pm  = rhAtWLimit(T_pm);           // Pm: Ventilation right (T1+12/16g/kg)
   // W_P1: absolute humidity at Comfort P1 (T1/20%) — dry-floor isohumidity for MC, MC+NV, Evap, AC
@@ -325,21 +338,30 @@ function createZonesForMedianTemp(medianTemp, opts = {}) {
     if (!z || !z.poly) return { ...z };
 
     // ── Comfort ────────────────────────────────────────────────────────────────
+    // Top boundary: T2 (80%) → [T3 if applicable] → T4 (min(80%,16g/kg)) → P5 (50%)
+    // T3 appears only when the 80%/16g crossing is between T1 and T1+5 (warm medians).
     if (z.id === 'Comfort') {
       const rh2 = Math.min(80, rhAtWLimit(T1));   // T2: T1 / 80% (capped at W_LIMIT)
-      return { ...z, poly: [
+      const poly = [
         [T1,    20],          // T1: anchor (20°C/20% at median 19°C, ≈3 g/kg)
         [T1,    rh2],         // T2: same T°, 80% RH (≈11.7 g/kg at median 19°C)
-        [T_p4,  rh_T3],       // T3: T1+5 / min(80%, 16g/kg) — T3=T4 at 19°C median
+      ];
+      if (hasT3) {
+        poly.push([T_w16_80, 80]);  // T3: where 80% RH meets 16g/kg (~25.1°C)
+      }
+      poly.push(
+        [T_p4,  rh_T4],       // T4: T1+5 / min(80%, 16g/kg)
         [T_p5,  50],          // P5
         [T_p5,  20],          // P6
-      ]};
+      );
+      return { ...z, poly };
     }
 
     // ── Ventilation ────────────────────────────────────────────────────────────
+    // Inner boundary mirrors Comfort top: T4 [← T3 if applicable] ← T2
     if (z.id === 'Ventilation') {
       const rh2 = Math.min(80, rhAtWLimit(T1));
-      return { ...z, poly: [
+      const poly = [
         [T1,    rh2],         // shared Comfort T2 (T1 / 80%)
         [T1,    100],         // top-left saturation
         [T_p5,  100],         // peak saturation (T1+7 / 100%)
@@ -348,8 +370,12 @@ function createZonesForMedianTemp(medianTemp, opts = {}) {
         [T_pm,  20],          // Pv8: right lower
         [T_p5,  20],          // shared Comfort P6  (T_p5 = T1+7)
         [T_p5,  50],          // shared Comfort P5
-        [T_p4,  rh_T3],       // shared Comfort T3: T1+5 / min(80%, 16g/kg)
-      ]};
+        [T_p4,  rh_T4],       // shared Comfort T4: T1+5 / min(80%, 16g/kg)
+      ];
+      if (hasT3) {
+        poly.push([T_w16_80, 80]);  // shared Comfort T3: 80%/16g crossing
+      }
+      return { ...z, poly };
     }
 
     // ── Mass Cooling ───────────────────────────────────────────────────────────
