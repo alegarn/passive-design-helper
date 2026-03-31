@@ -61,53 +61,13 @@
 </script>
 
 <header>
-  <h1>Passive Design Tactics</h1>
-  <div class="header-info" style="display: flex; flex-direction: column; gap: 1rem; align-items: center; margin-top: 0.5rem;">
-    <div class="data-median-display" style="font-size: 1.1rem; font-weight: 500; background: rgba(0,0,0,0.05); padding: 0.5rem 1rem; border-radius: 4px;">
-      Data Median T°: {$dataMedianTemp !== null ? `${$dataMedianTemp.toFixed(1)}°C` : '—'}
-    </div>
-    
-    <div class="median-slider" style="width: 100%; max-width: 600px; padding: 1rem; background: rgba(0,0,0,0.02); border-radius: 8px; border: 1px solid rgba(0,0,0,0.05); flex-shrink: 0;">
-      <label for="median-slider-input" style="display: block; margin-bottom: 0.5rem; font-weight: 500; text-align: left;">
-        Comfort Zones Median T° (-15°C to 40°C) {isProcessingMedian ? ' (Calculating...)' : ''}
-      </label>
-      <div style="display: flex; flex-direction: column; gap: 0.5rem;">
-        <div style="display: flex; align-items: flex-start; gap: 1rem;">
-          <div style="flex: 1; display: flex; flex-direction: column; gap: 0.25rem;">
-            <input id="median-slider-input" style="width: 100%; height: 2rem; cursor: pointer; display: block; margin: 0;" type="range" min="-15" max="40" step="0.1" bind:value={sliderValue} oninput={handleSlider} />
-            
-            <!-- Responsive Scale aligned with slider track -->
-            <div style="position: relative; width: 100%; height: 20px; font-size: 0.7rem; color: #666; pointer-events: none; margin-top: -0.2rem;">
-              {#each [-15, -10, 0, 10, 20, 30, 40] as tick}
-                <div style="position: absolute; left: {(tick + 15) * 100 / 55}%; transform: translateX(-50%); display: flex; flex-direction: column; align-items: center;">
-                  <div style="width: 1px; height: 4px; background: #ccc; margin-bottom: 2px;"></div>
-                  <span>{tick}</span>
-                </div>
-              {/each}
-            </div>
-          </div>
-
-          <div style="display: flex; align-items: center; gap: 0.25rem; padding-top: 0.2rem;">
-            <input type="number" step="0.1" min="-15" max="40" 
-              value={sliderValue} 
-              oninput={(e) => { sliderValue = Number(e.target.value); handleSlider(e); }}
-              style="width: 70px; padding: 0.3rem; border: 1px solid #ccc; border-radius: 4px; text-align: center; font-size: 0.9rem;"
-            />
-            <span style="font-size: 0.9rem; font-weight: 500;">°C</span>
-          </div>
-        </div>
-
-        <div class="median-value" style="display: flex; align-items: center; justify-content: space-between; min-height: 2.5rem; margin-top: 0.5rem;">
-          <span style="font-size: 0.9rem;">Current Zones T°: <strong>{($medianOverride ?? $dataMedianTemp ?? 28).toFixed(1)}°C</strong></span>
-          <div class="reset-container" style="min-width: 150px; display: flex; justify-content: flex-end;">
-            {#if $medianOverride !== null}
-              <button type="button" style="padding: 0.4rem 0.8rem; cursor: pointer; border-radius: 4px; border: 1px solid #ccc; background: white; white-space: nowrap; font-size: 0.85rem;" onclick={() => { isProcessingMedian = true; medianOverride.set(null); setTimeout(() => isProcessingMedian = false, 50); sliderValue = $dataMedianTemp ?? 28; }}>Reset to Data Median</button>
-            {/if}
-          </div>
-        </div>
-      </div>
-    </div>
+  <div class="header-brand">
+    <h1>Passive Design Tactics</h1>
+    <p class="app-tagline">Upload hourly climate data to map your site on a psychrometric chart and identify passive design tactics — natural ventilation, shading, and thermal mass.</p>
   </div>
+  {#if $dataMedianTemp !== null}
+    <small class="data-median-display">Data Median T°: {$dataMedianTemp.toFixed(1)}°C</small>
+  {/if}
 </header>
 
 <main>
@@ -127,10 +87,38 @@
   {/if}
   
   {#if $currentSummaryData}
-    <!-- Debug: Log what we're passing to PsychroChart -->
-    <!-- {#if typeof window !== 'undefined'}
-      {console.log('App.svelte: Passing aggregationResult to PsychroChart:', $fileStore.raw.aggregationResult)}
-    {/if} -->
+    <div class="median-controls">
+      <label for="median-slider-input" class="median-controls__label">
+        Comfort Zones Median T° (-15°C to 40°C){isProcessingMedian ? ' (Calculating...)' : ''}
+      </label>
+      <div class="median-controls__row">
+        <div class="median-controls__slider-wrap">
+          <input id="median-slider-input" class="median-controls__range" type="range" min="-15" max="40" step="0.1" bind:value={sliderValue} oninput={handleSlider} />
+          <div class="median-controls__ticks">
+            {#each [-15, -10, 0, 10, 20, 30, 40] as tick}
+              <div class="median-controls__tick" style="left: {(tick + 15) * 100 / 55}%">
+                <div class="median-controls__tick-mark"></div>
+                <span>{tick}</span>
+              </div>
+            {/each}
+          </div>
+        </div>
+        <div class="median-controls__number-wrap">
+          <input class="median-controls__number" type="number" step="0.1" min="-15" max="40"
+            value={sliderValue}
+            oninput={(e) => { sliderValue = Number(e.target.value); handleSlider(e); }}
+          />
+          <span class="median-controls__unit">°C</span>
+        </div>
+      </div>
+      <div class="median-controls__footer">
+        <span>Current Zones T°: <strong>{($medianOverride ?? $dataMedianTemp ?? 28).toFixed(1)}°C</strong></span>
+        {#if $medianOverride !== null}
+          <button class="median-controls__reset" type="button" onclick={() => { isProcessingMedian = true; medianOverride.set(null); setTimeout(() => isProcessingMedian = false, 50); sliderValue = $dataMedianTemp ?? 28; }}>Reset to Data Median</button>
+        {/if}
+      </div>
+    </div>
+
     <PsychroChart summaryData={$currentSummaryData} />
     
     <!-- Time Series Chart -->
@@ -156,11 +144,44 @@
 
 <style>
   header {
-    padding: 1rem;
-    background-color: var(--primary-color, #f8f9fa);
-    border-bottom: 1px solid #dee2e6;
+    background: #fff;
+    border-bottom: 3px solid var(--color-primary, #5e81ac);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 1rem;
+    padding: 1.5rem 1rem 1rem;
   }
-  
+
+  .header-brand {
+    text-align: center;
+  }
+
+  header h1 {
+    margin: 0;
+    font-size: clamp(1.4rem, 4vw, 2rem);
+    font-weight: 700;
+    color: var(--color-primary, #5e81ac);
+    letter-spacing: -0.01em;
+    line-height: 1.2;
+  }
+
+  .app-tagline {
+    margin: 0.4rem auto 0;
+    font-size: 0.85rem;
+    color: var(--color-text-muted, #4c566a);
+    max-width: 560px;
+    line-height: 1.5;
+  }
+
+  .data-median-display {
+    font-size: 0.95rem;
+    font-weight: 500;
+    background: rgba(0,0,0,0.05);
+    padding: 0.35rem 0.75rem;
+    border-radius: 4px;
+  }
+
   main {
     flex: 1;
     padding: 1rem;
@@ -169,14 +190,103 @@
     gap: 1rem;
   }
 
-  .median-slider {
-    margin-top: 0.5rem;
+  .median-controls {
+    background: var(--color-bg, #eceff4);
+    border: 1px solid rgba(0,0,0,0.08);
+    border-radius: 8px;
+    padding: 0.75rem 1rem;
+    max-width: 680px;
+  }
+
+  .median-controls__label {
+    display: block;
+    font-weight: 500;
+    font-size: 0.9rem;
+    margin-bottom: 0.4rem;
+  }
+
+  .median-controls__row {
     display: flex;
-    gap: 1rem;
+    align-items: flex-start;
+    gap: 0.75rem;
+  }
+
+  .median-controls__slider-wrap {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 0.15rem;
+  }
+
+  .median-controls__range {
+    width: 100%;
+    height: 1.5rem;
+    cursor: pointer;
+    margin: 0;
+  }
+
+  .median-controls__ticks {
+    position: relative;
+    width: 100%;
+    height: 18px;
+    font-size: 0.65rem;
+    color: #666;
+    pointer-events: none;
+  }
+
+  .median-controls__tick {
+    position: absolute;
+    transform: translateX(-50%);
+    display: flex;
+    flex-direction: column;
     align-items: center;
   }
-  .median-slider input[type="range"] { flex: 1; }
-  .median-value { font-size: 0.9rem; }
+
+  .median-controls__tick-mark {
+    width: 1px;
+    height: 4px;
+    background: #ccc;
+    margin-bottom: 1px;
+  }
+
+  .median-controls__number-wrap {
+    display: flex;
+    align-items: center;
+    gap: 0.2rem;
+    padding-top: 0.1rem;
+  }
+
+  .median-controls__number {
+    width: 65px;
+    padding: 0.25rem;
+    border: 1px solid #ccc;
+    border-radius: 4px;
+    text-align: center;
+    font-size: 0.85rem;
+  }
+
+  .median-controls__unit {
+    font-size: 0.85rem;
+    font-weight: 500;
+  }
+
+  .median-controls__footer {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    font-size: 0.85rem;
+    margin-top: 0.4rem;
+  }
+
+  .median-controls__reset {
+    padding: 0.3rem 0.7rem;
+    cursor: pointer;
+    border-radius: 4px;
+    border: 1px solid #ccc;
+    background: white;
+    white-space: nowrap;
+    font-size: 0.8rem;
+  }
   
   footer {
     padding: 1rem;

@@ -15,6 +15,30 @@ try {
   console.debug = console.trace = () => {};
 } catch (err) { if (typeof console !== 'undefined' && typeof console.warn === 'function') console.warn('Unable to set console.handlers', err); }
 
+const SHORT_LABELS = {
+  'Comfort': 'COMFORT\nZONE',
+  'Ventilation': 'NATURAL\nVENTILATION',
+  'Humidification': 'HUMIDIFICATION',
+  'Heating': 'HEATING',
+  'Active Solar Heating': 'ACTIVE\nSOLAR',
+  'Passive Solar Heating': 'PASSIVE SOLAR\nHEATING',
+  'Internal Gains': 'INTERNAL\nGAINS',
+  'Mass Cooling': 'MASS\nCOOLING',
+  'Evaporative Cooling': 'EVAPORATIVE COOLING',
+  'Mass Cooling & Night Ventilation (or AC)': 'MASS COOLING &\nNIGHT VENTILATION',
+  'Air Conditioning + Dehumidifier': 'AIR-CONDITIONING &\nDEHUMIDIFICATION',
+  'Air Conditioning': 'AIR-\nCONDITIONING',
+};
+
+const ROTATED_ZONES = {
+  'Ventilation': 60,
+  'Natural Ventilation': 60,
+  'Heating': 90,
+  'Active Solar Heating': 90,
+  'Passive Solar Heating': 90,
+  'Internal Gains': 90,
+};
+
 export function createPsychroRenderer(containerEl, options = {}) {
   const opts = {
     Tmin: 0,
@@ -226,6 +250,7 @@ export function createPsychroRenderer(containerEl, options = {}) {
     offscreenCtx.strokeStyle = '#333'; offscreenCtx.lineWidth = 2; offscreenCtx.strokeRect(0, 0, width, height);
     ctx.clearRect(0, 0, width, height); try { ctx.drawImage(offscreenCanvas, 0, 0, width, height); } catch (err) { if (typeof console !== 'undefined' && typeof console.debug === 'function') console.debug('drawImage offscreen failed', err); }
     drawLabels(ctx);
+    drawZoneLabels(ctx);
   }
 
   function setZones(newZones) {
@@ -309,6 +334,77 @@ export function createPsychroRenderer(containerEl, options = {}) {
     ctx.restore();
   }
 
+  function drawZoneLabels(ctx) {
+    if (!currentZones || currentZones.length === 0) return;
+    const baseWidth = 420;
+    const baseHeight = 300;
+    const sizeScale = Math.max(0.45, Math.min(1.0, Math.min(width / baseWidth, height / baseHeight)));
+    const fontPx = Math.max(7, Math.round(9 * sizeScale));
+    const lineHeight = fontPx * 1.25;
+
+    for (const zone of currentZones) {
+      if (!zone || !zone.poly || zone.poly.length < 3) continue;
+
+      // Compute centroid in canvas coords
+      let cx = 0, cy = 0, count = 0;
+      for (const pt of zone.poly) {
+        const T = Number(pt[0]);
+        const RH = Number(pt[1]);
+        const W = (typeof W_from_RH_T === 'function') ? W_from_RH_T(RH / 100, T, opts.p) : null;
+        if (W === null || !Number.isFinite(W)) continue;
+        const Wclamped = Math.min(W, opts.Wmax * 1.000001);
+        const cp = psychroToCanvas(T, Wclamped);
+        cx += cp.x;
+        cy += cp.y;
+        count++;
+      }
+      if (count === 0) continue;
+      cx /= count;
+      cy /= count;
+
+      // Skip if centroid is outside visible canvas
+      if (cx < 0 || cx > width || cy < 0 || cy > height) continue;
+
+      const label = SHORT_LABELS[zone.id] || zone.id.toUpperCase();
+      const lines = label.split('\n');
+      const rotation = ROTATED_ZONES[zone.id] || 0;
+      const rotRad = rotation * Math.PI / 180;
+
+      // Parse zone color and apply higher opacity
+      let fillColor = zone.color || 'rgba(100,100,100,0.8)';
+      try {
+        const m = fillColor.match(/rgba?\(([^)]+)\)/);
+        if (m) {
+          const parts = m[1].split(',').map(s => s.trim());
+          fillColor = `rgba(${parts[0]}, ${parts[1]}, ${parts[2]}, 0.75)`;
+        }
+      } catch (_) { /* use as-is */ }
+
+      ctx.save();
+      ctx.font = `bold ${fontPx}px sans-serif`;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillStyle = fillColor;
+      ctx.strokeStyle = 'rgba(255,255,255,0.9)';
+      ctx.lineWidth = Math.max(1, Math.round(1.5 * sizeScale));
+      ctx.lineJoin = 'round';
+
+      ctx.translate(cx, cy);
+      if (rotRad !== 0) ctx.rotate(-rotRad);
+
+      const totalHeight = lines.length * lineHeight;
+      const startY = -(totalHeight - lineHeight) / 2;
+
+      for (let i = 0; i < lines.length; i++) {
+        const ly = startY + i * lineHeight;
+        ctx.strokeText(lines[i], 0, ly);
+        ctx.fillText(lines[i], 0, ly);
+      }
+
+      ctx.restore();
+    }
+  }
+
   function renderDataPoints(points) {
     dataPoints = points || [];
     try {
@@ -338,6 +434,7 @@ export function createPsychroRenderer(containerEl, options = {}) {
         ctx.clearRect(0, 0, width, height);
         try { ctx.drawImage(offscreenCanvas, 0, 0, width, height); } catch (err) { if (typeof console !== 'undefined' && typeof console.debug === 'function') console.debug('ctx.drawImage failed', err); }
         drawLabels(ctx);
+        drawZoneLabels(ctx);
         ctx.fillStyle = '#ff4444';
         dataPoints.forEach((point, i) => {
           if (!point || typeof point.T !== 'number' || typeof point.W !== 'number') return;

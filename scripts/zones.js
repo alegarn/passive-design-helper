@@ -19,7 +19,7 @@ function p(t, rh) {
 }
 
 /**
- * Zone definitions for passive design tactics
+ * Zone definitions for passive design tactics (median @28°C)
  * Each zone has id, color, polygon points, and optional note
  */
 import { ZONE_COLORS } from './theme.js';
@@ -150,7 +150,7 @@ const ZONES = [
       p(27.8,67), 
       p(35.8,41.76), 
       p(39.8,30), 
-      p(39.8,7) 
+      p(39.8,12) 
     ],
     description: 'Use of thermal mass to dampen daytime heat peaks and release heat when temperatures drop to keep interiors cool.',
     complexity: 'Medium',
@@ -184,12 +184,12 @@ const ZONES = [
     color: ZONE_COLORS['Mass Cooling & Night Ventilation (or Air Conditioning)'],
     type: 'hybrid',
     poly: [
-      p(39.8, 7.25),
-      p(39.8,30),
-      p(35.8,41.76),
-      p(42.8, 27.89),
+      p(39.8, 7),
+      p(39.8, 30),
+      p(35.8, 42),
+      p(42.8, 28),
       p(46.86, 20),
-      p(46.86, 4.86),
+      p(46.86, 5),
     ],
     description: 'Hybrid strategy using building mass plus night ventilation to cool; when insufficient, AC supplements performance.',
     complexity: 'Medium',
@@ -201,19 +201,15 @@ const ZONES = [
     id: 'Air Conditioning + Dehumidifier',
     color: ZONE_COLORS['Air Conditioning + Dehumidifier'], 
     type: 'active',
-    // Refined: apply when relative humidity is high (>= ~40%) — ventilation alone insufficient
-    // Approx DBT 29.5-50 °C combined with RH 40-100%
     poly: [
+      p(29.8, 100),
+      p(50, 100),
+      p(50, 40),
+      p(42.8, 28),
+      p(35.8, 42),
       p(34.8, 50),
-      p(29.8,100),
-      p(34.3,100),
-      p(50.0,40.56),
-      p(50,18.54),
-      p(42.8, 27.89),
-      p(35.8, 41.76),
-      p(34.8, 44.28),
     ],
-    note: 'Air conditioning with dehumidifier — refined to RH >= 40% (ventilation insufficient)',
+    note: 'Air conditioning with dehumidifier — upper envelope: high T + high RH',
     description: 'Mechanical cooling with simultaneous dehumidification is required to maintain comfortable humidity and temperature.',
     complexity: 'Medium',
     examples: ['Packaged AC with integrated dehumidifier', 'Separate dehumidifier combined with split AC'],
@@ -226,12 +222,10 @@ const ZONES = [
     type: 'active',
     poly: [
       p(43.8, 0),
-      p(43.8, 5.76),
-      p(46.86, 4.86),
+      p(43.8, 10),
       p(46.86, 20),
-      p(42.8, 27.89),
-      p(50.0, 18.54),
-      p(50.0,  0)
+      p(50, 18),
+      p(50, 0),
     ],
     description: 'Mechanical cooling used to lower temperatures and/or manage humidity when passive measures are insufficient.',
     complexity: 'Low',
@@ -241,70 +235,199 @@ const ZONES = [
   }
 ];
 
-// --- Median-based zone shifting constants for CLI ---
-const BASELINE_MEDIAN_T = 28.0;
+const BASELINE_MEDIAN_T = 28.0; // baseline median for which the polygon coordinates were authored
 const MEDIAN_SLOPE_C_PER_C = 0.3111111111111111;
-const MIN_MEDIAN_T = 10.0;
-const MAX_MEDIAN_T = 35.0;
-const ANCHOR_MEDIAN_T = 19.0;
-const COMFORT_ANCHOR_POINT = { t: 25.0, rh: 80 };
-const W_CONST_G_PER_KG = 16.0;
-const W_THRESHOLD_GPKG = 1.0;
+const MIN_MEDIAN_T = -40.0;
+const MAX_MEDIAN_T = 40.0;
+
+const W_LIMIT_GPKG = 16.0; // Based on images showing limit around 16 g/kg
+
+// Comfort P1 at baseline: T1_BASE = 22.8°C, RH1 = 20%.
+const T1_BASE = 22.8;
 
 function clampMedian(median) {
   if (median == null || !Number.isFinite(median)) return BASELINE_MEDIAN_T;
-  if (median < MIN_MEDIAN_T) return MIN_MEDIAN_T;
-  if (median > MAX_MEDIAN_T) return MAX_MEDIAN_T;
+  if (median < MIN_MEDIAN_T) {
+    console.warn(`createZonesForMedianTemp: median ${median}°C below MIN_MEDIAN_T (${MIN_MEDIAN_T}°C); clamping`);
+    return MIN_MEDIAN_T;
+  }
+  if (median > MAX_MEDIAN_T) {
+    console.warn(`createZonesForMedianTemp: median ${median}°C above MAX_MEDIAN_T (${MAX_MEDIAN_T}°C); clamping`);
+    return MAX_MEDIAN_T;
+  }
   return median;
 }
 
+function comfortT1(median) {
+  return T1_BASE + (median - BASELINE_MEDIAN_T) * MEDIAN_SLOPE_C_PER_C;
+}
+
+/**
+ * Calculates RH (%) from Temperature (°C) and Humidity Ratio (g/kg)
+ */
 function rhFromWgPerKg(T, W_g_per_kg, p_hPa = 1013.25) {
   if (!Number.isFinite(T) || !Number.isFinite(W_g_per_kg)) return null;
   const W = Number(W_g_per_kg) / 1000.0; // convert g/kg -> kg/kg
   if (W <= 0) return 0;
+  // Partial pressure of water vapor e from humidity ratio W: e = (W * p) / (0.62198 + W)
   const e_hPa = (W * p_hPa) / (0.62198 + W);
+  // Saturation vapor pressure es from temperature T
   const es = 6.112 * Math.exp((17.62 * T) / (243.12 + T));
   let rh = (e_hPa / es) * 100;
   if (!Number.isFinite(rh)) return null;
   return Math.max(0, Math.min(100, rh));
 }
 
+/**
+ * Calculates Humidity Ratio (g/kg) from Temperature (°C) and RH (%)
+ */
 function wgPerKgFromTRH(T, RH, p_hPa = 1013.25) {
   if (!Number.isFinite(T) || !Number.isFinite(RH)) return null;
   const e = actualVaporPressure_hPa(T, RH);
   if (!e || !Number.isFinite(e.hPa)) return null;
-  const w = vaporContent_g_per_kg(e.hPa, p_hPa);
-  return w; // g/kg
+  return vaporContent_g_per_kg(e.hPa, p_hPa);
 }
 
-function almostEqual(a,b,eps=1e-9) { return Math.abs(a-b) <= eps; }
-
-function createZonesForMedianTemp(medianTemp, opts={}) {
+/**
+ * Build the full set of zones shifted for a given median outdoor temperature.
+ * All zones rebuilt anchor-relative from Comfort P1 (T1).
+ */
+function createZonesForMedianTemp(medianTemp, opts = {}) {
   const median = clampMedian(medianTemp == null ? BASELINE_MEDIAN_T : Number(medianTemp));
-  const offset = (median - BASELINE_MEDIAN_T) * MEDIAN_SLOPE_C_PER_C;
   const useZones = (opts.zones || ZONES);
-  const denom = (BASELINE_MEDIAN_T - ANCHOR_MEDIAN_T) || 1;
-  const alpha = (median - ANCHOR_MEDIAN_T) / denom;
+
+  const T1 = comfortT1(median);
+  const deltaT = T1 - T1_BASE;
+
+  const rhAtWLimit = (T) => rhFromWgPerKg(T, W_LIMIT_GPKG) ?? 80;
+  const rhAtW = (T, W) => rhFromWgPerKg(T, W) ?? 0;
+  const T_chart_max = opts.Tmax || 50;
+
+  const T_p4  = T1 + 5;    const rh_p4  = rhAtWLimit(T_p4);
+  const T_p5  = T1 + 7;
+  const T_pm  = T1 + 12;   const rh_pm  = rhAtWLimit(T_pm);
+  const W_P1  = wgPerKgFromTRH(T1, 20);        // ≈3.4 g/kg at baseline (dry-floor isohumidity)
+  const T_pe  = T1 + 19;   const rh_pe  = rhAtW(T_pe, W_P1 ?? 3.5);
+  const T_pmc = T1 + 20;   const rh_pmc = rhAtWLimit(T_pmc);
+  const T_pn  = T1 + 24;   const rh_pn_wlim = rhAtWLimit(T_pn);
+  const T_mc5      = T1 + 13;  const rh_mc5 = rhAtWLimit(T_mc5);
+  const T_mc_right = T1 + 17;
+  const rh_mc_dry  = rhAtW(T_mc_right, W_P1 ?? 3.43);
+  const rh_pn_wP1  = rhAtW(T_pn, W_P1 ?? 3.43);
+  const T_ev78     = T1 + 21;
+  const rh_ev78_wP1 = rhAtW(T_ev78, W_P1 ?? 3.43);
 
   return useZones.map(z => {
     if (!z || !z.poly) return { ...z };
+
+    if (z.id === 'Comfort') {
+      const rh2 = Math.min(80, rhAtWLimit(T1));
+      const T3  = T1 + 2.2;
+      const rh3 = rhAtWLimit(T3);
+      return { ...z, poly: [
+        [T1,    20],
+        [T1,    rh2],
+        [T3,    rh3],
+        [T_p4,  rh_p4],
+        [T_p5,  50],
+        [T_p5,  20],
+      ]};
+    }
+
+    if (z.id === 'Ventilation') {
+      const rh2 = Math.min(80, rhAtWLimit(T1));
+      const T3  = T1 + 2.2;
+      const rh3 = rhAtWLimit(T3);
+      return { ...z, poly: [
+        [T1,    rh2],
+        [T1,    100],
+        [T_p5,  100],
+        [T_pm,  50],
+        [T_pm,  rh_pm],
+        [T_pm,  20],
+        [T_p5,  20],
+        [T_p5,  50],
+        [T_p4,  rh_p4],
+        [T3,    rh3],
+      ]};
+    }
+
+    if (z.id === 'Mass Cooling') {
+      return { ...z, poly: [
+        [T1,          20],
+        [T_p5,        20],
+        [T_p5,        50],
+        [T_p4,        rh_p4],
+        [T_pm,        rh_pm],
+        [T_mc5,       rh_mc5],
+        [T_mc_right,  30],
+        [T_mc_right,  rh_mc_dry],
+      ]};
+    }
+
+    if (z.id === 'Evaporative Cooling') {
+      const T_ev5 = T1 + 16;
+      const T_ev6 = T1 + 19;
+      const T_ev78 = T1 + 21;
+      const T_ev9 = T1 + 9;
+      return { ...z, poly: [
+        [T1,      20],
+        [T_p5,    20],
+        [T_p5,    50],
+        [T_p4,    rh_p4],
+        [T_ev5,   30],
+        [T_ev6,   20],
+        [T_ev78,  10],
+        [T_ev78,  0],
+        [T_ev9,   0],
+      ]};
+    }
+
+    if (z.id === 'Mass Cooling & Night Ventilation (or AC)') {
+      return { ...z, poly: [
+        [T_mc_right,  rh_mc_dry],
+        [T_mc_right,  30],
+        [T_mc5,       rh_mc5],
+        [T_pmc,       rh_pmc],
+        [T_pn,        20],
+        [T_pn,        rh_pn_wP1],
+        [T_ev78,      rh_ev78_wP1],
+      ]};
+    }
+
+    if (z.id === 'Air Conditioning + Dehumidifier') {
+      const rh_chart_edge = rhAtWLimit(T_chart_max);
+      return { ...z, poly: [
+        [T_p5,  100],
+        [T_chart_max, 100],
+        [T_chart_max, rh_chart_edge],
+        [T_pmc, rh_pmc],
+        [T_mc5, rh_mc5],
+        [T_pm,  rh_pm],
+        [T_pm,  50],
+      ]};
+    }
+
+    if (z.id === 'Air Conditioning') {
+      const rh_chart_top = rhAtWLimit(T_chart_max);
+      return { ...z, poly: [
+        [T_pmc, rh_pmc],
+        [T_pn,  rh_pn_wlim],
+        [T_chart_max, rh_chart_top],
+        [T_chart_max, 0],
+        [T_ev78,  0],
+        [T_ev78,  rh_ev78_wP1],
+        [T_pn,    rh_pn_wP1],
+        [T_pn,    20],
+      ]};
+    }
+
+    // All other zones: simple horizontal T shift
     const newPoly = z.poly.map(pt => {
-      const t_old = Number(pt[0]); const rh_old = Number(pt[1]);
-      if (almostEqual(t_old, 27.8) && almostEqual(rh_old, 67)) {
-        const t_base = t_old + offset; const rh_base = rh_old;
-        const t_anchor = COMFORT_ANCHOR_POINT.t; const rh_anchor = COMFORT_ANCHOR_POINT.rh;
-        const t_new = t_anchor + alpha * (t_base - t_anchor);
-        const rh_new = rh_anchor + alpha * (rh_base - rh_anchor);
-        const finalRh = (median <= ANCHOR_MEDIAN_T) ? Math.max(rh_new, rh_anchor) : rh_new;
-        return [Number(t_new), Number(finalRh)];
-      }
-      const w_baseline = wgPerKgFromTRH(t_old, rh_old);
-      if (Number.isFinite(w_baseline) && Math.abs(w_baseline - W_CONST_G_PER_KG) <= W_THRESHOLD_GPKG) {
-        const t_new = t_old + offset;
-        const rh_new = rhFromWgPerKg(t_new, W_CONST_G_PER_KG);
-        return [Number(t_new), Number(rh_new !== null ? rh_new : rh_old)];
-      }
-      return [t_old + offset, rh_old];
+      const t_old = Number(pt[0]);
+      const rh_old = Number(pt[1]);
+      const t_new = (t_old >= INF_T) ? INF_T : t_old + deltaT;
+      return [t_new, rh_old];
     });
     return { ...z, poly: newPoly };
   });
