@@ -63,6 +63,17 @@ export function createPsychroRenderer(containerEl, options = {}) {
   let rafId;
   let lastFrameTime = 0;
   let dataPoints = [];
+  let padLeft = 48, padRight = 30, padTop = 6, padBottom = 24;
+
+  function computePadding() {
+    const baseWidth = 420, baseHeight = 300;
+    const sizeScale = Math.max(0.45, Math.min(1.0, Math.min(width / baseWidth, height / baseHeight)));
+    padLeft   = Math.round(Math.max(40, 52 * sizeScale));
+    padRight  = Math.round(Math.max(28, 34 * sizeScale));
+    padTop    = Math.round(Math.max(4,   8 * sizeScale));
+    padBottom = Math.round(Math.max(28, 36 * sizeScale));
+    return sizeScale;
+  }
 
   function init() {
     if (opts.canvasEl instanceof HTMLCanvasElement) {
@@ -131,10 +142,12 @@ export function createPsychroRenderer(containerEl, options = {}) {
   }
 
   function psychroToCanvas(T, W) {
-    let x = ((T - opts.Tmin) / (opts.Tmax - opts.Tmin)) * width;
-    let y = height - (W / opts.Wmax) * height;
-    x = Math.max(0.5, Math.min(x, width - 0.5));
-    y = Math.max(0.5, Math.min(y, height - 0.5));
+    const plotW = width - padLeft - padRight;
+    const plotH = height - padTop - padBottom;
+    let x = padLeft + ((T - opts.Tmin) / (opts.Tmax - opts.Tmin)) * plotW;
+    let y = padTop + plotH - (W / opts.Wmax) * plotH;
+    x = Math.max(padLeft + 0.5, Math.min(x, padLeft + plotW - 0.5));
+    y = Math.max(padTop + 0.5, Math.min(y, padTop + plotH - 0.5));
     return { x, y };
   }
 
@@ -183,6 +196,7 @@ export function createPsychroRenderer(containerEl, options = {}) {
 
   function renderBackground() {
     if (!offscreenCtx) return;
+    computePadding();
     offscreenCtx.clearRect(0, 0, width, height);
     try {
       offscreenCtx.save();
@@ -242,12 +256,16 @@ export function createPsychroRenderer(containerEl, options = {}) {
       offscreenCtx.restore();
     } catch (err) { if (typeof console !== 'undefined' && typeof console.debug === 'function') console.debug('renderBackground failed', err); }
 
-    offscreenCtx.strokeStyle = '#e0e0e0'; offscreenCtx.lineWidth = 1;
+    // Dotted T° vertical grid lines
+    offscreenCtx.strokeStyle = '#c8c8c8'; offscreenCtx.lineWidth = 1; offscreenCtx.setLineDash([3, 5]);
     for (let T = Math.ceil(opts.Tmin); T <= opts.Tmax; T += 5) { const curveKey = `temp_${T}`; const path = curveCache.getOrCompute(curveKey, () => generateConstantTempCurve(T)); offscreenCtx.stroke(path); }
+    // Dotted humidity horizontal grid lines
     for (let W = 0.005; W <= opts.Wmax; W += 0.005) { const curveKey = `w_${W.toFixed(3)}`; const path = curveCache.getOrCompute(curveKey, () => generateConstantWHumidCurve(W)); offscreenCtx.stroke(path); }
+    offscreenCtx.setLineDash([]);
     offscreenCtx.strokeStyle = '#a0a0a0'; for (let RH = 0.1; RH <= 1.0; RH += 0.1) { const curveKey = `rh_${RH.toFixed(1)}`; const path = curveCache.getOrCompute(curveKey, () => generateConstantRHCureve(RH)); offscreenCtx.stroke(path); }
     offscreenCtx.strokeStyle = '#808080'; offscreenCtx.setLineDash([5, 5]); for (let h = 20; h <= 100; h += 10) { const curveKey = `h_${h}`; const path = curveCache.getOrCompute(curveKey, () => generateConstantEnthalpyCurve(h)); offscreenCtx.stroke(path); } offscreenCtx.setLineDash([]);
-    offscreenCtx.strokeStyle = '#333'; offscreenCtx.lineWidth = 2; offscreenCtx.strokeRect(0, 0, width, height);
+    // Border around the plot area only
+    offscreenCtx.strokeStyle = '#333'; offscreenCtx.lineWidth = 2; offscreenCtx.strokeRect(padLeft, padTop, width - padLeft - padRight, height - padTop - padBottom);
     ctx.clearRect(0, 0, width, height); try { ctx.drawImage(offscreenCanvas, 0, 0, width, height); } catch (err) { if (typeof console !== 'undefined' && typeof console.debug === 'function') console.debug('drawImage offscreen failed', err); }
     drawLabels(ctx);
     drawZoneLabels(ctx);
@@ -260,75 +278,77 @@ export function createPsychroRenderer(containerEl, options = {}) {
   }
 
   function drawLabels(ctx) {
-    // Determine scale factor based on layout size (avoid relying on DPR here)
-    const baseWidth = 420; const baseHeight = 300;
+    const baseWidth = 420, baseHeight = 300;
     const sizeScale = Math.max(0.45, Math.min(1.0, Math.min(width / baseWidth, height / baseHeight)));
+    computePadding();
+    const plotW = width - padLeft - padRight;
+    const plotH = height - padTop - padBottom;
 
     ctx.save();
-    // Use CSS pixel font sizes scaled by layout size (sizeScale). Do NOT multiply again by DPR.
-    const tickFontPx = Math.max(8, Math.round(12 * sizeScale));
-    const titleFontPx = Math.max(10, Math.round(14 * sizeScale));
-    ctx.fillStyle = 'rgba(0,0,0,0.85)'; ctx.strokeStyle = 'white'; ctx.lineWidth = Math.max(1, Math.round(1 * sizeScale)); ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    const tickFontPx = Math.max(8, Math.round(10 * sizeScale));
+    const titleFontPx = Math.max(10, Math.round(13 * sizeScale));
+    const tickLen = Math.round(4 * sizeScale);
+    const lw = Math.max(1, Math.round(1 * sizeScale));
+    ctx.lineWidth = lw;
 
-    // Temperature ticks and labels (x axis)
+    // --- Temperature axis (x axis, below plot) ---
+    const tempStep = width < 320 ? 10 : 5;
     ctx.font = `${tickFontPx}px sans-serif`;
-    const tempStepDegrees = width < 320 ? 10 : 5; // reduce density on very small widths
-    const tempLabelOffset = Math.round(6 * sizeScale);
-    for (let T = Math.ceil(opts.Tmin / tempStepDegrees) * tempStepDegrees; T <= opts.Tmax; T += tempStepDegrees) {
-      const sampleW = Math.min(opts.Wmax, Math.max(1e-6, opts.Wmax * 0.02));
-      const p = psychroToCanvas(T, sampleW);
-      const labelY = Math.min(height - tempLabelOffset, Math.max(tempLabelOffset, p.y + Math.round(4 * sizeScale)));
-      ctx.lineWidth = Math.max(1, Math.round(1 * sizeScale));
-      ctx.strokeText(`${T}°C`, p.x, labelY);
-      ctx.fillText(`${T}°C`, p.x, labelY);
+    ctx.textAlign = 'center'; ctx.textBaseline = 'top';
+    for (let T = Math.ceil(opts.Tmin / tempStep) * tempStep; T <= opts.Tmax; T += tempStep) {
+      const x = padLeft + ((T - opts.Tmin) / (opts.Tmax - opts.Tmin)) * plotW;
+      const y0 = padTop + plotH;
+      ctx.strokeStyle = 'rgba(0,0,0,0.25)'; ctx.beginPath(); ctx.moveTo(x, y0); ctx.lineTo(x, y0 + tickLen); ctx.stroke();
+      ctx.strokeStyle = 'rgba(255,255,255,0.85)'; ctx.lineWidth = lw; ctx.strokeText(`${T}°C`, x, y0 + tickLen + 1);
+      ctx.fillStyle = 'rgba(0,0,0,0.75)'; ctx.fillText(`${T}°C`, x, y0 + tickLen + 1);
     }
 
-    // Title centered on x axis
+    // Temperature axis title
     ctx.font = `${titleFontPx}px sans-serif`;
-    const titleY = Math.min(height - Math.round(4 * sizeScale), height - Math.round(14 * sizeScale));
+    ctx.textAlign = 'center'; ctx.textBaseline = 'bottom';
     const titleText = width < 300 ? 'Temp (°C)' : 'Temperature (°C)';
-    ctx.strokeText(titleText, width / 2, titleY);
-    ctx.fillText(titleText, width / 2, titleY);
+    ctx.strokeStyle = 'rgba(255,255,255,0.85)'; ctx.strokeText(titleText, padLeft + plotW / 2, height - 2);
+    ctx.fillStyle = 'rgba(0,0,0,0.75)'; ctx.fillText(titleText, padLeft + plotW / 2, height - 2);
 
-    // W ticks/labels (y axis on left)
+    // --- Humidity ratio axis (y axis, left of plot) ---
+    const maxWTicks = plotH < 200 ? 4 : 6;
+    const wStep = opts.Wmax / maxWTicks;
     ctx.font = `${tickFontPx}px sans-serif`;
     ctx.textAlign = 'right'; ctx.textBaseline = 'middle';
-    const maxWTicks = width < 360 ? 4 : 8;
-    const wStep = (opts.Wmax - 0) / maxWTicks;
-    const wLabelOffset = Math.max(Math.round(6 * sizeScale), Math.round(4 * sizeScale));
     for (let W = 0; W <= opts.Wmax + 1e-12; W += wStep) {
-      const p = psychroToCanvas(opts.Tmin + (opts.Tmax - opts.Tmin) * 0.02, W);
-      const gx = Math.max(wLabelOffset, p.x - wLabelOffset);
-      const label = `${(W * 1000).toFixed(1)} g/kg`;
-      ctx.lineWidth = Math.max(1, Math.round(1 * sizeScale));
-      ctx.strokeText(label, gx, p.y);
-      ctx.fillText(label, gx, p.y);
+      const y = padTop + plotH - (W / opts.Wmax) * plotH;
+      ctx.strokeStyle = 'rgba(0,0,0,0.25)'; ctx.beginPath(); ctx.moveTo(padLeft, y); ctx.lineTo(padLeft - tickLen, y); ctx.stroke();
+      const label = `${(W * 1000).toFixed(1)}`;
+      ctx.strokeStyle = 'rgba(255,255,255,0.85)'; ctx.lineWidth = lw; ctx.strokeText(label, padLeft - tickLen - 2, y);
+      ctx.fillStyle = 'rgba(0,0,0,0.75)'; ctx.fillText(label, padLeft - tickLen - 2, y);
     }
+    // Unit header for W axis
+    ctx.font = `${Math.max(7, Math.round(9 * sizeScale))}px sans-serif`;
+    ctx.textAlign = 'right'; ctx.textBaseline = 'top';
+    ctx.fillStyle = 'rgba(0,0,0,0.5)'; ctx.fillText('g/kg', padLeft - tickLen - 2, padTop);
 
-    // Rotated humidity ratio title
+    // Humidity ratio axis title (rotated, in left margin)
     ctx.save();
     ctx.font = `${titleFontPx}px sans-serif`;
-    ctx.translate(Math.round(12 * sizeScale), height / 2);
+    ctx.translate(Math.round(11 * sizeScale), padTop + plotH / 2);
     ctx.rotate(-Math.PI / 2);
-    ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.lineWidth = Math.max(1, Math.round(1 * sizeScale));
-    ctx.strokeText('Humidity ratio (g/kg)', 0, 0);
-    ctx.fillText('Humidity ratio (g/kg)', 0, 0);
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.strokeStyle = 'rgba(255,255,255,0.85)'; ctx.strokeText('Humidity ratio (g/kg)', 0, 0);
+    ctx.fillStyle = 'rgba(0,0,0,0.75)'; ctx.fillText('Humidity ratio (g/kg)', 0, 0);
     ctx.restore();
 
-    // RH labels near right of curves
-    ctx.font = `${Math.round(11 * sizeScale)}px sans-serif`;
+    // --- RH% labels (right of plot, in right margin) ---
+    ctx.font = `${Math.max(8, Math.round(10 * sizeScale))}px sans-serif`;
     ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
     const rhStep = width < 360 ? 0.2 : 0.1;
     for (let rh = 0.1; rh <= 1.0 + 1e-12; rh += rhStep) {
-      const sampleT = Math.max(opts.Tmin, opts.Tmax - 2);
-      const sampleW = (typeof W_from_RH_T === 'function') ? W_from_RH_T(rh, sampleT, opts.p) : null;
-      if (sampleW === null || !Number.isFinite(sampleW)) continue;
-      const p = psychroToCanvas(sampleT, sampleW);
-      const ox = Math.min(width - Math.round(6 * sizeScale), p.x + Math.round(6 * sizeScale));
-      const label = `${Math.round(rh * 100)}%`;
-      ctx.lineWidth = Math.max(1, Math.round(1 * sizeScale));
-      ctx.strokeText(label, ox, p.y);
-      ctx.fillText(label, ox, p.y);
+      const sampleW = (typeof W_from_RH_T === 'function') ? W_from_RH_T(rh, opts.Tmax, opts.p) : null;
+      if (sampleW === null || !Number.isFinite(sampleW) || sampleW < 0) continue;
+      const Wclamped = Math.min(sampleW, opts.Wmax);
+      const y = padTop + plotH - (Wclamped / opts.Wmax) * plotH;
+      if (y < padTop - 2 || y > padTop + plotH + 2) continue;
+      ctx.strokeStyle = 'rgba(255,255,255,0.85)'; ctx.lineWidth = lw; ctx.strokeText(`${Math.round(rh * 100)}%`, padLeft + plotW + 3, y);
+      ctx.fillStyle = 'rgba(0,0,0,0.6)'; ctx.fillText(`${Math.round(rh * 100)}%`, padLeft + plotW + 3, y);
     }
 
     ctx.restore();
