@@ -43,7 +43,7 @@
     showParameters = !showParameters;
     success = '';
     if (showParameters) {
-      url = builtUrl();
+      url = builtUrl;
       scheduleUploadDebounced();
     }
   }
@@ -52,7 +52,7 @@
   async function openLeafletPreview() {
     // We already import LeafletMap statically for now — open preview
     showLeafletMap = true;
-    url = builtUrl();
+    url = builtUrl;
     scheduleUploadDebounced();
   }
 
@@ -80,7 +80,7 @@ async function fetchAndDownload() {
     // Ensure we always pass a concrete URL to the store and request JSON from the API.
     // The component still allows the user to download JSON or CSV, but the store
     // needs a parsed JSON payload for column/header detection.
-    const final = finalUrl();
+    const final = finalUrl;
     const params = {
       url: final,
       format: 'json' // always fetch JSON so normalizer can extract headers/samples
@@ -132,13 +132,13 @@ async function fetchAndDownload() {
   
   
   // Derived URL from parameters (computed, doesn't overwrite manual input unless we explicitly copy)
-  const builtUrl = $derived(() => buildUrl());
+  const builtUrl = $derived(buildUrl());
   // Final URL used for all uploads and network calls: if parameters or map UI active, use builtUrl, otherwise manual `url` value.
-  const finalUrl = $derived(() => (showParameters || showLeafletMap) ? builtUrl() : url);
+  const finalUrl = $derived((showParameters || showLeafletMap) ? builtUrl : url);
   
   // Auto-fetch when parameters change (only active when `Choose parameters` or Map preview are open)
   function triggerFetch() {
-    const urlToUse = finalUrl();
+    const urlToUse = finalUrl;
     const params = { url: urlToUse, format: format };
     fileStore.fetchRemote(params);
   }
@@ -150,7 +150,7 @@ async function fetchAndDownload() {
   function scheduleUploadDebounced() {
     if (uploadDebounceTimer) clearTimeout(uploadDebounceTimer);
     uploadDebounceTimer = setTimeout(() => {
-      const urlToUse = finalUrl();
+      const urlToUse = finalUrl;
       const params = { url: urlToUse, format: 'json' };
       fileStore.fetchRemote(params);
     }, UPLOAD_DEBOUNCE_MS);
@@ -158,7 +158,7 @@ async function fetchAndDownload() {
 
   function scheduleUploadImmediate() {
     if (uploadDebounceTimer) clearTimeout(uploadDebounceTimer);
-    const urlToUse = finalUrl();
+    const urlToUse = finalUrl;
     const params = { url: urlToUse, format: 'json' };
     fileStore.fetchRemote(params);
   }
@@ -174,7 +174,7 @@ async function fetchAndDownload() {
       selectedCity = city;
       // If parameters or map UI is visible, update the URL and schedule a fetch
       if (showParameters || showLeafletMap) {
-        url = builtUrl();
+        url = builtUrl;
         scheduleUploadDebounced();
       }
     }
@@ -187,7 +187,7 @@ async function fetchAndDownload() {
     selectedCity = city;
     selectedCityName = city.name;
     if (showParameters || showLeafletMap) {
-      url = finalUrl();
+      url = finalUrl;
       scheduleUploadDebounced();
     }
   }
@@ -220,7 +220,7 @@ async function fetchAndDownload() {
 
   function handleParameterChange() {
     // Keep the URL preview in sync and schedule an upload each time a parameter changes
-    url = builtUrl();
+    url = builtUrl;
     scheduleUploadDebounced();
   }
 
@@ -232,7 +232,7 @@ async function fetchAndDownload() {
     // selecting via the map is a 'manual coordinate' update: clear selected city
     selectedCityName = '';
     selectedCity = '';
-    url = builtUrl();
+    url = builtUrl;
     scheduleUploadDebounced();
   }
 
@@ -255,7 +255,7 @@ async function fetchAndDownload() {
         lon = String(Number(longitude).toFixed(6));
         selectedCityName = '';
         selectedCity = '';
-        url = builtUrl();
+        url = builtUrl;
         scheduleUploadDebounced();
         success = 'Updated coordinates from your device location';
         coordsUpdated = true;
@@ -327,7 +327,7 @@ async function fetchAndDownload() {
         <div class="form-group geo-controls" role="group" aria-labelledby="geoControlsLabel">
           <div id="geoControlsLabel" class="sr-only">Geolocation actions</div>
           <div class="geo-stack">
-            <button id="resetCoordinates" type="button" class="map-inline-btn" onclick={() => { selectedCityName=''; selectedCity=''; url=builtUrl(); scheduleUploadDebounced(); fileStore.setMetaLastError(null); geolocSuccess = false; geolocLoading = false; coordsUpdated = false; }} title="Reset to URL coordinates" aria-label="Reset coordinates to URL values">Reset my location</button>
+            <button id="resetCoordinates" type="button" class="map-inline-btn" onclick={() => { selectedCityName=''; selectedCity=''; url=builtUrl; scheduleUploadDebounced(); fileStore.setMetaLastError(null); geolocSuccess = false; geolocLoading = false; coordsUpdated = false; }} title="Reset to URL coordinates" aria-label="Reset coordinates to URL values">Reset my location</button>
             <button id="openMap" type="button" class="map-inline-btn" onclick={openInMap} title="Open lat/lon in OpenStreetMap" aria-label="Open coordinates in OpenStreetMap">Open in map</button>
           </div>
         </div>

@@ -3,7 +3,7 @@
   import { Line } from 'svelte5-chartjs';
   import { onDestroy } from 'svelte';
   import { ZONE_COLORS } from '../scripts/theme.js';
-  import { ZONES, preferredZoneForPoint } from '../scripts/zones.js';
+  import { ZONES, preferredZoneForPoint, createZonesForMedianTemp } from '../scripts/zones.js';
   // Dynamic import: load the modal only when needed
   let TacticModalComponent = $state(null);
   async function loadTacticModal() {
@@ -25,7 +25,7 @@
   } from '../utils/timeSeriesAggregator.js';
   import { getSourceDateRange, buildDailyBuckets } from '../utils/dataProcessor.js';
   import StatCard from './StatCard.svelte';
-  import { filteredTimeSeries, selectedMonth, maxMetrics, minMetrics } from '../stores/fileStore.js';
+  import { filteredTimeSeries, selectedMonth, maxMetrics, minMetrics, medianTemp } from '../stores/fileStore.js';
   import 'chartjs-adapter-date-fns';
 
   // Register Chart.js components only once and check if already registered to avoid conflicts
@@ -37,36 +37,10 @@
   // Props
   let {
     selectedPeriod = 'daily',
-    colorSegments = null, // Multi-color line configuration (deprecated, use zones instead)
-    zones = null // Zone-based color gradient configuration
+    median = null
   } = $props();
   
   /*
-   * Zone-based color gradient support:
-   *
-   * The zones prop allows rendering a single line with multiple colors
-   * based on data values. It accepts two formats:
-   *
-   * 1. Array of threshold objects:
-
-  
-   *    zones = [
-   *      { threshold: 30, color: '#ff0000' },  // Values >= 30: red
-   *      { threshold: 20, color: '#ffaa00' },  // Values >= 20: orange
-   *      { threshold: 10, color: '#00aa00' }   // Values >= 10: green
-   *    ]
-   *
-   * 2. Function that returns color based on value:
-   *    zones = (value) => {
-   *      if (value > 25) return '#ff0000';
-   *      if (value > 15) return '#ffaa00';
-   *      return '#00aa00';
-   *    }
-   *
-   * When zones is provided, each segment of the line between data points
-   * will be colored according to the end point's value using Chart.js segment styling.
-   * The default zone color is used as fallback when no segment color matches.
-   *
    * Hourly chart behavior:
    * - When selectedPeriod is 'hourly', the chart shows an "average day" line
    * - This means exactly 24 points (hours 0-23) showing the average value for each hour
@@ -84,14 +58,14 @@
   let showMinMax = $state(false);
   let currentPeriod = $state(selectedPeriod);
   let aggregatedData = $state([]);
-  let chartData = $state(null);
-  let chartOptions = $state({});
+  let chartData = $state.raw(null);
+  let chartOptions = $state.raw({});
   let sourceDateRange = $state(null); // Store actual source date range
   // Debug toggle for displaying $maxMetrics in the UI. Keep this around but commented out for now.
   // let showMaxDebug = $state(false);
   
   // Calculate averages for displayed datasets - reactive to chartData changes
-  const datasetAverages = $derived(() => {
+  const datasetAverages = $derived.by(() => {
     if (!chartData || !chartData.datasets) {
       return [];
     }
@@ -129,16 +103,20 @@
   // The project's custom $derived returns a callable store, so referencing the store
   // directly in the template yields the store function instead of its value.
   // Use these local variables (updated via $effect) to drive the StatCard rendering.
-  // Use the project's callable derived stores directly in the template (call with ())
+  // Use the project's callable derived stores directly in the template
   let selectedZoneId = $state(null);
+  const currentDynamicZones = $derived.by(() => createZonesForMedianTemp(median ?? $medianTemp ?? 28));
   // max metrics derived store is read via $maxMetrics in markup
   
-  // We now call the derived stores directly in the template using datasetAverages() / zoneTotals().
+  // We now call the derived stores directly in the template using datasetAverages / zoneTotals.
 
   // If a zone is selected, start pre-loading the modal so it's ready by the time user clicks
   $effect(() => {
     if (selectedZoneId) loadTacticModal();
   });
+
+  // Update dynamic zones when medianTemp changes
+  // currentDynamicZones is a derived store of medianTemp — no manual effect required.
 
   // No dynamic JS equalization required; use simple CSS min-width/height defaults instead.
 
@@ -148,12 +126,14 @@
   // For hourly (average-day) view we scale each hourly-average point by number of days
   // in source range so cards reflect total hours across selected period (consistent
   // with daily/weekly behavior) instead of listing every single sample hour.
-  const zoneTotals = $derived(() => {
+  const zoneTotals = $derived.by(() => {
     const agg = aggregatedData;
     const raw = $filteredTimeSeries;
     const period = currentPeriod;
     const totals = {};
-    ZONES.forEach(z => (totals[z.id] = 0));
+    const medianVal = median ?? $medianTemp ?? 28;
+    const dynamicZones = createZonesForMedianTemp(medianVal);
+    dynamicZones.forEach(z => (totals[z.id] = 0));
   
     if (period === 'hourly') {
       if (agg && agg.length) {
@@ -162,7 +142,7 @@
         agg.forEach(point => {
           const t = point.temp, h = point.rh;
           if (t == null || h == null) return;
-          const zone = classifyPoint ? ({ id: classifyPoint(t, h) }) : preferredZoneForPoint(t, h);
+          const zone = classifyPoint ? ({ id: classifyPoint(t, h, dynamicZones) }) : preferredZoneForPoint(t, h, dynamicZones);
           if (!zone) return;
           totals[zone.id] = (totals[zone.id] || 0) + 1;
         });
@@ -171,7 +151,7 @@
         raw.forEach(r => {
           const t = r.temp, h = r.rh;
           if (t == null || h == null) return;
-          const zone = classifyPoint ? ({ id: classifyPoint(t, h) }) : preferredZoneForPoint(t, h);
+          const zone = classifyPoint ? ({ id: classifyPoint(t, h, dynamicZones) }) : preferredZoneForPoint(t, h, dynamicZones);
           if (!zone) return;
           const hours = r.dur ? r.dur / 3600000 : 1;
           totals[zone.id] = (totals[zone.id] || 0) + hours;
@@ -184,7 +164,7 @@
       agg.forEach(point => {
         const t = point.temp, h = point.rh;
         if (t == null || h == null) return;
-        const zone = classifyPoint ? ({ id: classifyPoint(t, h) }) : preferredZoneForPoint(t, h);
+        const zone = classifyPoint ? ({ id: classifyPoint(t, h, dynamicZones) }) : preferredZoneForPoint(t, h, dynamicZones);
         if (!zone) return;
         // prefer explicit duration in aggregated point (dur_hours), else estimate by period
         let hours = point.dur_hours || point.dur || 0;
@@ -200,7 +180,7 @@
       return [];
     }
   
-    return ZONES.map(z => ({
+    return dynamicZones.map(z => ({
       id: z.id,
       name: z.id,
       value: totals[z.id] || 0,
@@ -253,36 +233,9 @@
     }
   }
 
-  // Helper function to get color for a value based on zones configuration
-  function getZoneColor(value, defaultColor) {
-    // Use zones if provided, otherwise fallback to colorSegments for backwards compatibility
-    const zoneConfig = zones || colorSegments;
-    
-    if (!zoneConfig) {
-      return defaultColor;
-    }
-    
-    if (typeof zoneConfig === 'function') {
-      return zoneConfig(value);
-    }
-    
-    if (Array.isArray(zoneConfig)) {
-      // Find the first threshold that the value exceeds
-      for (const segment of zoneConfig) {
-        if (value >= segment.threshold) {
-          return segment.color;
-        }
-      }
-      // If no threshold matched, return default color
-      return defaultColor;
-    }
-    
-    return defaultColor;
-  }
-  
   // Helper function to get zone color based on both temperature and humidity
   function getPassiveDesignZoneColor(temp, rh) {
-    const zoneId = classifyPoint ? classifyPoint(temp, rh) : (preferredZoneForPoint(temp, rh) && preferredZoneForPoint(temp, rh).id);
+    const zoneId = classifyPoint ? classifyPoint(temp, rh, currentDynamicZones) : (preferredZoneForPoint(temp, rh, currentDynamicZones) && preferredZoneForPoint(temp, rh, currentDynamicZones).id);
     if (zoneId && ZONE_COLORS[zoneId]) {
       return ZONE_COLORS[zoneId];
     }
@@ -403,6 +356,8 @@
     // Some aggregation paths (e.g. buildDailyBuckets) produce points with `zone: null`.
     // We should triage each point to a single zone for consistent downstream rendering
     // and to avoid leaving many points as 'Unclassified' or multi-match combo strings.
+    const medianForChart = median ?? $medianTemp ?? 28;
+    const dynamicZonesForChart = createZonesForMedianTemp(medianForChart);
     aggregatedData = aggregatedData.map(pt => {
       const t = pt.temp;
       const h = pt.rh;
@@ -411,7 +366,7 @@
         // keep as Unclassified when values are missing
         return { ...pt, zone: 'Unclassified' };
       }
-      const zId = classifyPoint ? classifyPoint(t, h) : (preferredZoneForPoint(t, h) && preferredZoneForPoint(t, h).id);
+      const zId = classifyPoint ? classifyPoint(t, h, dynamicZonesForChart) : (preferredZoneForPoint(t, h, dynamicZonesForChart) && preferredZoneForPoint(t, h, dynamicZonesForChart).id);
       return { ...pt, zone: zId || 'Unclassified' };
     });
 
@@ -892,7 +847,7 @@
 
   
   // Create a derived value for processed chart data to avoid state updates in effects
-  const processedChartState = $derived(() => {
+  const processedChartState = $derived.by(() => {
     if (!$filteredTimeSeries || $filteredTimeSeries.length === 0) {
       return {
         aggregatedData: [],
@@ -918,7 +873,7 @@
   
   // Update state variables from the derived values
   $effect(() => {
-    const state = processedChartState();
+    const state = processedChartState;
     aggregatedData = state.aggregatedData;
     chartData = state.chartData;
     chartOptions = state.chartOptions;
@@ -934,8 +889,8 @@
       if ($filteredTimeSeries && $filteredTimeSeries.length > 0) {
         // console.debug('[TimeSeriesChart] $filteredTimeSeries sample:', $filteredTimeSeries[0]);
       }
-      // console.debug('[TimeSeriesChart] processedChartState aggregatedData length:', processedChartState().aggregatedData?.length ?? 0);
-      // console.debug('[TimeSeriesChart] processedChartState chartData datasets:', processedChartState().chartData?.datasets?.length ?? 0);
+      // console.debug('[TimeSeriesChart] processedChartState aggregatedData length:', processedChartState.aggregatedData?.length ?? 0);
+      // console.debug('[TimeSeriesChart] processedChartState chartData datasets:', processedChartState.chartData?.datasets?.length ?? 0);
       // console.debug('[TimeSeriesChart] datasetAverages:', datasetAverages);
       // console.debug('[TimeSeriesChart] zoneTotals:', zoneTotals);
     } catch (e) {
@@ -1002,7 +957,7 @@
   {/if} -->
 
   <!-- Dataset Statistics (replaces Chart.js dataset legend) -->
-  {#if datasetAverages() && datasetAverages().length > 0}
+  {#if datasetAverages && datasetAverages.length > 0}
     <div class="dataset-stats" role="list">
       <div class="dataset-stats__header">
         <h4>Dataset Averages</h4>
@@ -1018,7 +973,7 @@
 
       {#if !showMinMax}
         <div class="dataset-stats__grid">
-          {#each datasetAverages() as dataset (dataset.label)}
+          {#each datasetAverages as dataset (dataset.label)}
             {#if dataset.value > 0}
               <StatCard
                 label={dataset.label}
@@ -1051,11 +1006,11 @@
   <!-- Max/Min metrics are shown inside the Dataset Averages area using the 'Show Min / Max' toggle -->
 
   <!-- Passive Design Zone StatCards (replaced custom zone legend at lines ~862-873) -->
-  {#if zoneTotals() && zoneTotals().length > 0}
+  {#if zoneTotals && zoneTotals.length > 0}
     <div class="zone-stats" role="list">
       <h4>Passive Design Zones (Hours)</h4>
       <div class="zone-stats__grid">
-        {#each zoneTotals() as zone (zone.id)}
+        {#each zoneTotals as zone (zone.id)}
           <button type="button" class="zone-btn" onclick={() => selectedZoneId = zone.id} aria-label={`Open details for zone ${zone.name}`}>
             <StatCard
               role="listitem"
@@ -1071,9 +1026,9 @@
     </div>
   {/if}
   
-  {#if selectedZoneId}
+    {#if selectedZoneId}
     {#if TacticModalComponent}
-      <TacticModalComponent tactic={ZONES.find(z => z.id === selectedZoneId)} onClose={() => selectedZoneId = null} />
+      <TacticModalComponent tactic={currentDynamicZones.find(z => z.id === selectedZoneId)} onClose={() => selectedZoneId = null} />
     {:else}
       <div class="modal-loading">Loading details…</div>
     {/if}

@@ -14,7 +14,7 @@
   let activeIndex = $state(-1);
   const listId = `city-list-${Math.random().toString(36).slice(2,9)}`;
 
-  const filtered = $derived(() => {
+  const filtered = $derived.by(() => {
     const q = String(value || '').trim().toLowerCase();
     if (!q) return cities.slice(0, 30);
     return cities.filter(c => c.name.toLowerCase().includes(q)).slice(0, 30);
@@ -42,7 +42,7 @@
   }
 
   function onKeydown(e) {
-    const list = filtered();
+    const list = filtered;
     if (e.key === 'ArrowDown') {
       e.preventDefault();
       activeIndex = Math.min(list.length - 1, activeIndex + 1);
@@ -93,10 +93,10 @@
 
   {#if isOpen}
     <ul id={listId} class="city-list" role="listbox" aria-label="Cities">
-      {#if (filtered().length === 0)}
+      {#if (filtered.length === 0)}
         <li class="city-list-item empty">No results</li>
       {/if}
-      {#each filtered() as city, idx}
+      {#each filtered as city, idx}
         <li
           role="option"
           class="city-list-item {idx === activeIndex ? 'active' : ''}"

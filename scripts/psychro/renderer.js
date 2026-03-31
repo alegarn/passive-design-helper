@@ -175,12 +175,7 @@ export function createPsychroRenderer(containerEl, options = {}) {
     let x = ((T - opts.Tmin) / (opts.Tmax - opts.Tmin)) * width;
     let y = height - (W / opts.Wmax) * height;
     
-    if (!isFinite(x) || !isFinite(y)) {
-    }
-    // clamp to pixel bounds with 0.5px padding
-    x = Math.max(0.5, Math.min(x, width - 0.5));
-    y = Math.max(0.5, Math.min(y, height - 0.5));
-    
+    // We don't clamp here to allow natural clipping at canvas edge
     return { x, y };
   }
 
@@ -225,9 +220,7 @@ export function createPsychroRenderer(containerEl, options = {}) {
       const T = opts.Tmin + (opts.Tmax - opts.Tmin) * (i / opts.samplingN);
       const W = W_from_RH_T(RH, T, opts.p);
       
-      // Clamp W to avoid mapping outside viewport
-      const Wclamped = Math.min(W, opts.Wmax * 1.000001); // tiny epsilon to avoid fp issues
-      const point = psychroToCanvas(T, Wclamped);
+      const point = psychroToCanvas(T, W);
       if (firstPoint) {
         path.moveTo(point.x, point.y);
         firstPoint = false;
@@ -254,9 +247,7 @@ export function createPsychroRenderer(containerEl, options = {}) {
       const W = (h - 1.006 * T) / (2501 + 1.86 * T);
       
       if (W > 0) {
-        // Clamp W to avoid mapping outside viewport
-        const Wclamped = Math.min(W, opts.Wmax * 1.000001); // tiny epsilon to avoid fp issues
-        const point = psychroToCanvas(T, Wclamped);
+        const point = psychroToCanvas(T, W);
         if (firstPoint) {
           path.moveTo(point.x, point.y);
           firstPoint = false;
@@ -284,26 +275,35 @@ export function createPsychroRenderer(containerEl, options = {}) {
           if (!zone || !zone.poly || zone.poly.length === 0) continue;
           // build path in canvas coordinates from zone.poly points ([T, RH])
           const path = new Path2D();
-          let first = true;
-          for (const pt of zone.poly) {
-            // pt may be [T, RH]
+          let prevT = null;
+          let prevRH = null;
+
+          for (let i = 0; i < zone.poly.length; i++) {
+            const pt = zone.poly[i];
             const T = Number(pt[0]);
             const RH = Number(pt[1]);
-            const W = (typeof W_from_RH_T === 'function') ? W_from_RH_T(RH / 100, T, opts.p) : null;
-            // If conversion failed, treat second value as W-like (but zones store RH)
-            // We map using psychroToCanvas which expects T and W (humidity ratio)
-            // clamp zone W values to viewport W range to avoid path coordinates outside canvas
-            const Wclamped = (typeof W === 'number' && Number.isFinite(W)) ? Math.min(W, opts.Wmax * 1.000001) : null;
-            if (typeof W === 'number' && Wclamped !== null && W > opts.Wmax) {
-              // warn for zone definition exceeding viewport W and being clamped
-            }
-            const canvasPt = (Wclamped !== null) ? psychroToCanvas(T, Wclamped) : psychroToCanvas(T, Math.max(0, opts.Wmax * 0.5));
-            if (first) {
+            const W = (typeof W_from_RH_T === 'function') ? W_from_RH_T(RH / 100, T, opts.p) : 0;
+            const canvasPt = psychroToCanvas(T, W);
+
+            if (i === 0) {
               path.moveTo(canvasPt.x, canvasPt.y);
-              first = false;
             } else {
-              path.lineTo(canvasPt.x, canvasPt.y);
+              // Saturation-Aware Path Drawing
+              // If both consecutive points are at 100% RH, interpolate along the saturation curve
+              if (Math.abs(RH - 100) < 0.01 && Math.abs(prevRH - 100) < 0.01) {
+                const steps = 10;
+                for (let s = 1; s <= steps; s++) {
+                  const interT = prevT + (T - prevT) * (s / steps);
+                  const interW = W_from_RH_T(1.0, interT, opts.p);
+                  const interPt = psychroToCanvas(interT, interW);
+                  path.lineTo(interPt.x, interPt.y);
+                }
+              } else {
+                path.lineTo(canvasPt.x, canvasPt.y);
+              }
             }
+            prevT = T;
+            prevRH = RH;
           }
           path.closePath();
           // fill with color at low opacity

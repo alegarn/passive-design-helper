@@ -1,13 +1,16 @@
 import { writable, derived, readonly, get } from 'svelte/store';
 import { start as startRequest, cancel as cancelRequest } from './requestManager.js';
 import { normalizeOpenMeteoToFileData, parseCsvText, aggregateCsvStream } from '../utils/dataProcessor.js';
-import { preferredZoneForPoint, ZONES } from '../scripts/zones.js';
+import { preferredZoneForPoint, ZONES, createZonesForMedianTemp } from '../scripts/zones.js';
 import { classifyPoint } from '../scripts/classify.js';
 import { ZONE_COLORS } from '../scripts/theme.js';
 import { W_from_RH_T } from '../scripts/psychro/math.js';
 
 // Selected month state exported for UI controls (YYYY-MM format or null for all)
 export const selectedMonth = writable(null);
+
+// Optional user override: allow UI to set a median temp to preview zones
+export const medianOverride = writable(null);
 
 /**
  * @typedef {Object} Snapshot
@@ -200,7 +203,7 @@ export function createFileStore() {
               sampleRows: normalizedData.sampleRows || currentSnapshot.raw.sampleRows,
               dayFirst: normalizedData.dayFirst ?? currentSnapshot.raw.dayFirst,
               dataSpanInfo: normalizedData.dataSpanInfo || currentSnapshot.raw.dataSpanInfo,
-              aggregationResult: currentSnapshot.raw.aggregationResult // keep existing aggregationResult (do not overwrite)
+              aggregationResult: null // clear any existing aggregationResult
             },
             meta: {
               ...stagingSnapshot.meta,
@@ -403,8 +406,7 @@ export function createFileStore() {
         sampleRows: sampleRows ?? currentSnapshot.raw.sampleRows,
         dayFirst: dayFirst ?? currentSnapshot.raw.dayFirst,
         dataSpanInfo: dataSpanInfo ?? currentSnapshot.raw.dataSpanInfo,
-        // preserve any existing aggregationResult (do not overwrite)
-        aggregationResult: currentSnapshot.raw.aggregationResult
+        aggregationResult: null // clear existing aggregationResult
       }
     };
     commit(newSnapshot);
@@ -471,12 +473,28 @@ export function createFileStore() {
     let adjustedAggregation = aggregationResult;
     try {
       if (aggregationResult && Array.isArray(aggregationResult.rowsWithDur)) {
+        // Compute median from incoming rows and create dynamically shifted zones for classification.
+        // If user has supplied a median override, prefer that instead so 'Process' honors preview settings.
+        const overrideMedian = get(medianOverride);
+        const temps = aggregationResult.rowsWithDur.map(r => Number(r.temp)).filter(Number.isFinite).sort((a,b)=>a-b);
+        const computedMedian = temps.length ? (temps.length % 2 ? temps[Math.floor(temps.length/2)] : ((temps[temps.length/2-1] + temps[temps.length/2]) / 2)) : 28;
+        const med = (typeof overrideMedian === 'number' && Number.isFinite(overrideMedian)) ? overrideMedian : computedMedian;
+        const dynamicZones = createZonesForMedianTemp(med);
         const totals = {};
+        const classifyCache = new Map(); // small per-processing cache to avoid repeated classifyPoint work for identical values
         for (const r of aggregationResult.rowsWithDur) {
           const t = Number(r.temp);
           const h = Number(r.rh);
           if (!Number.isFinite(t) || !Number.isFinite(h)) continue;
-          const id = classifyPoint ? classifyPoint(t, h) : (r.zone || 'Unclassified');
+          // Cache classification on rounded values (to 0.1) to reduce duplicate work
+          const key = `${Math.round(t*10)}_${Math.round(h*10)}`;
+          let id;
+          if (classifyCache.has(key)) {
+            id = classifyCache.get(key);
+          } else {
+            id = classifyPoint ? classifyPoint(t, h, dynamicZones) : (r.zone || 'Unclassified');
+            classifyCache.set(key, id);
+          }
           totals[id] = (totals[id] || 0) + (r.dur || r.durMs || 0);
         }
         const totalMs = Object.values(totals).reduce((s, v) => s + v, 0) || 1;
@@ -513,7 +531,7 @@ export function createFileStore() {
     }
     commit(newSnapshot);
     // Reset selected month to 'all' when a new aggregation result is set to avoid stale selections
-    try { selectedMonth.set(null); } catch (e) {}
+    try { selectedMonth.set(null); } catch (err) { if (typeof console !== 'undefined' && typeof console.debug === 'function') console.debug('selectedMonth.set failed', err); }
   }
 
   /**
@@ -650,7 +668,7 @@ const _availableMonths = derived(fileStore, $s => {
         const d = new Date(r.ts);
         const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
         months.add(key);
-      } catch (e) {}
+      } catch (err) { if (typeof console !== 'undefined' && typeof console.debug === 'function') console.debug('availableMonths row conversion failed', err); }
     }
     return Array.from(months).sort();
   }
@@ -683,14 +701,99 @@ const _filteredTimeSeries = derived([timeSeries, selectedMonth], ([$ts, $sel]) =
 export const filteredTimeSeries = readonly(_filteredTimeSeries);
 
 /**
+ * Median temperature derived store: derive median temperature (°C) from current data
+ * Prefers `rowsWithDur` from aggregation result, fallbacks to `filteredTimeSeries`.
+ * If no temperature data available, returns BASELINE_MEDIAN (28°C) as a neutral default.
+ */
+const _dataMedianTemp = derived([fileStore, selectedMonth, filteredTimeSeries], ([$s, $selected, $filtered]) => {
+  let rows = [];
+  const agg = $s?.raw?.aggregationResult;
+  if (agg) {
+    if ($selected && agg.perMonth && agg.perMonth[$selected]) {
+      rows = agg.perMonth[$selected].rows || [];
+    } else if (agg.rowsWithDur) {
+      if ($selected) {
+        rows = agg.rowsWithDur.filter(r => {
+          const d = new Date(r.ts);
+          return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}` === $selected;
+        });
+      } else {
+        rows = agg.rowsWithDur;
+      }
+    }
+  }
+  if (!rows.length) {
+    rows = $filtered || [];
+  }
+  const temps = [];
+  for (const r of rows) {
+    const v = r.temp ?? r.T ?? r.t ?? r.temperature ?? r.temp_c ?? r.temp_celsius;
+    const val = typeof v === 'number' ? v : (v ? Number(String(v).replace(/[^0-9.+-eE-]/g, '')) : NaN);
+    if (Number.isFinite(val)) temps.push(Number(val));
+  }
+  if (!temps.length) return null; // fallback to null if no data
+  temps.sort((a,b)=>a-b);
+  const mid = Math.floor((temps.length - 1) / 2);
+  const computedMedian = temps.length % 2 ? temps[mid] : ((temps[mid] + temps[mid+1]) / 2);
+  return computedMedian;
+});
+export const dataMedianTemp = readonly(_dataMedianTemp);
+
+/**
+ * Combined median for logic (comfort zones): prefers user override over actual data median.
+ */
+const _medianTemp = derived([_dataMedianTemp, medianOverride], ([$dataMedian, $medianOverride]) => {
+  return $medianOverride ?? $dataMedian ?? 28;
+});
+export const medianTemp = readonly(_medianTemp);
+
+/**
  * Current summary data depending on the selected month
  * If no selectedMonth, returns full aggregationResult; if a month is selected, returns
  * an object with summary and psychrometricData limited to that month.
  */
-const _currentSummaryData = derived([fileStore, selectedMonth], ([$s, $selected]) => {
+const _currentSummaryData = derived([fileStore, selectedMonth, _medianTemp], ([$s, $selected, $median]) => {
+  const Object = window.Object || globalThis.Object; // just sanity
   const agg = $s?.raw?.aggregationResult;
   if (!agg) return null;
+
+  const dynamicZones = createZonesForMedianTemp($median);
+  const computeZoneAndColor = (r) => {
+    const t = r.temp;
+    const rh = (r.rh || r.rhPercent || 0); // note: agg uses rh in %, but `preferredZoneForPoint` expects logic as per how zone classify works, which is % usually or fraction? Actually, W_from_RH_T takes fraction `rh/100`. Let's check `preferredZoneForPoint` arguments in other places. Usually `t, rh` where rh is %.
+    // Let's look at `classifyPoint(t, rh, ...)` in `classify.js`.
+    const zone = classifyPoint(t, rh, dynamicZones) || 'Unclassified';
+    return { zone, color: ZONE_COLORS[zone] || '#999999' };
+  };
+
   if (!$selected) {
+    if (agg.rowsWithDur) {
+      const rows = agg.rowsWithDur;
+      const psychrometricData = rows.map(r => {
+        const zc = computeZoneAndColor(r);
+        return {
+          T: r.temp,
+          W: W_from_RH_T((r.rh || r.rhPercent || 0) / 100, r.temp),
+          zone: zc.zone,
+          color: zc.color
+        };
+      });
+      const zoneTotals = {};
+      for (const r of rows) {
+        const z = computeZoneAndColor(r).zone;
+        zoneTotals[z] = (zoneTotals[z] || 0) + (r.dur || r.durMs || 0);
+      }
+      const msTotal = Object.values(zoneTotals).reduce((sum, v) => sum + v, 0) || 1;
+      const summary = Object.entries(zoneTotals)
+        .map(([zone, ms]) => ({ zone, hours: Number((ms / 3600000).toFixed(3)), percent: Number(((ms * 100) / msTotal).toFixed(2)), milliseconds: ms, color: ZONE_COLORS[zone] || '#999999' }))
+        .sort((a, b) => b.hours - a.hours);
+      
+      return {
+        ...agg,
+        summary,
+        psychrometricData
+      };
+    }
     return agg;
   }
   // If we find perMonth data from aggregationResult, prefer it
@@ -698,16 +801,27 @@ const _currentSummaryData = derived([fileStore, selectedMonth], ([$s, $selected]
   if (perMonth) {
     // Build psychrometricData from perMonth.rows
     const rows = perMonth.rows || [];
-    const psychrometricData = rows.map(r => ({
-      T: r.temp,
-      W: W_from_RH_T((r.rh || r.rhPercent || 0) / 100, r.temp),
-      zone: r.zone,
-      color: ZONE_COLORS[r.zone] || '#999999'
-    }));
+    const zoneTotals = {};
+    const psychrometricData = rows.map(r => {
+      const zc = computeZoneAndColor(r);
+      const z = zc.zone;
+      zoneTotals[z] = (zoneTotals[z] || 0) + (r.dur || r.durMs || 0);
+      return {
+        T: r.temp,
+        W: W_from_RH_T((r.rh || r.rhPercent || 0) / 100, r.temp),
+        zone: z,
+        color: zc.color
+      };
+    });
+    
+    const msTotal = Object.values(zoneTotals).reduce((sum, v) => sum + v, 0) || 1;
+    const summary = Object.entries(zoneTotals)
+      .map(([zone, ms]) => ({ zone, hours: Number((ms / 3600000).toFixed(3)), percent: Number(((ms * 100) / msTotal).toFixed(2)), milliseconds: ms, color: ZONE_COLORS[zone] || '#999999' }))
+      .sort((a, b) => b.hours - a.hours);
+
     return {
-      // Keep month-level summary fields, but present rows as rowsWithDur to match app's earlier expectations
       rowsWithDur: rows,
-      summary: perMonth.summary || [],
+      summary: summary,
       perMonth: perMonth,
       psychrometricData
     };
@@ -719,18 +833,20 @@ const _currentSummaryData = derived([fileStore, selectedMonth], ([$s, $selected]
       const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
       return key === $selected;
     });
-    const psychrometricData = rows.map(r => ({
-      T: r.temp,
-      W: W_from_RH_T((r.rh || r.rhPercent || 0) / 100, r.temp),
-      zone: r.zone,
-      color: ZONE_COLORS[r.zone] || '#999999'
-    }));
-    // Derive simple summary from rows
     const zoneTotals = {};
-    for (const r of rows) {
-      zoneTotals[r.zone] = (zoneTotals[r.zone] || 0) + (r.dur || r.durMs || 0);
-    }
-    const msTotal = Object.values(zoneTotals).reduce((s, v) => s + v, 0) || 1;
+    const psychrometricData = rows.map(r => {
+      const zc = computeZoneAndColor(r);
+      const z = zc.zone;
+      zoneTotals[z] = (zoneTotals[z] || 0) + (r.dur || r.durMs || 0);
+      return {
+        T: r.temp,
+        W: W_from_RH_T((r.rh || r.rhPercent || 0) / 100, r.temp),
+        zone: z,
+        color: zc.color
+      };
+    });
+    // Derive simple summary from rows
+    const msTotal = Object.values(zoneTotals).reduce((sum, v) => sum + v, 0) || 1;
     const summary = Object.entries(zoneTotals).map(([zone, ms]) => ({ zone, hours: Number((ms / (1000 * 60 * 60)).toFixed(3)), percent: Number(((ms * 100) / msTotal).toFixed(2)), milliseconds: ms, color: ZONE_COLORS[zone] || '#999999' })).sort((a, b) => b.hours - a.hours);
     return {
       rowsWithDur: rows,

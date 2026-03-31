@@ -9,7 +9,8 @@
       TacticModalComponent = mod.default;
     }
   }
-  import { ZONES } from '../scripts/zones.js';
+  import { ZONES, createZonesForMedianTemp } from '../scripts/zones.js';
+  import { medianTemp } from '../stores/fileStore.js';
 
   let { summaryData = null } = $props();
   
@@ -20,10 +21,12 @@
   let resizeObserver = null;
   let isLoading = $state(true);
   let error = $state(null);
+  let unsubMedian = null;
+  let currentDynamicZones = $state(createZonesForMedianTemp(28));
   let __origConsole = null; // Store original console methods for restoration later
   
   // Create a derived value to ensure reactivity
-  const psychrometricPoints = $derived(() => {
+  const psychrometricPoints = $derived.by(() => {
     const data = summaryData;
     const rawPoints = data?.psychrometricData || [];
     const points = sanitizePoints(rawPoints);
@@ -92,6 +95,29 @@
       });
       
       renderer.init();
+      // Apply initial zones based on median temperature if present
+      try {
+        const initialMedian = await new Promise(resolve => {
+          let unsub;
+          unsub = medianTemp.subscribe(v => {
+            resolve(v);
+            if (unsub) unsub();
+            else setTimeout(() => unsub && unsub(), 0);
+          });
+        });
+        const initialZones = createZonesForMedianTemp(initialMedian);
+        if (renderer && typeof renderer.setZones === 'function') renderer.setZones(initialZones);
+      } catch(e) { console.warn('PsychroChart: failed to compute initial zones from medianTemp', e); }
+      // Subscribe for median temp changes and update zones reactively
+      unsubMedian = medianTemp.subscribe((m) => {
+        try {
+          if (renderer && typeof renderer.setZones === 'function') {
+            const zones = createZonesForMedianTemp(m);
+            renderer.setZones(zones);
+            currentDynamicZones = zones;
+          }
+        } catch (e) { console.warn('PsychroChart: median temp subscription update failed', e); }
+      });
       
       // Set up resize observer to handle canvas resizing
       resizeObserver = new ResizeObserver(() => {
@@ -101,7 +127,7 @@
           renderer.renderBackground();
           
           // Re-render data points if available (sanitize before rendering)
-          const points = psychrometricPoints();
+          const points = psychrometricPoints;
           
           // Local diagnostics: compute simple pixel mapping using renderer defaults to detect off-canvas / range issues
           try {
@@ -152,7 +178,7 @@
 
   // Reactive effect to handle psychrometric points changes
   $effect(() => {
-    const points = psychrometricPoints();
+    const points = psychrometricPoints;
     // console.log('PsychroChart: $effect triggered with', points.length, 'points from derived');
     // console.log('PsychroChart: First 3 points:', points.slice(0, 3));
     
@@ -213,6 +239,7 @@
     if (renderer) {
       renderer.destroy();
     }
+    try { if (typeof unsubMedian === 'function') unsubMedian(); } catch(e) {}
   });
 </script>
 
@@ -243,7 +270,7 @@
 {#if selectedZoneId}
   {#if selectedZoneId}
     {#if TacticModalComponent}
-      <TacticModalComponent tactic={ZONES.find(z => z.id === selectedZoneId)} onClose={() => selectedZoneId = null} />
+      <TacticModalComponent tactic={currentDynamicZones.find(z => z.id === selectedZoneId)} onClose={() => selectedZoneId = null} />
     {:else}
       <div class="modal-loading">Loading details…</div>
     {/if}
