@@ -10,10 +10,12 @@ A comprehensive tool for analyzing passive design strategies using weather data 
 ## Features
 
 - 🌤️ Fetch historical weather data from Open-Meteo API
-- 📊 Generate psychrometric charts and visualizations
+- 📊 Dynamic Psychrometric Charts with adaptive comfort zones
+- 🌡️ Automatic Median Temperature detection and manual Comfort Zone overrides
 - 🖥️ Both CLI and web-based interfaces
 - 📁 Support for multiple output formats (JSON, CSV)
 - 📈 Time series analysis with zone classification
+- 🧪 Comprehensive test suite for math, parsing, and UI components
 
 ## Quick Start
 
