@@ -1,4 +1,3 @@
-````markdown
 # Passive Design Tactics — Web UI
 
 A Svelte 5 + Vite single-page app for browser-based analysis of timestamped temperature and relative-humidity CSV data (streaming parsing, psychrometric charts, time-series aggregation, and export).
@@ -23,13 +22,13 @@ This directory contains the web UI that runs fully client-side and is designed t
 - Contributing
 - License
 
----
-
 ## Features
 - Streaming CSV processing (large-file friendly)
 - Drag-and-drop upload with automatic column detection
-- Interactive psychrometric chart + time-series visualizations
+- Adaptive Psychrometric Chart: Comfort zones shift dynamically based on median outdoor temperature (manual override or automatic detection from data)
+- Enhanced Visualizations: Interactive time-series charts with adaptive thresholding
 - Multi-period aggregation (hourly/daily/weekly/monthly)
+- Automated testing: Comprehensive unit and E2E coverage using Vitest and Playwright
 - Export processed data (CSV / JSON / Markdown)
 
 ## Prerequisites
@@ -122,11 +121,7 @@ Column mapping notes:
 ## License
 Check the repo-level `LICENSE` file at the project root.
 
----
 
-If you’d like me to add a `lint`, `test` or `format` script, or to include GitHub Actions for building the web app on PRs, I can add/update the `web/package.json` and a small CI workflow to complement this README.
-
-````
 # Passive Design Tactics — Web UI
 
 A Svelte 5 + Vite single-page app for browser-based analysis of timestamped temperature and relative-humidity CSV data (streaming parsing, psychrometric charts, time-series aggregation, and export).
