@@ -8,7 +8,7 @@
   const dispatch = createEventDispatcher();
 
   // Props from parent component
-  let { file, headerFields, sampleRows, dayFirst, dataSpanInfo } = $props();
+  let { file, headerFields, sampleRows, dayFirst, dataSpanInfo, analyzeRequestId = 0 } = $props();
   
   // Import fileStore to check for remotely fetched data
   import { fileStore } from '../stores/fileStore.js';
@@ -25,6 +25,7 @@
   let timeColumn = $state('');
   let tempColumn = $state('');
   let rhColumn = $state('');
+  let lastHandledAnalyzeRequestId = $state(0);
 
   let _prevFile = $state(null);
   // Reset aggregationResult when file changes to avoid showing old data
@@ -135,6 +136,14 @@
       detailedDataSpan = detectDataSpan(sampleTimestamps);
     }
   });
+
+  $effect(() => {
+    if (!analyzeRequestId || analyzeRequestId === lastHandledAnalyzeRequestId) return;
+    if (isProcessing || !file || !timeColumn || !tempColumn || !rhColumn) return;
+
+    lastHandledAnalyzeRequestId = analyzeRequestId;
+    void handleProcessData();
+  });
    
   // Function to handle data processing with streaming API
   async function handleProcessData() {
@@ -241,15 +250,15 @@
       // console.log('ProcessControls: aggregationResult keys:', Object.keys(aggregationResult));
       // console.log('ProcessControls: aggregationResult.psychrometricData length:', aggregationResult.psychrometricData?.length);
       
-      // Dispatch event to notify parent component
-      dispatch('dataprocessed', { result: aggregationResult });
-      
       // Commit aggregation result into shared fileStore so charts update
       try {
         fileStore.setAggregationResult(aggregationResult);
       } catch (e) {
         console.error('ProcessControls: Failed to setAggregationResult on fileStore:', e);
       }
+
+      // Dispatch after the shared store commit so downstream UI can react to the rendered chart.
+      dispatch('dataprocessed', { result: aggregationResult });
       
       // Lightweight internal sample (no console output)
       if (result && result.rowsWithDur && result.rowsWithDur.length > 0) {

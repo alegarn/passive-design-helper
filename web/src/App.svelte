@@ -1,4 +1,5 @@
 <script>
+  import { tick } from 'svelte';
   import UploadZone from './components/UploadZone.svelte';
   import ProcessControls from './components/ProcessControls.svelte';
   import PsychroChart from './components/PsychroChart.svelte';
@@ -6,10 +7,10 @@
   import FetchOpenMeteo from './components/FetchOpenMeteo.svelte';
   // Tactics catalog removed from main flow; import lazily where needed
   import { fileStore, currentSummaryData, medianTemp, dataMedianTemp, medianOverride } from './stores/fileStore.js';
-  import { debounce } from './scripts/ui-bridge.js';
 
   let sliderValue = $state(28);
   let isProcessingMedian = $state(false);
+  let analyzeRequestId = $state(0);
   
   let medianTimeout;
   function handleSlider(e) {
@@ -48,15 +49,22 @@
   }
   
   // Handle dataprocessed event from ProcessControls
-  function handleDataProcessed(event) {
-    // Commit aggregation result into fileStore so charts and exports react
+  async function handleDataProcessed(event) {
     const { result } = event.detail;
     try {
-      // ProcessControls already commits `aggregationResult` into fileStore
-      // console.log('Data processed (event) - fileStore commit is done by ProcessControls', result);
+      if (!result) return;
+
+      await tick();
+      document
+        .querySelector('.psychro-chart-container')
+        ?.scrollIntoView({ behavior: 'smooth', block: 'start' });
     } catch (e) {
-      console.error('App.svelte: failed to save processed data to fileStore:', e);
+      console.error('App.svelte: failed to scroll to processed chart:', e);
     }
+  }
+
+  function handleRemoteAnalyze() {
+    analyzeRequestId += 1;
   }
 </script>
 
@@ -71,7 +79,7 @@
 </header>
 
 <main>
-  <FetchOpenMeteo />
+  <FetchOpenMeteo onAnalyze={handleRemoteAnalyze} />
   
   <UploadZone on:fileparsed={handleFileParsed} />
   
@@ -82,6 +90,7 @@
       sampleRows={$fileStore.raw.sampleRows}
       dayFirst={$fileStore.raw.dayFirst}
       dataSpanInfo={$fileStore.raw.dataSpanInfo}
+      analyzeRequestId={analyzeRequestId}
       on:dataprocessed={handleDataProcessed}
     />
   {/if}

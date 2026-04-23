@@ -1,28 +1,14 @@
 <script>
   import { createEventDispatcher, onMount, onDestroy } from 'svelte';
+  import L from 'leaflet';
+  import 'leaflet/dist/leaflet.css';
+
   let { lat = 0, lon = 0, zoom = 5, mapClass = 'leaflet-map' } = $props();
 
   const dispatch = createEventDispatcher();
   let containerEl;
   let map = null;
   let marker = null;
-  let L = null;
-  let cssLoaded = false;
-
-  // Load leaflet dynamically
-  async function loadLeaflet() {
-    const mod = await import('leaflet');
-    L = mod && (mod.default || mod);
-
-    try {
-      // If using a bundler that supports CSS import, we can import CSS dynamically
-      await import('leaflet/dist/leaflet.css');
-      cssLoaded = true;
-    } catch (e) {
-      // Ignore CSS import issues — in that case, users should include CSS globally
-      // Optionally, we could insert a link element to the leaflet CSS CDN
-    }
-  }
 
   function createMarkerIfNotExist() {
     if (!marker && L && map) {
@@ -37,10 +23,7 @@
     map.setView([lat, lon], zoom);
   }
 
-  onMount(async () => {
-    await loadLeaflet();
-    if (!L) return;
-
+  onMount(() => {
     // Create map
     map = L.map(containerEl).setView([lat, lon], zoom);
 

@@ -1,34 +1,32 @@
 <script>
   import { fileStore, isLoading, lastError } from '../stores/fileStore.js';
   import { cities } from '../data/cities.js';
-  
-  // Form state
-  // Compute a local today date string in YYYY-MM-DD format for use as the default start/end dates
-  const DEFAULT_DATE = (() => {
-    const d = new Date();
-    const yyyy = d.getFullYear();
-    const mm = String(d.getMonth() + 1).padStart(2, '0');
-    const dd = String(d.getDate()).padStart(2, '0');
-    return `${yyyy}-${mm}-${dd}`;
-  })();
-
-  let lat = $state('52.52');
-  let lon = $state('13.41');
-  let selectedCity = $state('');
-  let selectedCityName = $state('');
-  let showMap = $state(false);
-  let startDate = $state(DEFAULT_DATE);
-  let endDate = $state(DEFAULT_DATE);
-  let hourly = $state('temperature_2m,relative_humidity_2m');
-  // Default initial URL built from the default parameters (static lat/lon + DEFAULT_DATE)
-  let url = $state(`https://archive-api.open-meteo.com/v1/archive?latitude=52.52&longitude=13.41&start_date=${DEFAULT_DATE}&end_date=${DEFAULT_DATE}&hourly=temperature_2m,relative_humidity_2m`);
-  let format = $state('csv');
-  // show/hide sections
-  let showParameters = $state(false);
-  let showLeafletMap = $state(false);
   import LeafletMap from './LeafletMap.svelte';
   import CityAutocomplete from './CityAutocomplete.svelte';
-  let mapModuleLoaded = $state(true);
+  
+  let { onAnalyze = null } = $props();
+  
+  // Form state
+  const DEFAULT_CITY = cities.find((city) => city.name === 'Berlin') ?? cities[0] ?? { name: 'Berlin', lat: 52.52, lon: 13.41 };
+  const DEFAULT_START_DATE = '2025-01-01';
+  const DEFAULT_END_DATE = '2025-12-31';
+  const DEFAULT_YEAR = DEFAULT_START_DATE.slice(0, 4);
+
+  let lat = $state(String(Number(DEFAULT_CITY.lat).toFixed(6)));
+  let lon = $state(String(Number(DEFAULT_CITY.lon).toFixed(6)));
+  let selectedCity = $state(DEFAULT_CITY);
+  let selectedCityName = $state(DEFAULT_CITY.name);
+  let selectedYear = $state(DEFAULT_YEAR);
+  let showMap = $state(false);
+  let startDate = $state(DEFAULT_START_DATE);
+  let endDate = $state(DEFAULT_END_DATE);
+  let hourly = $state('temperature_2m,relative_humidity_2m');
+  let url = $state(`https://archive-api.open-meteo.com/v1/archive?latitude=${DEFAULT_CITY.lat}&longitude=${DEFAULT_CITY.lon}&start_date=${DEFAULT_START_DATE}&end_date=${DEFAULT_END_DATE}&hourly=temperature_2m,relative_humidity_2m`);
+  let format = $state('csv');
+  // show/hide sections
+  let showAdvanced = $state(false);
+  let showParameters = $state(false);
+  let showLeafletMap = $state(false);
   
   // UI state
   let success = $state('');
@@ -43,21 +41,19 @@
     showParameters = !showParameters;
     success = '';
     if (showParameters) {
-      url = builtUrl;
-      scheduleUploadDebounced();
+      url = buildUrl();
     }
   }
 
-  // Toggle showing Leaflet map component (lazy loaded)
-  async function openLeafletPreview() {
-    // We already import LeafletMap statically for now — open preview
-    showLeafletMap = true;
-    url = builtUrl;
-    scheduleUploadDebounced();
+  function toggleLeafletPreview() {
+    showLeafletMap = !showLeafletMap;
+    if (showLeafletMap) {
+      url = buildUrl();
+    }
   }
 
-  function closeLeafletPreview() {
-    showLeafletMap = false;
+  function toggleAdvanced() {
+    showAdvanced = !showAdvanced;
   }
   
   // Build URL from parameters
@@ -71,6 +67,16 @@
       hourly: hourly
     });
     return `${baseUrl}?${params.toString()}`;
+  }
+
+  function handleYearChange(event) {
+    const nextYear = String(event.currentTarget.value || '').slice(0, 4);
+    selectedYear = nextYear;
+    if (!/^\d{4}$/.test(nextYear)) return;
+
+    startDate = `${nextYear}-01-01`;
+    endDate = `${nextYear}-12-31`;
+    url = buildUrl();
   }
   
 async function fetchAndDownload() {
@@ -129,55 +135,39 @@ async function fetchAndDownload() {
     console.error('Fetch error in component:', err);
   }
 }
-  
-  
-  // Derived URL from parameters (computed, doesn't overwrite manual input unless we explicitly copy)
-  const builtUrl = $derived(buildUrl());
-  // Final URL used for all uploads and network calls: if parameters or map UI active, use builtUrl, otherwise manual `url` value.
-  const finalUrl = $derived((showParameters || showLeafletMap) ? builtUrl : url);
-  
-  // Auto-fetch when parameters change (only active when `Choose parameters` or Map preview are open)
-  function triggerFetch() {
-    const urlToUse = finalUrl;
-    const params = { url: urlToUse, format: format };
-    fileStore.fetchRemote(params);
-  }
 
-  // Debounced upload helpers
-  let uploadDebounceTimer = null;
-  const UPLOAD_DEBOUNCE_MS = 450;
+  async function analyzeRemoteData() {
+    success = '';
+
+    try {
+      const params = {
+        url: finalUrl,
+        format: 'json'
+      };
+
+      await fileStore.fetchRemote(params);
+
+      if (typeof onAnalyze === 'function') {
+        await onAnalyze();
+      }
+
+      success = 'Fetched weather data for analysis';
+    } catch (err) {
+      console.error('Analyze error in component:', err);
+    }
+  }
+  
+  
+  // Derived URL from parameters for the casual city/year workflow.
+  const builtUrl = $derived(buildUrl());
+  const finalUrl = $derived(url);
 
   function scheduleUploadDebounced() {
-    if (uploadDebounceTimer) clearTimeout(uploadDebounceTimer);
-    uploadDebounceTimer = setTimeout(() => {
-      const urlToUse = finalUrl;
-      const params = { url: urlToUse, format: 'json' };
-      fileStore.fetchRemote(params);
-    }, UPLOAD_DEBOUNCE_MS);
+    url = buildUrl();
   }
 
   function scheduleUploadImmediate() {
-    if (uploadDebounceTimer) clearTimeout(uploadDebounceTimer);
-    const urlToUse = finalUrl;
-    const params = { url: urlToUse, format: 'json' };
-    fileStore.fetchRemote(params);
-  }
-
-  // When a city is selected, update the lat/lon fields
-  function selectCity() {
-    if (!selectedCityName) return;
-    const city = cities.find(c => c.name === selectedCityName);
-    if (city) {
-      // store lat/lon as strings to preserve exact input format and binding behavior
-      lat = String(Number(city.lat).toFixed(6));
-      lon = String(Number(city.lon).toFixed(6));
-      selectedCity = city;
-      // If parameters or map UI is visible, update the URL and schedule a fetch
-      if (showParameters || showLeafletMap) {
-        url = builtUrl;
-        scheduleUploadDebounced();
-      }
-    }
+    url = buildUrl();
   }
 
   function handleCitySelected(city) {
@@ -186,10 +176,7 @@ async function fetchAndDownload() {
     lon = String(Number(city.lon).toFixed(6));
     selectedCity = city;
     selectedCityName = city.name;
-    if (showParameters || showLeafletMap) {
-      url = finalUrl;
-      scheduleUploadDebounced();
-    }
+    url = buildUrl();
   }
 
   function openInMap() {
@@ -211,17 +198,14 @@ async function fetchAndDownload() {
     const cityLon = selectedCity && selectedCity.lon ? Number(selectedCity.lon).toFixed(6) : '';
     if (currentLat !== cityLat || currentLon !== cityLon) {
       selectedCityName = '';
-      selectedCity = '';
-      scheduleUploadDebounced();
+      selectedCity = null;
     }
-    // Always schedule upload for manual coordinate edits
-    scheduleUploadDebounced();
+    url = buildUrl();
   }
 
   function handleParameterChange() {
-    // Keep the URL preview in sync and schedule an upload each time a parameter changes
-    url = builtUrl;
-    scheduleUploadDebounced();
+    selectedYear = startDate.slice(0, 4);
+    url = buildUrl();
   }
 
   function handleMapSelect(e) {
@@ -229,11 +213,9 @@ async function fetchAndDownload() {
     const { lat: newLat, lon: newLon } = e.detail;
     lat = String(Number(newLat).toFixed(6));
     lon = String(Number(newLon).toFixed(6));
-    // selecting via the map is a 'manual coordinate' update: clear selected city
     selectedCityName = '';
-    selectedCity = '';
-    url = builtUrl;
-    scheduleUploadDebounced();
+    selectedCity = null;
+    url = buildUrl();
   }
 
   function geolocateMe() {
@@ -254,9 +236,8 @@ async function fetchAndDownload() {
         lat = String(Number(latitude).toFixed(6));
         lon = String(Number(longitude).toFixed(6));
         selectedCityName = '';
-        selectedCity = '';
-        url = builtUrl;
-        scheduleUploadDebounced();
+        selectedCity = null;
+        url = buildUrl();
         success = 'Updated coordinates from your device location';
         coordsUpdated = true;
         setTimeout(() => { coordsUpdated = false; }, 650);
@@ -277,179 +258,246 @@ async function fetchAndDownload() {
 
 <div class="fetch-container">
   <h2>Fetch Open-Meteo Weather Data</h2>
-  
-  <div class="mode-toggle">
-    <button type="button" class="toggle-btn {showParameters ? 'active' : ''}" onclick={() => { showParameters = !showParameters; }}>Choose parameters</button>
-    <button type="button" class="toggle-btn {showLeafletMap ? 'active' : ''}" onclick={() => { if (!mapModuleLoaded) openLeafletPreview(); else showLeafletMap = !showLeafletMap; }}>
-      {#if showLeafletMap}Close Map Preview{:else}Open Map Preview{/if}
-    </button>
-    <div class="tooltip-wrap">
-      <button id="geolocate" type="button" class="toggle-btn mode-locate-btn" onclick={geolocateMe} disabled={geolocLoading} aria-disabled={geolocLoading} title="Use your device's location — Only used to construct the Open‑Meteo API query; not stored or shared." aria-label="Use your current location" aria-describedby="geolocate-tooltip">
-      {#if geolocLoading}
-        <span class="spinner" aria-hidden="true"></span>
-        <span class="btn-text" style="margin-left:0.35rem;">Locating…</span>
-      {:else}
-        {#if geolocSuccess}
-          <svg class="icon icon--success" viewBox="0 0 24 24" width="14" height="14" aria-hidden="true">
-            <path fill="currentColor" d="M9 16.2L4.8 12l-1.4 1.4L9 19 21 7l-1.4-1.4z" />
-          </svg>
-        {:else}
-          <svg class="icon icon--pin" viewBox="0 0 24 24" width="14" height="14" aria-hidden="true">
-            <path fill="currentColor" d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5a2.5 2.5 0 110-5 2.5 2.5 0 010 5z" />
-          </svg>
-        {/if}
-        <span class="btn-text" style="margin-left:0.35rem;">Locate me</span>
-      {/if}
+  {#if showAdvanced}
+    <div class="advanced-header">
+      <div>
+        <p class="panel-label">Advanced tools</p>
+        <p class="panel-description">Reveal the older fetch and processing controls.</p>
+      </div>
+      <button type="button" class="toggle-btn toggle-btn--primary" onclick={toggleAdvanced}>Back to casual view</button>
+    </div>
+
+    <div class="mode-toggle">
+      <button type="button" class="toggle-btn {showParameters ? 'active' : ''}" onclick={toggleParameters}>Choose parameters</button>
+      <button type="button" class="toggle-btn {showLeafletMap ? 'active' : ''}" onclick={toggleLeafletPreview}>
+        {#if showLeafletMap}Close Map Preview{:else}Open Map Preview{/if}
       </button>
-      <div id="geolocate-tooltip" class="privacy-tooltip" role="tooltip">Only used to construct the Open‑Meteo API query; not stored or shared.</div>
-      {#if geolocSuccess}
-        <span class="geoloc-badge" role="status" aria-live="polite">Location accepted</span>
-      {/if}
-    </div>
-  </div>
-  
-  <div class="form-group">
-    <label for="url">API URL:</label>
-    <input 
-      id="url" 
-      type="url" 
-      bind:value={url} 
-      placeholder="https://archive-api.open-meteo.com/v1/archive?..."
-      class="url-input"
-      oninput={() => { // when user manually edits URL, automatically upload the custom URL after a brief debounce
-        scheduleUploadDebounced();
-      }}
-    />
-  </div>
-
-  {#if showParameters}
-    <div class="params-grid">
-        <div class="form-group geo-controls" role="group" aria-labelledby="geoControlsLabel">
-          <div id="geoControlsLabel" class="sr-only">Geolocation actions</div>
-          <div class="geo-stack">
-            <button id="resetCoordinates" type="button" class="map-inline-btn" onclick={() => { selectedCityName=''; selectedCity=''; url=builtUrl; scheduleUploadDebounced(); fileStore.setMetaLastError(null); geolocSuccess = false; geolocLoading = false; coordsUpdated = false; }} title="Reset to URL coordinates" aria-label="Reset coordinates to URL values">Reset my location</button>
-            <button id="openMap" type="button" class="map-inline-btn" onclick={openInMap} title="Open lat/lon in OpenStreetMap" aria-label="Open coordinates in OpenStreetMap">Open in map</button>
-          </div>
-        </div>
-        <div class="form-group">
-          <label for="lat">Latitude:</label>
-          <input id="lat" type="number" step="any" bind:value={lat} oninput={handleManualCoordinateChange} class:flash={coordsUpdated} />
-        </div>
-      
-        <div class="form-group">
-          <label for="lon">Longitude:</label>
-          <input id="lon" type="number" step="any" bind:value={lon} oninput={handleManualCoordinateChange} class:flash={coordsUpdated} />
-        </div>
-
-      
-      <div class="form-group">
-        <label for="startDate">Start Date:</label>
-        <input id="startDate" type="date" bind:value={startDate} onchange={handleParameterChange} />
-      </div>
-      
-      <div class="form-group">
-        <label for="endDate">End Date:</label>
-        <input id="endDate" type="date" bind:value={endDate} onchange={handleParameterChange} />
-      </div>
-      
-      <div class="form-group">
-        <label for="hourly">Hourly Variables:</label>
-        <input 
-          id="hourly"
-          type="text" 
-          bind:value={hourly} 
-          placeholder="temperature_2m,relative_humidity_2m"
-          oninput={handleParameterChange}
-        />
-      </div>
-
-      <!-- City selection moved to Use Map mode -->
-      
-      <!-- Output format is below (global control) -->
-    </div>
-    
-    <!-- URL preview removed here: we keep a single editable API URL field at the top -->
-  {/if}
-  {#if showLeafletMap}
-    <div class="map-mode">
-      <div class="map-controls">
-        <div class="form-group">
-          <label for="citySelect">City (autocomplete):</label>
-          <CityAutocomplete bind:value={selectedCityName} {cities} placeholder="Search or choose a city" select={handleCitySelected} />
-        </div>
-
-          {#if !showParameters}
-            <!-- Map preview should show only the map and allow click to set coordinates. Remove static details but add date inputs for convenience. -->
-            <div class="map-controls-mini">
-              <div class="form-group">
-                <label for="startDateMap">Start Date:</label>
-                <input id="startDateMap" type="date" bind:value={startDate} onchange={handleParameterChange} />
-              </div>
-              <div class="form-group">
-                <label for="endDateMap">End Date:</label>
-                <input id="endDateMap" type="date" bind:value={endDate} onchange={handleParameterChange} />
-              </div>
-            </div>
-          {/if}
-      </div>
-
-      <div class="map-preview">
-        <div class="map-header">
-          <div>Map preview — centered on: {lat}, {lon}</div>
-        </div>
-        {#if mapModuleLoaded}
-          <LeafletMap lat={Number(lat)} lon={Number(lon)} on:select={handleMapSelect} />
+      <div class="tooltip-wrap">
+        <button id="geolocate" type="button" class="toggle-btn mode-locate-btn" onclick={geolocateMe} disabled={geolocLoading} aria-disabled={geolocLoading} title="Use your device's location — Only used to construct the Open‑Meteo API query; not stored or shared." aria-label="Use your current location" aria-describedby="geolocate-tooltip">
+        {#if geolocLoading}
+          <span class="spinner" aria-hidden="true"></span>
+          <span class="btn-text" style="margin-left:0.35rem;">Locating…</span>
         {:else}
-          <iframe
+          {#if geolocSuccess}
+            <svg class="icon icon--success" viewBox="0 0 24 24" width="14" height="14" aria-hidden="true">
+              <path fill="currentColor" d="M9 16.2L4.8 12l-1.4 1.4L9 19 21 7l-1.4-1.4z" />
+            </svg>
+          {:else}
+            <svg class="icon icon--pin" viewBox="0 0 24 24" width="14" height="14" aria-hidden="true">
+              <path fill="currentColor" d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5a2.5 2.5 0 110-5 2.5 2.5 0 010 5z" />
+            </svg>
+          {/if}
+          <span class="btn-text" style="margin-left:0.35rem;">Locate me</span>
+        {/if}
+        </button>
+        <div id="geolocate-tooltip" class="privacy-tooltip" role="tooltip">Only used to construct the Open‑Meteo API query; not stored or shared.</div>
+        {#if geolocSuccess}
+          <span class="geoloc-badge" role="status" aria-live="polite">Location accepted</span>
+        {/if}
+      </div>
+    </div>
+
+    <div class="form-group">
+      <label for="format-advanced">Output Format:</label>
+      <select id="format-advanced" bind:value={format} onchange={handleParameterChange}>
+        <option value="json">JSON</option>
+        <option value="csv">CSV</option>
+      </select>
+    </div>
+
+    {#if showParameters}
+      <div class="form-group">
+        <label for="url">API URL:</label>
+        <input
+          id="url"
+          type="url"
+          bind:value={url}
+          placeholder="https://archive-api.open-meteo.com/v1/archive?..."
+          class="url-input"
+        />
+        <p class="field-help">Edit the URL directly if you want a fully manual fetch.</p>
+      </div>
+
+      <div class="params-grid">
+          <div class="form-group geo-controls" role="group" aria-labelledby="geoControlsLabel">
+            <div id="geoControlsLabel" class="sr-only">Geolocation actions</div>
+            <div class="geo-stack">
+              <button id="resetCoordinates" type="button" class="map-inline-btn" onclick={() => { lat = String(Number(DEFAULT_CITY.lat).toFixed(6)); lon = String(Number(DEFAULT_CITY.lon).toFixed(6)); selectedCityName = DEFAULT_CITY.name; selectedCity = DEFAULT_CITY; selectedYear = DEFAULT_YEAR; startDate = DEFAULT_START_DATE; endDate = DEFAULT_END_DATE; url = buildUrl(); fileStore.setMetaLastError(null); geolocSuccess = false; geolocLoading = false; coordsUpdated = false; }} title="Reset to the default city" aria-label="Reset coordinates to the default city">Use default city</button>
+              <button id="openMap" type="button" class="map-inline-btn" onclick={openInMap} title="Open lat/lon in OpenStreetMap" aria-label="Open coordinates in OpenStreetMap">Open in map</button>
+            </div>
+          </div>
+          <div class="form-group">
+            <label for="lat">Latitude:</label>
+            <input id="lat" type="number" step="any" bind:value={lat} oninput={handleManualCoordinateChange} class:flash={coordsUpdated} />
+          </div>
+        
+          <div class="form-group">
+            <label for="lon">Longitude:</label>
+            <input id="lon" type="number" step="any" bind:value={lon} oninput={handleManualCoordinateChange} class:flash={coordsUpdated} />
+          </div>
+
+        
+        <div class="form-group">
+          <label for="startDate">Start Date:</label>
+          <input id="startDate" type="date" bind:value={startDate} onchange={handleParameterChange} />
+        </div>
+        
+        <div class="form-group">
+          <label for="endDate">End Date:</label>
+          <input id="endDate" type="date" bind:value={endDate} onchange={handleParameterChange} />
+        </div>
+        
+        <div class="form-group">
+          <label for="hourly">Hourly Variables:</label>
+          <input 
+            id="hourly"
+            type="text" 
+            bind:value={hourly} 
+            placeholder="temperature_2m,relative_humidity_2m"
+            oninput={handleParameterChange}
+          />
+        </div>
+
+      </div>
+    {/if}
+
+    {#if showLeafletMap}
+      <div class="map-mode">
+        <div class="map-controls">
+          <div class="form-group">
+            <label for="citySelect">City (autocomplete):</label>
+            <CityAutocomplete inputId="citySelect" bind:value={selectedCityName} {cities} placeholder="Search or choose a city" select={handleCitySelected} />
+          </div>
+
+            {#if !showParameters}
+              <div class="map-controls-mini">
+                <div class="form-group">
+                  <label for="startDateMap">Start Date:</label>
+                  <input id="startDateMap" type="date" bind:value={startDate} onchange={handleParameterChange} />
+                </div>
+                <div class="form-group">
+                  <label for="endDateMap">End Date:</label>
+                  <input id="endDateMap" type="date" bind:value={endDate} onchange={handleParameterChange} />
+                </div>
+              </div>
+            {/if}
+        </div>
+
+        <div class="map-preview">
+          <div class="map-header">
+            <div>Map preview — centered on: {lat}, {lon}</div>
+          </div>
+          <LeafletMap lat={Number(lat)} lon={Number(lon)} on:select={handleMapSelect} />
+        </div>
+      </div>
+    {/if}
+
+    {#if showMap && showParameters}
+      <div class="map-preview">
+          <div class="map-header">
+            <div>Map preview — centered on: {lat}, {lon}</div>
+            <button type="button" class="map-inline-btn" onclick={toggleMap}>Close</button>
+          </div>
+        <iframe
           title="OpenStreetMap preview"
           src={`https://www.openstreetmap.org/export/embed.html?bbox=${Number(lon) - 0.6},${Number(lat) - 0.3},${Number(lon) + 0.6},${Number(lat) + 0.3}&layer=mapnik&marker=${lat},${lon}`}
           width="100%"
           height="350"
           frameborder="0"
           style="border: 1px solid var(--border-color, #dee2e6); border-radius: 4px;"
-          ></iframe>
+        ></iframe>
+      </div>
+    {/if}
+
+    <div class="action-row action-row--advanced">
+      <button
+        type="button"
+        class="fetch-btn fetch-btn--primary {$isLoading ? 'loading' : ''}"
+        onclick={analyzeRemoteData}
+        disabled={$isLoading}
+      >
+        {#if $isLoading}
+          Analyzing...
+        {:else}
+          Analyze
         {/if}
+      </button>
+
+      <button
+        type="button"
+        class="fetch-btn {$isLoading ? 'loading' : ''}"
+        onclick={fetchAndDownload}
+        disabled={$isLoading}
+      >
+        {#if $isLoading}
+          Fetching...
+        {:else}
+          Fetch & Download
+        {/if}
+      </button>
+    </div>
+  {:else}
+    <div class="casual-grid">
+      <div class="form-group">
+        <label for="city-search">Location:</label>
+        <CityAutocomplete
+          inputId="city-search"
+          bind:value={selectedCityName}
+          {cities}
+          placeholder="Search a city or keep the default"
+          select={handleCitySelected}
+        />
+        <p class="field-help">Default city: {DEFAULT_CITY.name}. Or open the map and click a location.</p>
+      </div>
+
+      <div class="form-group">
+        <label for="year">Year:</label>
+        <input
+          id="year"
+          type="number"
+          min="1940"
+          max="2100"
+          step="1"
+          bind:value={selectedYear}
+          oninput={handleYearChange}
+        />
+        <p class="field-help">This fetches hourly data from 1 Jan to 31 Dec.</p>
+      </div>
+    </div>
+
+    <p class="selection-summary">
+      Using {selectedCity?.name ?? 'custom coordinates'} at {lat}, {lon} for {selectedYear || DEFAULT_YEAR}.
+    </p>
+
+    <div class="casual-footer">
+      <div class="form-group casual-format">
+        <label for="format-casual">Output Format:</label>
+        <select id="format-casual" bind:value={format} onchange={handleParameterChange}>
+          <option value="json">JSON</option>
+          <option value="csv">CSV</option>
+        </select>
+      </div>
+
+      <div class="action-row">
+        <button
+          type="button"
+          class="fetch-btn fetch-btn--primary {$isLoading ? 'loading' : ''}"
+          onclick={analyzeRemoteData}
+          disabled={$isLoading}
+        >
+          {#if $isLoading}
+            Analyzing...
+          {:else}
+            Analyze
+          {/if}
+        </button>
+
+        <button type="button" class="toggle-btn toggle-btn--secondary" onclick={toggleAdvanced}>
+          Show advanced tools
+        </button>
       </div>
     </div>
   {/if}
-
-  {#if showMap && showParameters}
-    <div class="map-preview">
-        <div class="map-header">
-          <div>Map preview — centered on: {lat}, {lon}</div>
-          <button type="button" class="map-inline-btn" onclick={toggleMap}>Close</button>
-        </div>
-      <iframe
-        title="OpenStreetMap preview"
-        src={`https://www.openstreetmap.org/export/embed.html?bbox=${Number(lon) - 0.6},${Number(lat) - 0.3},${Number(lon) + 0.6},${Number(lat) + 0.3}&layer=mapnik&marker=${lat},${lon}`}
-        width="100%"
-        height="350"
-        frameborder="0"
-        style="border: 1px solid var(--border-color, #dee2e6); border-radius: 4px;"
-      ></iframe>
-    </div>
-  {/if}
-  
-  <div class="form-group">
-    <label for="format">Output Format:</label>
-    <select id="format" bind:value={format} onchange={handleParameterChange}>
-      <option value="json">JSON</option>
-      <option value="csv">CSV</option>
-    </select>
-  </div>
-  
-  <button
-    type="button"
-    class="fetch-btn {$isLoading ? 'loading' : ''}"
-    onclick={fetchAndDownload}
-    disabled={$isLoading}
-  >
-    {#if $isLoading}
-      Fetching...
-    {:else}
-      Fetch & Download
-    {/if}
-  </button>
   
   {#if $lastError}
     <div class="error-message" aria-live="assertive" aria-atomic="true">{$lastError}</div>
@@ -478,7 +526,27 @@ async function fetchAndDownload() {
   
   .mode-toggle {
     display: flex;
+    flex-wrap: wrap;
     gap: 0.5rem;
+    margin-bottom: 1rem;
+  }
+
+  .casual-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: 1rem;
+    margin-bottom: 0.5rem;
+  }
+
+  .field-help,
+  .selection-summary {
+    margin: 0.25rem 0 0;
+    color: var(--muted-text-color, #5c6773);
+    font-size: 0.85rem;
+    line-height: 1.4;
+  }
+
+  .selection-summary {
     margin-bottom: 1rem;
   }
   
@@ -506,6 +574,12 @@ async function fetchAndDownload() {
   
   .form-group {
     margin-bottom: 1rem;
+  }
+
+  .action-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.75rem;
   }
   
   label {
@@ -549,12 +623,6 @@ async function fetchAndDownload() {
     margin-bottom: 0.5rem;
   }
 
-  /* no additional coordinates summary styles required */
-
-  /* no longer used — keep for compatibility if we later convert to field labels */
-  
-  /* url-preview & preview-url removed; main `API URL` is the single source of truth */
-  
   .fetch-btn {
     background: var(--primary-color, #007bff);
     color: white;
