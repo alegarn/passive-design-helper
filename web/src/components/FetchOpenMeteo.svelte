@@ -24,6 +24,7 @@
   let url = $state(`https://archive-api.open-meteo.com/v1/archive?latitude=${DEFAULT_CITY.lat}&longitude=${DEFAULT_CITY.lon}&start_date=${DEFAULT_START_DATE}&end_date=${DEFAULT_END_DATE}&hourly=temperature_2m,relative_humidity_2m`);
   let format = $state('csv');
   // show/hide sections
+  let showAdvanced = $state(false);
   let showParameters = $state(false);
   let showLeafletMap = $state(false);
   
@@ -49,6 +50,10 @@
     if (showLeafletMap) {
       url = buildUrl();
     }
+  }
+
+  function toggleAdvanced() {
+    showAdvanced = !showAdvanced;
   }
   
   // Build URL from parameters
@@ -253,208 +258,246 @@ async function fetchAndDownload() {
 
 <div class="fetch-container">
   <h2>Fetch Open-Meteo Weather Data</h2>
-  
-  <div class="mode-toggle">
-    <button type="button" class="toggle-btn {showParameters ? 'active' : ''}" onclick={toggleParameters}>Choose parameters</button>
-    <button type="button" class="toggle-btn {showLeafletMap ? 'active' : ''}" onclick={toggleLeafletPreview}>
-      {#if showLeafletMap}Close Map Preview{:else}Open Map Preview{/if}
-    </button>
-    <div class="tooltip-wrap">
-      <button id="geolocate" type="button" class="toggle-btn mode-locate-btn" onclick={geolocateMe} disabled={geolocLoading} aria-disabled={geolocLoading} title="Use your device's location — Only used to construct the Open‑Meteo API query; not stored or shared." aria-label="Use your current location" aria-describedby="geolocate-tooltip">
-      {#if geolocLoading}
-        <span class="spinner" aria-hidden="true"></span>
-        <span class="btn-text" style="margin-left:0.35rem;">Locating…</span>
-      {:else}
-        {#if geolocSuccess}
-          <svg class="icon icon--success" viewBox="0 0 24 24" width="14" height="14" aria-hidden="true">
-            <path fill="currentColor" d="M9 16.2L4.8 12l-1.4 1.4L9 19 21 7l-1.4-1.4z" />
-          </svg>
-        {:else}
-          <svg class="icon icon--pin" viewBox="0 0 24 24" width="14" height="14" aria-hidden="true">
-            <path fill="currentColor" d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5a2.5 2.5 0 110-5 2.5 2.5 0 010 5z" />
-          </svg>
-        {/if}
-        <span class="btn-text" style="margin-left:0.35rem;">Locate me</span>
-      {/if}
+  {#if showAdvanced}
+    <div class="advanced-header">
+      <div>
+        <p class="panel-label">Advanced tools</p>
+        <p class="panel-description">Reveal the older fetch and processing controls.</p>
+      </div>
+      <button type="button" class="toggle-btn toggle-btn--primary" onclick={toggleAdvanced}>Back to casual view</button>
+    </div>
+
+    <div class="mode-toggle">
+      <button type="button" class="toggle-btn {showParameters ? 'active' : ''}" onclick={toggleParameters}>Choose parameters</button>
+      <button type="button" class="toggle-btn {showLeafletMap ? 'active' : ''}" onclick={toggleLeafletPreview}>
+        {#if showLeafletMap}Close Map Preview{:else}Open Map Preview{/if}
       </button>
-      <div id="geolocate-tooltip" class="privacy-tooltip" role="tooltip">Only used to construct the Open‑Meteo API query; not stored or shared.</div>
-      {#if geolocSuccess}
-        <span class="geoloc-badge" role="status" aria-live="polite">Location accepted</span>
-      {/if}
-    </div>
-  </div>
-
-  <div class="casual-grid">
-    <div class="form-group">
-      <label for="city-search">Location:</label>
-      <CityAutocomplete
-        inputId="city-search"
-        bind:value={selectedCityName}
-        {cities}
-        placeholder="Search a city or keep the default"
-        select={handleCitySelected}
-      />
-      <p class="field-help">Default city: {DEFAULT_CITY.name}. Or open the map and click a location.</p>
-    </div>
-
-    <div class="form-group">
-      <label for="year">Year:</label>
-      <input
-        id="year"
-        type="number"
-        min="1940"
-        max="2100"
-        step="1"
-        bind:value={selectedYear}
-        oninput={handleYearChange}
-      />
-      <p class="field-help">This fetches hourly data from 1 Jan to 31 Dec.</p>
-    </div>
-  </div>
-
-  <p class="selection-summary">
-    Using {selectedCity?.name ?? 'custom coordinates'} at {lat}, {lon} for {selectedYear || DEFAULT_YEAR}.
-  </p>
-
-  {#if showParameters}
-    <div class="form-group">
-      <label for="url">API URL:</label>
-      <input
-        id="url"
-        type="url"
-        bind:value={url}
-        placeholder="https://archive-api.open-meteo.com/v1/archive?..."
-        class="url-input"
-      />
-      <p class="field-help">Edit the URL directly if you want a fully manual fetch.</p>
-    </div>
-
-    <div class="params-grid">
-        <div class="form-group geo-controls" role="group" aria-labelledby="geoControlsLabel">
-          <div id="geoControlsLabel" class="sr-only">Geolocation actions</div>
-          <div class="geo-stack">
-            <button id="resetCoordinates" type="button" class="map-inline-btn" onclick={() => { lat = String(Number(DEFAULT_CITY.lat).toFixed(6)); lon = String(Number(DEFAULT_CITY.lon).toFixed(6)); selectedCityName = DEFAULT_CITY.name; selectedCity = DEFAULT_CITY; selectedYear = DEFAULT_YEAR; startDate = DEFAULT_START_DATE; endDate = DEFAULT_END_DATE; url = buildUrl(); fileStore.setMetaLastError(null); geolocSuccess = false; geolocLoading = false; coordsUpdated = false; }} title="Reset to the default city" aria-label="Reset coordinates to the default city">Use default city</button>
-            <button id="openMap" type="button" class="map-inline-btn" onclick={openInMap} title="Open lat/lon in OpenStreetMap" aria-label="Open coordinates in OpenStreetMap">Open in map</button>
-          </div>
-        </div>
-        <div class="form-group">
-          <label for="lat">Latitude:</label>
-          <input id="lat" type="number" step="any" bind:value={lat} oninput={handleManualCoordinateChange} class:flash={coordsUpdated} />
-        </div>
-      
-        <div class="form-group">
-          <label for="lon">Longitude:</label>
-          <input id="lon" type="number" step="any" bind:value={lon} oninput={handleManualCoordinateChange} class:flash={coordsUpdated} />
-        </div>
-
-      
-      <div class="form-group">
-        <label for="startDate">Start Date:</label>
-        <input id="startDate" type="date" bind:value={startDate} onchange={handleParameterChange} />
-      </div>
-      
-      <div class="form-group">
-        <label for="endDate">End Date:</label>
-        <input id="endDate" type="date" bind:value={endDate} onchange={handleParameterChange} />
-      </div>
-      
-      <div class="form-group">
-        <label for="hourly">Hourly Variables:</label>
-        <input 
-          id="hourly"
-          type="text" 
-          bind:value={hourly} 
-          placeholder="temperature_2m,relative_humidity_2m"
-          oninput={handleParameterChange}
-        />
-      </div>
-
-    </div>
-  {/if}
-
-  {#if showLeafletMap}
-    <div class="map-mode">
-      <div class="map-controls">
-        <div class="form-group">
-          <label for="citySelect">City (autocomplete):</label>
-          <CityAutocomplete bind:value={selectedCityName} {cities} placeholder="Search or choose a city" select={handleCitySelected} />
-        </div>
-
-          {#if !showParameters}
-            <div class="map-controls-mini">
-              <div class="form-group">
-                <label for="startDateMap">Start Date:</label>
-                <input id="startDateMap" type="date" bind:value={startDate} onchange={handleParameterChange} />
-              </div>
-              <div class="form-group">
-                <label for="endDateMap">End Date:</label>
-                <input id="endDateMap" type="date" bind:value={endDate} onchange={handleParameterChange} />
-              </div>
-            </div>
+      <div class="tooltip-wrap">
+        <button id="geolocate" type="button" class="toggle-btn mode-locate-btn" onclick={geolocateMe} disabled={geolocLoading} aria-disabled={geolocLoading} title="Use your device's location — Only used to construct the Open‑Meteo API query; not stored or shared." aria-label="Use your current location" aria-describedby="geolocate-tooltip">
+        {#if geolocLoading}
+          <span class="spinner" aria-hidden="true"></span>
+          <span class="btn-text" style="margin-left:0.35rem;">Locating…</span>
+        {:else}
+          {#if geolocSuccess}
+            <svg class="icon icon--success" viewBox="0 0 24 24" width="14" height="14" aria-hidden="true">
+              <path fill="currentColor" d="M9 16.2L4.8 12l-1.4 1.4L9 19 21 7l-1.4-1.4z" />
+            </svg>
+          {:else}
+            <svg class="icon icon--pin" viewBox="0 0 24 24" width="14" height="14" aria-hidden="true">
+              <path fill="currentColor" d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5a2.5 2.5 0 110-5 2.5 2.5 0 010 5z" />
+            </svg>
           {/if}
+          <span class="btn-text" style="margin-left:0.35rem;">Locate me</span>
+        {/if}
+        </button>
+        <div id="geolocate-tooltip" class="privacy-tooltip" role="tooltip">Only used to construct the Open‑Meteo API query; not stored or shared.</div>
+        {#if geolocSuccess}
+          <span class="geoloc-badge" role="status" aria-live="polite">Location accepted</span>
+        {/if}
+      </div>
+    </div>
+
+    <div class="form-group">
+      <label for="format-advanced">Output Format:</label>
+      <select id="format-advanced" bind:value={format} onchange={handleParameterChange}>
+        <option value="json">JSON</option>
+        <option value="csv">CSV</option>
+      </select>
+    </div>
+
+    {#if showParameters}
+      <div class="form-group">
+        <label for="url">API URL:</label>
+        <input
+          id="url"
+          type="url"
+          bind:value={url}
+          placeholder="https://archive-api.open-meteo.com/v1/archive?..."
+          class="url-input"
+        />
+        <p class="field-help">Edit the URL directly if you want a fully manual fetch.</p>
       </div>
 
+      <div class="params-grid">
+          <div class="form-group geo-controls" role="group" aria-labelledby="geoControlsLabel">
+            <div id="geoControlsLabel" class="sr-only">Geolocation actions</div>
+            <div class="geo-stack">
+              <button id="resetCoordinates" type="button" class="map-inline-btn" onclick={() => { lat = String(Number(DEFAULT_CITY.lat).toFixed(6)); lon = String(Number(DEFAULT_CITY.lon).toFixed(6)); selectedCityName = DEFAULT_CITY.name; selectedCity = DEFAULT_CITY; selectedYear = DEFAULT_YEAR; startDate = DEFAULT_START_DATE; endDate = DEFAULT_END_DATE; url = buildUrl(); fileStore.setMetaLastError(null); geolocSuccess = false; geolocLoading = false; coordsUpdated = false; }} title="Reset to the default city" aria-label="Reset coordinates to the default city">Use default city</button>
+              <button id="openMap" type="button" class="map-inline-btn" onclick={openInMap} title="Open lat/lon in OpenStreetMap" aria-label="Open coordinates in OpenStreetMap">Open in map</button>
+            </div>
+          </div>
+          <div class="form-group">
+            <label for="lat">Latitude:</label>
+            <input id="lat" type="number" step="any" bind:value={lat} oninput={handleManualCoordinateChange} class:flash={coordsUpdated} />
+          </div>
+        
+          <div class="form-group">
+            <label for="lon">Longitude:</label>
+            <input id="lon" type="number" step="any" bind:value={lon} oninput={handleManualCoordinateChange} class:flash={coordsUpdated} />
+          </div>
+
+        
+        <div class="form-group">
+          <label for="startDate">Start Date:</label>
+          <input id="startDate" type="date" bind:value={startDate} onchange={handleParameterChange} />
+        </div>
+        
+        <div class="form-group">
+          <label for="endDate">End Date:</label>
+          <input id="endDate" type="date" bind:value={endDate} onchange={handleParameterChange} />
+        </div>
+        
+        <div class="form-group">
+          <label for="hourly">Hourly Variables:</label>
+          <input 
+            id="hourly"
+            type="text" 
+            bind:value={hourly} 
+            placeholder="temperature_2m,relative_humidity_2m"
+            oninput={handleParameterChange}
+          />
+        </div>
+
+      </div>
+    {/if}
+
+    {#if showLeafletMap}
+      <div class="map-mode">
+        <div class="map-controls">
+          <div class="form-group">
+            <label for="citySelect">City (autocomplete):</label>
+            <CityAutocomplete inputId="citySelect" bind:value={selectedCityName} {cities} placeholder="Search or choose a city" select={handleCitySelected} />
+          </div>
+
+            {#if !showParameters}
+              <div class="map-controls-mini">
+                <div class="form-group">
+                  <label for="startDateMap">Start Date:</label>
+                  <input id="startDateMap" type="date" bind:value={startDate} onchange={handleParameterChange} />
+                </div>
+                <div class="form-group">
+                  <label for="endDateMap">End Date:</label>
+                  <input id="endDateMap" type="date" bind:value={endDate} onchange={handleParameterChange} />
+                </div>
+              </div>
+            {/if}
+        </div>
+
+        <div class="map-preview">
+          <div class="map-header">
+            <div>Map preview — centered on: {lat}, {lon}</div>
+          </div>
+          <LeafletMap lat={Number(lat)} lon={Number(lon)} on:select={handleMapSelect} />
+        </div>
+      </div>
+    {/if}
+
+    {#if showMap && showParameters}
       <div class="map-preview">
-        <div class="map-header">
-          <div>Map preview — centered on: {lat}, {lon}</div>
-        </div>
-        <LeafletMap lat={Number(lat)} lon={Number(lon)} on:select={handleMapSelect} />
+          <div class="map-header">
+            <div>Map preview — centered on: {lat}, {lon}</div>
+            <button type="button" class="map-inline-btn" onclick={toggleMap}>Close</button>
+          </div>
+        <iframe
+          title="OpenStreetMap preview"
+          src={`https://www.openstreetmap.org/export/embed.html?bbox=${Number(lon) - 0.6},${Number(lat) - 0.3},${Number(lon) + 0.6},${Number(lat) + 0.3}&layer=mapnik&marker=${lat},${lon}`}
+          width="100%"
+          height="350"
+          frameborder="0"
+          style="border: 1px solid var(--border-color, #dee2e6); border-radius: 4px;"
+        ></iframe>
+      </div>
+    {/if}
+
+    <div class="action-row action-row--advanced">
+      <button
+        type="button"
+        class="fetch-btn fetch-btn--primary {$isLoading ? 'loading' : ''}"
+        onclick={analyzeRemoteData}
+        disabled={$isLoading}
+      >
+        {#if $isLoading}
+          Analyzing...
+        {:else}
+          Analyze
+        {/if}
+      </button>
+
+      <button
+        type="button"
+        class="fetch-btn {$isLoading ? 'loading' : ''}"
+        onclick={fetchAndDownload}
+        disabled={$isLoading}
+      >
+        {#if $isLoading}
+          Fetching...
+        {:else}
+          Fetch & Download
+        {/if}
+      </button>
+    </div>
+  {:else}
+    <div class="casual-grid">
+      <div class="form-group">
+        <label for="city-search">Location:</label>
+        <CityAutocomplete
+          inputId="city-search"
+          bind:value={selectedCityName}
+          {cities}
+          placeholder="Search a city or keep the default"
+          select={handleCitySelected}
+        />
+        <p class="field-help">Default city: {DEFAULT_CITY.name}. Or open the map and click a location.</p>
+      </div>
+
+      <div class="form-group">
+        <label for="year">Year:</label>
+        <input
+          id="year"
+          type="number"
+          min="1940"
+          max="2100"
+          step="1"
+          bind:value={selectedYear}
+          oninput={handleYearChange}
+        />
+        <p class="field-help">This fetches hourly data from 1 Jan to 31 Dec.</p>
+      </div>
+    </div>
+
+    <p class="selection-summary">
+      Using {selectedCity?.name ?? 'custom coordinates'} at {lat}, {lon} for {selectedYear || DEFAULT_YEAR}.
+    </p>
+
+    <div class="casual-footer">
+      <div class="form-group casual-format">
+        <label for="format-casual">Output Format:</label>
+        <select id="format-casual" bind:value={format} onchange={handleParameterChange}>
+          <option value="json">JSON</option>
+          <option value="csv">CSV</option>
+        </select>
+      </div>
+
+      <div class="action-row">
+        <button
+          type="button"
+          class="fetch-btn fetch-btn--primary {$isLoading ? 'loading' : ''}"
+          onclick={analyzeRemoteData}
+          disabled={$isLoading}
+        >
+          {#if $isLoading}
+            Analyzing...
+          {:else}
+            Analyze
+          {/if}
+        </button>
+
+        <button type="button" class="toggle-btn toggle-btn--secondary" onclick={toggleAdvanced}>
+          Show advanced tools
+        </button>
       </div>
     </div>
   {/if}
-
-  {#if showMap && showParameters}
-    <div class="map-preview">
-        <div class="map-header">
-          <div>Map preview — centered on: {lat}, {lon}</div>
-          <button type="button" class="map-inline-btn" onclick={toggleMap}>Close</button>
-        </div>
-      <iframe
-        title="OpenStreetMap preview"
-        src={`https://www.openstreetmap.org/export/embed.html?bbox=${Number(lon) - 0.6},${Number(lat) - 0.3},${Number(lon) + 0.6},${Number(lat) + 0.3}&layer=mapnik&marker=${lat},${lon}`}
-        width="100%"
-        height="350"
-        frameborder="0"
-        style="border: 1px solid var(--border-color, #dee2e6); border-radius: 4px;"
-      ></iframe>
-    </div>
-  {/if}
-  
-  <div class="form-group">
-    <label for="format">Output Format:</label>
-    <select id="format" bind:value={format} onchange={handleParameterChange}>
-      <option value="json">JSON</option>
-      <option value="csv">CSV</option>
-    </select>
-  </div>
-
-  <div class="action-row">
-    <button
-      type="button"
-      class="fetch-btn fetch-btn--primary {$isLoading ? 'loading' : ''}"
-      onclick={analyzeRemoteData}
-      disabled={$isLoading}
-    >
-      {#if $isLoading}
-        Analyzing...
-      {:else}
-        Analyze
-      {/if}
-    </button>
-
-    <button
-      type="button"
-      class="fetch-btn {$isLoading ? 'loading' : ''}"
-      onclick={fetchAndDownload}
-      disabled={$isLoading}
-    >
-      {#if $isLoading}
-        Fetching...
-      {:else}
-        Fetch & Download
-      {/if}
-    </button>
-  </div>
   
   {#if $lastError}
     <div class="error-message" aria-live="assertive" aria-atomic="true">{$lastError}</div>
