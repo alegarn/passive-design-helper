@@ -6,7 +6,8 @@
     value = '' , 
     cities = [], 
     placeholder = 'Search city...', 
-    select = () => {} 
+    select = () => {},
+    inputId = undefined
   } = $props();
 
   let isOpen = $state(false);
@@ -76,6 +77,7 @@
 <div class="city-autocomplete">
   <input
     bind:this={inputEl}
+    id={inputId}
     type="text"
     class="city-input"
     placeholder={placeholder}
