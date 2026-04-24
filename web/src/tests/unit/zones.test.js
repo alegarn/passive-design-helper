@@ -187,15 +187,15 @@ describe('Zone Adaptive Logic', () => {
         ['MC+NV T1+13', mcnv.poly[2]],
         ['MC+NV T1+20', mcnv.poly[3]],
       ].forEach(([label, point]) => {
-        expectHumidityRatioNear(point, 16, label, med);
+        expectHumidityRatioNear(point, sharedUpperW_gpkg, label, med);
       });
 
       acd.poly.slice(3).forEach((point, index) => {
-        expectHumidityRatioNear(point, 16, `AC+D ceiling sample ${index}`, med);
+        expectHumidityRatioNear(point, sharedUpperW_gpkg, `AC+D ceiling sample ${index}`, med);
       });
 
       airConditioningCeiling(ac.poly).forEach((point, index) => {
-        expectHumidityRatioNear(point, 16, `AC ceiling sample ${index}`, med);
+        expectHumidityRatioNear(point, sharedUpperW_gpkg, `AC ceiling sample ${index}`, med);
       });
     }
   });
@@ -218,16 +218,19 @@ describe('Zone Adaptive Logic', () => {
     }
   });
 
-  it('keeps a two-point hottest Ventilation column and only shares V4 with AC+D when V4 is already on or above 16g/kg', () => {
-    for (const med of [23, 19, 17]) {
+  it('keeps a two-point hottest Ventilation column and places AC+D on the Ventilation diagonal at the shared cap for cool medians', () => {
+    for (const med of [17, 19]) {
       const zones = createZonesForMedianTemp(med);
       const comfort = zoneById(zones, 'Comfort');
       const vent = zoneById(zones, 'Ventilation');
       const acd = zoneById(zones, 'Air Conditioning + Dehumidifier');
+      const sharedUpperW_gpkg = comfortSharedCeilingW(zones);
       const tPm = comfort.poly[0][0] + 12;
       const { hotTemperature, column, upper, lower } = ventilationHottestColumn(vent.poly);
-      const upperW = humidityRatioGpkg(upper);
+      const acd1 = acd.poly[0];
+      const acd2 = acd.poly[1];
 
+      expect(sharedUpperW_gpkg).toBeLessThan(16);
       expect(column).toHaveLength(2);
       expect(upper[1]).toBeCloseTo(50, 6);
       expect(lower[1]).toBeCloseTo(20, 6);
@@ -235,20 +238,17 @@ describe('Zone Adaptive Logic', () => {
       expect(upper[1]).toBeGreaterThan(lower[1]);
       expect(hotTemperature).toBeCloseTo(tPm, 6);
       expectSamePoint(upper, [tPm, 50], `Ventilation hottest point at median ${med}`);
-
-      if (upperW >= 16 - 0.01) {
-        expectSamePoint(acd.poly[0], upper, `AC+D join at median ${med}`);
-      } else {
-        expectHumidityRatioNear(acd.poly[0], 16, 'AC+D join', med);
-        expect(acd.poly[0][0]).toBeLessThan(tPm);
-        expect(acd.poly[0][1]).toBeGreaterThan(50);
-        expectPointOnSegment(acd.poly[0], vent.poly[2], upper, `AC+D join at median ${med}`);
-      }
+      expectSamePoint(lower, [tPm, 20], `Ventilation hottest lower point at median ${med}`);
+      expectSamePoint(acd2, vent.poly[2], `AC+D upper-left point at median ${med}`);
+      expectPointOnSegment(acd1, acd2, upper, `AC+D join at median ${med}`);
+      expectHumidityRatioNear(acd1, sharedUpperW_gpkg, 'AC+D join', med);
+      expect(acd1[0]).toBeLessThan(tPm);
+      expect(acd1[1]).toBeGreaterThan(50);
     }
   });
 
-  it('keeps the lowered shared hot-side limit for Mass Cooling, MC+NV, and AC while AC+D stays on hard 16g/kg', () => {
-    for (const med of [17, 19, 23, 28]) {
+  it('keeps the AC+D lower boundary and other hot-side points on the shared moving cap', () => {
+    for (const med of [12, 17, 23, 28]) {
       const zones = createZonesForMedianTemp(med);
       const comfort = zoneById(zones, 'Comfort');
       const vent = zoneById(zones, 'Ventilation');
@@ -270,21 +270,15 @@ describe('Zone Adaptive Logic', () => {
       const acCeiling = airConditioningCeiling(ac.poly);
       const acAtTpmc = ac.poly[0];
 
-      if (med < 23) {
-        expect(sharedUpperW_gpkg).toBeLessThan(16);
-      } else {
-        expect(Math.abs(sharedUpperW_gpkg - 16)).toBeLessThanOrEqual(W_TOLERANCE_GPKG);
-      }
-
       expectSamePoint(ventUpper, [tPm, 50], `Ventilation hottest point at median ${med}`);
       expectHumidityRatioNear(massAtTpm, sharedUpperW_gpkg, 'Mass Cooling T1+12', med);
       expectHumidityRatioNear(mcnvAtTmc5, sharedUpperW_gpkg, 'MC+NV T1+13', med);
       expectHumidityRatioNear(mcnvAtTpmc, sharedUpperW_gpkg, 'MC+NV T1+20', med);
       expect(acdBoundaryStart[0]).toBeCloseTo(tPm, 6);
-      expectHumidityRatioNear(acdBoundaryStart, 16, 'AC+D lower-boundary start', med);
+      expectHumidityRatioNear(acdBoundaryStart, sharedUpperW_gpkg, 'AC+D lower-boundary start', med);
       expect(acdBoundary.every(([temp]) => temp + EPS >= tPm)).toBe(true);
       acdBoundary.forEach((point, index) => {
-        expectHumidityRatioNear(point, 16, `AC+D lower-boundary sample ${index}`, med);
+        expectHumidityRatioNear(point, sharedUpperW_gpkg, `AC+D lower-boundary sample ${index}`, med);
       });
       expect(acAtTpmc[0]).toBeCloseTo(tPmc, 6);
       expectHumidityRatioNear(acAtTpmc, sharedUpperW_gpkg, 'AC T1+20', med);
@@ -296,13 +290,26 @@ describe('Zone Adaptive Logic', () => {
       ).toBe(false);
 
       if (med < 23) {
-        expectHumidityRatioNear(acd.poly[0], 16, 'AC+D join', med);
-        expect(acd.poly[0][0]).toBeLessThan(tPm);
-        expectPointOnSegment(acd.poly[0], acd.poly[1], ventUpper, `AC+D join at median ${med}`);
+        expect(sharedUpperW_gpkg).toBeLessThan(16);
+        expect(acdBoundaryStart[1]).toBeGreaterThan(ventUpper[1]);
       } else {
-        expectSamePoint(acd.poly[0], ventUpper, `AC+D join at median ${med}`);
+        expect(Math.abs(sharedUpperW_gpkg - 16)).toBeLessThanOrEqual(W_TOLERANCE_GPKG);
         expect(acdBoundaryStart[1]).toBeLessThan(ventUpper[1]);
       }
+    }
+  });
+
+  it('lets AC+D meet V4 when the Ventilation diagonal stays above the shared cap at warm medians', () => {
+    for (const med of [23, 28]) {
+      const zones = createZonesForMedianTemp(med);
+      const comfort = zoneById(zones, 'Comfort');
+      const vent = zoneById(zones, 'Ventilation');
+      const acd = zoneById(zones, 'Air Conditioning + Dehumidifier');
+      const sharedUpperW_gpkg = comfortSharedCeilingW(zones);
+      const { upper } = ventilationHottestColumn(vent.poly);
+
+      expect(Math.abs(sharedUpperW_gpkg - 16)).toBeLessThanOrEqual(W_TOLERANCE_GPKG);
+      expectSamePoint(acd.poly[0], upper, `AC+D join at median ${med}`);
     }
   });
 });

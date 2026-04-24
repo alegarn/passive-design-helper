@@ -45,14 +45,15 @@ const ZONES = [
   //   boundary shared with Mass Cooling and Evaporative Cooling below
   //   right edge: P1+24.06°C=46.86°C from 5% RH up to 20% RH (W~16g/kg)
   { id: 'Mass Cooling & Night Ventilation (or AC)', color: ZONE_COLORS['Mass Cooling & Night Ventilation (or AC)'], type: 'hybrid', poly: [ p(39.8, 7), p(39.8, 30), p(35.8, 42), p(42.8, 28), p(46.86, 20), p(46.86, 5), ], description: 'Hybrid strategy using building mass plus night ventilation to cool; when insufficient, AC supplements performance.', complexity: 'Medium', examples: ['High-mass homes with night purge ventilation', 'Night ventilation combined with zoned AC as backup'], icon: '🌙🪟', howToApply: { beginner: ['Use night purge ventilation and ceiling fans to cool heavy mass', 'Use AC only as backup when comfort limits exceeded'], advanced: ['Automate ventilation controls to exploit nocturnal cooling', 'Combine with thermal storage and intelligent HVAC staging'] } },
-  // AC + Dehumidifier — ALWAYS above W=16g/kg. Baseline at 28°C (P1=22.8°C):
-  //   AC+D P1: P1+7°C=29.8°C / 100% RH  (shared top-left with Ventilation)
-  //   AC+D P2: P1+12°C=34.8°C / 50% RH  (shared right edge with Ventilation)
-  //   AC+D P3: P1+12°C=34.8°C / W=16g/kg (join Mass Cooling boundary)
-  //   AC+D P4: P1+20°C=42.8°C / W=16g/kg (join Mass Cooling+NV boundary)
-  // AC + Dehumidifier — "fill the rest" above W=16g/kg, right of Ventilation.
-  // Approximate baseline poly; rebuilt by createZonesForMedianTemp with sampled 16g/kg isoline.
-  { id: 'Air Conditioning + Dehumidifier', color: ZONE_COLORS['Air Conditioning + Dehumidifier'], type: 'active', poly: [ p(29.8, 100), p(50, 100), p(50, 40), p(42.8, 28), p(34.8, 42), p(34.8, 50), ], note: 'AC+Dehumidifier — always above W=16g/kg; lower boundary follows sampled 16g/kg isoline', description: 'Mechanical cooling with simultaneous dehumidification is required to maintain comfortable humidity and temperature.', complexity: 'Medium', examples: ['Packaged AC with integrated dehumidifier', 'Separate dehumidifier combined with split AC'], icon: '❄️+💧', howToApply: { beginner: ['Ensure correct AC sizing and run for humidity control', 'Add portable dehumidifier to remove moisture when needed'], advanced: ['Use dedicated dehumidification integrated into HVAC', 'Add smart humidistat controls and ventilation management'] } },
+  // AC + Dehumidifier — above the effective shared upper humidity limit.
+  // At the 28°C baseline that shared limit stays close to 16 g/kg.
+  //   AC+D P1: Ventilation diagonal crossover on the shared upper limit
+  //   AC+D P2: P1+7°C=29.8°C / 100% RH  (shared top-left with Ventilation)
+  //   AC+D P3: P1+12°C=34.8°C / shared upper limit (join Mass Cooling boundary)
+  //   AC+D P4: P1+20°C=42.8°C / shared upper limit (join Mass Cooling+NV boundary)
+  // AC + Dehumidifier — "fill the rest" above the shared upper humidity limit, right of Ventilation.
+  // Approximate baseline poly; rebuilt by createZonesForMedianTemp with sampled shared-limit points.
+  { id: 'Air Conditioning + Dehumidifier', color: ZONE_COLORS['Air Conditioning + Dehumidifier'], type: 'active', poly: [ p(29.8, 100), p(50, 100), p(50, 40), p(42.8, 28), p(34.8, 42), p(34.8, 50), ], note: 'AC+Dehumidifier — above the shared upper humidity limit; lower boundary follows the sampled shared limit', description: 'Mechanical cooling with simultaneous dehumidification is required to maintain comfortable humidity and temperature.', complexity: 'Medium', examples: ['Packaged AC with integrated dehumidifier', 'Separate dehumidifier combined with split AC'], icon: '❄️+💧', howToApply: { beginner: ['Ensure correct AC sizing and run for humidity control', 'Add portable dehumidifier to remove moisture when needed'], advanced: ['Use dedicated dehumidification integrated into HVAC', 'Add smart humidistat controls and ventilation management'] } },
   // Air Conditioning — "fill the rest" below W=16g/kg, right of MC+NV and Evap.
   // Approximate baseline poly; rebuilt by createZonesForMedianTemp with sampled 16g/kg isoline.
   { id: 'Air Conditioning', color: ZONE_COLORS['Air Conditioning'], type: 'active', poly: [ p(43.8, 0), p(43.8, 10), p(46.86, 20), p(50, 18), p(50, 0), ], description: 'Mechanical cooling used to lower temperatures and/or manage humidity when passive measures are insufficient.', complexity: 'Low', examples: ['Split-system AC units', 'Ducted central air conditioning'], icon: '❄️', howToApply: { beginner: ['Install appropriately sized AC units and maintain filter cleanliness', 'Use efficient setpoints and fan control to minimize runtime'], advanced: ['Implement zoned cooling with variable speed compressors', 'Use smart thermostats for schedule and integration with ventilation'] } }
@@ -379,7 +380,7 @@ function createZonesForMedianTemp(medianTemp, opts = {}) {
   const rh_ev78_wP1 = rhAtW(T_ev78, W_P1 ?? 3.43);                    // T1+21/W_P1 (Evap/MC+NV/AC shared)
   const ventPeak = [T_p5, 100];
   const ventUpper = [T_pm, 50];
-  const acdJoin = intersectSegmentAtW(ventPeak, ventUpper, W_LIMIT_GPKG) ?? ventUpper;
+  const acdJoin = intersectSegmentAtW(ventPeak, ventUpper, hotUpperW_gpkg) ?? ventUpper;
 
   return useZones.map(z => {
     if (!z || !z.poly) return { ...z };
@@ -496,26 +497,26 @@ function createZonesForMedianTemp(medianTemp, opts = {}) {
     }
 
     // ── Air Conditioning + Dehumidifier ────────────────────────────────────────
-    // "Fill the rest" above the hard 16 g/kg ceiling: everything above that
-    // sampled ceiling trace not already covered by Ventilation.
-    // Left corner: the hard-16 join with Ventilation.
+    // "Fill the rest" above the shared upper humidity limit: everything above
+    // that sampled ceiling trace not already covered by Ventilation.
+    // Left corner: the Ventilation-diagonal join on the shared upper limit.
     //   Cool medians: use the V3 -> V4 crossover before V4.
-    //   Warm medians: keep V4 when the diagonal stays above 16 g/kg.
+    //   Warm medians: keep V4 when the diagonal stays above the shared limit.
     // Top:    100% RH → T_chart_max
-    // Bottom: sampled hard 16 g/kg ceiling from T_chart_max back to T1+12
+    // Bottom: sampled shared upper limit from T_chart_max back to T1+12
     if (z.id === 'Air Conditioning + Dehumidifier') {
       const N_ACD = 12;
       const T_acd_floor = T_pm;
       const wLine = [];
       for (let i = 0; i <= N_ACD; i++) {
         const T_s = T_acd_floor + (T_chart_max - T_acd_floor) * i / N_ACD;
-        wLine.push([T_s, rhAtWLimit(T_s)]);
+        wLine.push([T_s, rhAtW(T_s, hotUpperW_gpkg)]);
       }
       return { ...z, poly: [
-        acdJoin,                     // hard-16 join with Ventilation
+        acdJoin,                     // shared-limit join with Ventilation
         ventPeak,                    // Ventilation top-right   (T1+7  / 100%)
         [T_chart_max, 100],          // chart top-right
-        ...wLine.slice().reverse(),  // sampled hard 16 g/kg ceiling from T_chart_max ← T1+12
+        ...wLine.slice().reverse(),  // sampled shared limit from T_chart_max ← T1+12
       ]};
     }
 
