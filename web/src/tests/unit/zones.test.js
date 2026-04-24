@@ -69,17 +69,30 @@ function expectSamePoint(actual, expected, label) {
   expect(actual[1], `${label} RH`).toBeCloseTo(expected[1], 6);
 }
 
-function expectPointOnSegment(actual, start, end, label) {
-  const [x, y] = actual;
-  const [x1, y1] = start;
-  const [x2, y2] = end;
-  const cross = (y - y1) * (x2 - x1) - (x - x1) * (y2 - y1);
+function expectPointOnRenderedSegment(actual, start, end, label) {
+  const x = actual[0];
+  const y = humidityRatioGpkg(actual);
+  const x1 = start[0];
+  const y1 = humidityRatioGpkg(start);
+  const x2 = end[0];
+  const y2 = humidityRatioGpkg(end);
 
-  expect(Math.abs(cross), `${label} is not on the expected segment`).toBeLessThanOrEqual(1e-3);
-  expect(x, `${label} temperature is left of the segment`).toBeGreaterThanOrEqual(Math.min(x1, x2) - EPS);
-  expect(x, `${label} temperature is right of the segment`).toBeLessThanOrEqual(Math.max(x1, x2) + EPS);
-  expect(y, `${label} RH is below the segment`).toBeGreaterThanOrEqual(Math.min(y1, y2) - EPS);
-  expect(y, `${label} RH is above the segment`).toBeLessThanOrEqual(Math.max(y1, y2) + EPS);
+  if (Math.abs(x2 - x1) <= EPS) {
+    expect(x, `${label} temperature is not on the rendered segment`).toBeCloseTo(x1, 6);
+  } else {
+    const t = (x - x1) / (x2 - x1);
+    const expectedY = y1 + (y2 - y1) * t;
+
+    expect(t, `${label} temperature is left of the rendered segment`).toBeGreaterThanOrEqual(-EPS);
+    expect(t, `${label} temperature is right of the rendered segment`).toBeLessThanOrEqual(1 + EPS);
+    expect(
+      Math.abs(y - expectedY),
+      `${label} is not on the rendered segment`,
+    ).toBeLessThanOrEqual(W_TOLERANCE_GPKG);
+  }
+
+  expect(y, `${label} humidity ratio is below the rendered segment`).toBeGreaterThanOrEqual(Math.min(y1, y2) - W_TOLERANCE_GPKG);
+  expect(y, `${label} humidity ratio is above the rendered segment`).toBeLessThanOrEqual(Math.max(y1, y2) + W_TOLERANCE_GPKG);
 }
 
 describe('Zone Adaptive Logic', () => {
@@ -240,7 +253,7 @@ describe('Zone Adaptive Logic', () => {
       expectSamePoint(upper, [tPm, 50], `Ventilation hottest point at median ${med}`);
       expectSamePoint(lower, [tPm, 20], `Ventilation hottest lower point at median ${med}`);
       expectSamePoint(acd2, vent.poly[2], `AC+D upper-left point at median ${med}`);
-      expectPointOnSegment(acd1, acd2, upper, `AC+D join at median ${med}`);
+      expectPointOnRenderedSegment(acd1, acd2, upper, `AC+D join at median ${med}`);
       expectHumidityRatioNear(acd1, sharedUpperW_gpkg, 'AC+D join', med);
       expect(acd1[0]).toBeLessThan(tPm);
       expect(acd1[1]).toBeGreaterThan(50);

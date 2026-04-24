@@ -12,6 +12,7 @@ function p(t, rh) {
   return [Number(t), Number(rh)];
 }
 import { ZONE_COLORS } from './theme.js';
+import { W_from_RH_T } from './psychro/math.js';
 
 // zones points for 28°C median (BASELINE_MEDIAN_T=28), in °C + % RH.
 // Comfort P1 anchor at baseline: T1=22.8, RH1=20%.
@@ -256,13 +257,19 @@ function wgPerKgFromTRH(T, RH, p_hPa = 1013.25) {
   return w; // g/kg
 }
 
+function wgPerKgFromChartTRH(T, RH, p_hPa = 1013.25) {
+  if (!Number.isFinite(T) || !Number.isFinite(RH)) return null;
+  const w = W_from_RH_T(RH / 100, T, p_hPa * 100);
+  return Number.isFinite(w) ? w * 1000 : null;
+}
+
 function intersectSegmentAtW(start, end, targetW_gpkg, p_hPa = 1013.25) {
   if (!Array.isArray(start) || !Array.isArray(end) || !Number.isFinite(targetW_gpkg)) return null;
 
   const [startT, startRH] = start;
   const [endT, endRH] = end;
-  const startW = wgPerKgFromTRH(startT, startRH, p_hPa);
-  const endW = wgPerKgFromTRH(endT, endRH, p_hPa);
+  const startW = wgPerKgFromChartTRH(startT, startRH, p_hPa);
+  const endW = wgPerKgFromChartTRH(endT, endRH, p_hPa);
 
   if (!Number.isFinite(startW) || !Number.isFinite(endW)) return null;
   if (Math.abs(startW - targetW_gpkg) <= 1e-6) return [startT, startRH];
@@ -270,30 +277,12 @@ function intersectSegmentAtW(start, end, targetW_gpkg, p_hPa = 1013.25) {
 
   const startDelta = startW - targetW_gpkg;
   const endDelta = endW - targetW_gpkg;
-  if (startDelta * endDelta > 0) return null;
+  if (startDelta * endDelta > 0 || Math.abs(endW - startW) <= 1e-6) return null;
 
-  let lo = 0;
-  let hi = 1;
-  for (let iter = 0; iter < 50; iter++) {
-    const mid = (lo + hi) / 2;
-    const temp = startT + (endT - startT) * mid;
-    const rh = startRH + (endRH - startRH) * mid;
-    const w = wgPerKgFromTRH(temp, rh, p_hPa) ?? targetW_gpkg;
-    const delta = w - targetW_gpkg;
-    if (delta === 0) {
-      lo = mid;
-      hi = mid;
-      break;
-    }
-    if (delta * startDelta > 0) lo = mid;
-    else hi = mid;
-  }
-
-  const t = (lo + hi) / 2;
-  return [
-    startT + (endT - startT) * t,
-    startRH + (endRH - startRH) * t,
-  ];
+  const t = Math.max(0, Math.min(1, (targetW_gpkg - startW) / (endW - startW)));
+  const temp = startT + (endT - startT) * t;
+  const rh = rhFromWgPerKg(temp, targetW_gpkg, p_hPa);
+  return Number.isFinite(rh) ? [temp, rh] : null;
 }
 
 // W absolute humidity limit (g/kg) – upper boundary of passive strategy zones.
