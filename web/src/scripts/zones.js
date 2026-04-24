@@ -259,37 +259,26 @@ function wgPerKgFromTRH(T, RH, p_hPa = 1013.25) {
 const W_LIMIT_GPKG = 16.0;
 // BASELINE_MEDIAN_T is already defined above (28°C) — that's the median for which ZONES polygons were authored.
 
-function findVentilationUpperRightCrossover(T_p5, T_pm, targetW_gpkg = W_LIMIT_GPKG, p_hPa = 1013.25) {
-  const start = [T_p5, 100];
-  const end = [T_pm, 50];
-  const startW = wgPerKgFromTRH(start[0], start[1], p_hPa) ?? 0;
-  const endW = wgPerKgFromTRH(end[0], end[1], p_hPa) ?? 0;
+function findTemperatureForHumidityRatioAtRh(targetW_gpkg, targetRH, opts = {}) {
+  if (!Number.isFinite(targetW_gpkg) || !Number.isFinite(targetRH)) return null;
 
-  if (startW <= targetW_gpkg) {
-    return { point: start, crossesBeforeEndpoint: false };
-  }
-  if (endW >= targetW_gpkg) {
-    return { point: end, crossesBeforeEndpoint: false };
-  }
+  const p_hPa = opts.p_hPa ?? 1013.25;
+  let lo = opts.minTemp ?? -40;
+  let hi = opts.maxTemp ?? 60;
+  const wLo = wgPerKgFromTRH(lo, targetRH, p_hPa) ?? 0;
+  const wHi = wgPerKgFromTRH(hi, targetRH, p_hPa) ?? 0;
 
-  let tLo = 0;
-  let tHi = 1;
-  for (let iter = 0; iter < 40; iter++) {
-    const tMid = (tLo + tHi) / 2;
-    const T_s = T_p5 + (T_pm - T_p5) * tMid;
-    const rh_s = 100 + (50 - 100) * tMid;
-    const w_s = wgPerKgFromTRH(T_s, rh_s, p_hPa) ?? 0;
-    if (w_s > targetW_gpkg) tLo = tMid; else tHi = tMid;
+  if (targetW_gpkg <= wLo) return lo;
+  if (targetW_gpkg >= wHi) return hi;
+
+  for (let iter = 0; iter < 50; iter++) {
+    const mid = (lo + hi) / 2;
+    const wMid = wgPerKgFromTRH(mid, targetRH, p_hPa) ?? 0;
+    if (wMid < targetW_gpkg) lo = mid;
+    else hi = mid;
   }
 
-  const tCross = (tLo + tHi) / 2;
-  return {
-    point: [
-      T_p5 + (T_pm - T_p5) * tCross,
-      100 + (50 - 100) * tCross,
-    ],
-    crossesBeforeEndpoint: true,
-  };
+  return (lo + hi) / 2;
 }
 // Comfort P1 at baseline: T1_BASE = 22.8°C, RH1 = 20%.
 // The temperature of P1 shifts linearly with median temperature.
@@ -314,11 +303,11 @@ function comfortT1(median) {
  *   P5  = T1+7   / 50%     (comfort P5, ventilation, mass cooling)
  *   P6  = T1+7   / 20%     (comfort P6, ventilation, mass cooling, evap cooling)
  *   Pv7 = T1+12  / 50%     (ventilation right-upper, AC+D lower-boundary)
- *   Pm  = T1+12  / 16g/kg  (ventilation/AC+D shared lower-right)
- *   Pm_mc = T1+13 / 16g/kg (mass cooling upper-right, 1°C right of Pm)
+ *   Pm  = T1+12  / hotUpperW_gpkg  (effective hot-side ceiling shared by MC/AC+D)
+ *   Pm_mc = T1+13 / hotUpperW_gpkg (mass cooling upper-right, 1°C right of Pm)
  *   Pe  = T1+19  / W(T1,20%) (evap/MC+NV/AC bottom triple-point, ≈3.5g/kg)
- *   Pmc = T1+20  / 16g/kg  (MC+NV top-left, AC+D lower)
- *   Pn1 = T1+24  / 16g/kg  (MC+NV top-right, AC top-left — same W, same T)
+ *   Pmc = T1+20  / hotUpperW_gpkg  (MC+NV top-left, AC+D lower)
+ *   Pn1 = T1+24  / 20%     (MC+NV top-right, AC top-left)
  *   Pn2 = T1+24  / 20%     (MC+NV right lower, AC left lower)
  *
  * Mass Cooling lowest-W vertex = T1/20% = Comfort P1 (same absolute humidity).
@@ -342,7 +331,7 @@ function createZonesForMedianTemp(medianTemp, opts = {}) {
   const rh_p4_wLimit = rhAtWLimit(T_p4);                               // T1+5 on the hard 16g/kg ceiling
   const rh_T4 = Math.min(80, rh_p4_wLimit);                            // T4: T1+5 / min(80%, 16g/kg)
   const sharedUpperW_gpkg = wgPerKgFromTRH(T_p4, rh_T4) ?? W_LIMIT_GPKG;
-  const rhAtSharedUpperW = (T) => rhFromWgPerKg(T, sharedUpperW_gpkg) ?? rhAtWLimit(T);
+  const hotUpperW_gpkg = sharedUpperW_gpkg;
 
   // T_w16_80: fixed temperature where the 80% RH line crosses the 16 g/kg isoline (~25.1°C).
   // When T_w16_80 falls between T1 and T1+5, Comfort has a separate T3 vertex.
@@ -357,15 +346,19 @@ function createZonesForMedianTemp(medianTemp, opts = {}) {
 
   const T_p5 = T1 + 7;     // P5/P6: Comfort/Vent/MassCool/Evap corner at T1+7
   const T_pm = T1 + 12;
-  const rh_pm = rhAtSharedUpperW(T_pm);                                // Pm: Ventilation right on the shared ceiling
+  const rh_hot_limit_pm = rhAtW(T_pm, hotUpperW_gpkg);                 // Pm: hot-side boundary stays on the effective shared ceiling
+  const T_hot_on_50 = findTemperatureForHumidityRatioAtRh(sharedUpperW_gpkg, 50, {
+    minTemp: T1,
+    maxTemp: Math.max(T_chart_max, T_pm),
+  }) ?? T_pm;
+  const T_hot = Math.max(T_pm, T_hot_on_50);
   // W_P1: absolute humidity at Comfort P1 (T1/20%) — dry-floor isohumidity for MC, MC+NV, Evap, AC
   const W_P1  = wgPerKgFromTRH(T1, 20);        // ≈3.4 g/kg at baseline
-  const T_pe = T1 + 19;    const rh_pe = rhAtW(T_pe, W_P1 ?? 3.5);   // Pe: triple-point Evap/AC
-  const T_pmc = T1 + 20;   const rh_pmc = rhAtSharedUpperW(T_pmc);    // Pmc: MC+NV vertex 4 / AC+D / AC
+  const T_pmc = T1 + 20;   const rh_pmc = rhAtW(T_pmc, hotUpperW_gpkg); // Pmc: MC+NV vertex 4 / AC+D / AC on the effective shared ceiling
   const T_pn  = T1 + 24;   // MC+NV right / AC left boundary
   // Shared MC / MC+NV / AC+D anchor points
   const T_mc5 = T1 + 13;
-  const rh_mc5 = rhAtSharedUpperW(T_mc5);                              // Pm_mc: T1+13 on the shared ceiling
+  const rh_mc5 = rhAtW(T_mc5, hotUpperW_gpkg);                         // Pm_mc: T1+13 on the effective shared ceiling
   const T_mc_right = T1 + 17;                                           // MC/MC+NV right column
   const rh_mc_dry  = rhAtW(T_mc_right, W_P1 ?? 3.43);                  // T1+17/W_P1 (dry floor)
   const rh_pn_wP1  = rhAtW(T_pn, W_P1 ?? 3.43);                       // T1+24/W_P1 (MC+NV/AC shared)
@@ -399,29 +392,16 @@ function createZonesForMedianTemp(medianTemp, opts = {}) {
     // Inner boundary mirrors Comfort top: T4 [← T3 if applicable] ← T2
     if (z.id === 'Ventilation') {
       const rh2 = Math.min(80, rhAtWLimit(T1));
-      const upperRightJoin = findVentilationUpperRightCrossover(T_p5, T_pm, sharedUpperW_gpkg);
       const poly = [
         [T1,    rh2],         // shared Comfort T2 (T1 / 80%)
         [T1,    100],         // top-left saturation
         [T_p5,  100],         // peak saturation (T1+7 / 100%)
-      ];
-      if (upperRightJoin.crossesBeforeEndpoint) {
-        poly.push(
-          [upperRightJoin.point[0], upperRightJoin.point[1]],
-          [T_pm,  20],
-        );
-      } else {
-        poly.push(
-          [T_pm,  50],        // T1+12 / 50% (shared with AC+D)
-          [T_pm,  rh_pm],     // T1+12 / 16g/kg (shared with AC+D and Mass Cooling)
-          [T_pm,  20],        // Pv8: right lower
-        );
-      }
-      poly.push(
+        [T_hot, 50],          // hottest limit is on the 50% RH line
+        [T_hot, 20],          // vertical hottest edge drops to 20% at the same temperature
         [T_p5,  20],          // shared Comfort P6  (T_p5 = T1+7)
         [T_p5,  50],          // shared Comfort P5
         [T_p4,  rh_T4],       // shared Comfort T4: T1+5 / min(80%, 16g/kg)
-      );
+      ];
       if (hasT3) {
         poly.push([T_w16_80, 80]);  // shared Comfort T3: 80%/16g crossing
       }
@@ -443,8 +423,8 @@ function createZonesForMedianTemp(medianTemp, opts = {}) {
         [T_p5,        20],          // 2: Comfort P6 (T1+7 / 20%)
         [T_p5,        50],          // 3: Comfort P5 (T1+7 / 50%)
         [T_p4,        rh_T4],       // 4: Comfort P4 on the effective shared ceiling
-        [T_pm,        rh_pm],       // 4b: T1+12 on the shared ceiling (shared Ventilation/AC+D)
-        [T_mc5,       rh_mc5],      // 5: T1+13 on the shared ceiling (Pm_mc, shared MC+NV/AC+D)
+        [T_pm,        rh_hot_limit_pm], // 4b: T1+12 on the effective hot-side ceiling
+        [T_mc5,       rh_mc5],      // 5: T1+13 on the effective hot-side ceiling
         [T_mc_right,  30],          // 6: T1+17 / 30% (shared MC+NV)
         [T_mc_right,  rh_mc_dry],   // 7: T1+17 / W_P1 (dry floor, shared MC+NV)
       ]};
@@ -491,8 +471,8 @@ function createZonesForMedianTemp(medianTemp, opts = {}) {
       return { ...z, poly: [
         [T_mc_right,  rh_mc_dry],   // 1: T1+17 / W_P1 (shared MC dry floor)
         [T_mc_right,  30],          // 2: T1+17 / 30% (shared MC)
-        [T_mc5,       rh_mc5],      // 3: T1+13 on the shared ceiling (Pm_mc, shared MC/AC+D)
-        [T_pmc,       rh_pmc],      // 4: T1+20 on the shared ceiling (shared AC+D/AC)
+        [T_mc5,       rh_mc5],      // 3: T1+13 on the effective hot-side ceiling
+        [T_pmc,       rh_pmc],      // 4: T1+20 on the effective hot-side ceiling
         [T_pn,        20],          // 5: T1+24 / 20% (shared AC)
         [T_pn,        rh_pn_wP1],   // 6: T1+24 / W_P1 (shared AC)
         [T_ev78,      rh_ev78_wP1], // 7: T1+21 / W_P1 (shared AC and Evap)
@@ -505,22 +485,20 @@ function createZonesForMedianTemp(medianTemp, opts = {}) {
     // Left corner: the shared Ventilation upper-right join point. At low medians
     //   this is the actual slope/shared-ceiling crossover; warm medians keep T1+12/50%.
     // Top:    100% RH → T_chart_max
-    // Bottom: sampled shared ceiling from T_chart_max back to that join temperature
+    // Bottom: sampled effective hot-side ceiling from T_chart_max back to that join temperature
     if (z.id === 'Air Conditioning + Dehumidifier') {
-      const upperRightJoin = findVentilationUpperRightCrossover(T_p5, T_pm, sharedUpperW_gpkg);
-      const [T_cross, rh_cross] = upperRightJoin.point;
-
       const N_ACD = 12;
+      const T_acd_floor = Math.max(T_pm, T_hot);
       const wLine = [];
       for (let i = 0; i <= N_ACD; i++) {
-        const T_s = T_cross + (T_chart_max - T_cross) * i / N_ACD;
-        wLine.push([T_s, rhAtSharedUpperW(T_s)]);
+        const T_s = T_acd_floor + (T_chart_max - T_acd_floor) * i / N_ACD;
+        wLine.push([T_s, rhAtW(T_s, hotUpperW_gpkg)]);
       }
       return { ...z, poly: [
-        [T_cross, rh_cross],         // Ventilation/AC+D join on the shared ceiling when crossed
+        [T_hot, 50],                 // shared hottest Ventilation point
         [T_p5, 100],                 // Ventilation top-right   (T1+7  / 100%)
         [T_chart_max, 100],          // chart top-right
-        ...wLine.slice().reverse(),  // sampled shared ceiling from T_chart_max ← T_cross
+        ...wLine.slice().reverse(),  // sampled effective hot-side ceiling from T_chart_max ← max(T1+12, T_hot)
       ]};
     }
 
@@ -536,10 +514,10 @@ function createZonesForMedianTemp(medianTemp, opts = {}) {
       const wLine = [];
       for (let i = 0; i <= N_AC; i++) {
         const T_s = T_pmc + (T_chart_max - T_pmc) * i / N_AC;
-        wLine.push([T_s, rhAtSharedUpperW(T_s)]);
+        wLine.push([T_s, rhAtW(T_s, hotUpperW_gpkg)]);
       }
       return { ...z, poly: [
-        ...wLine,                       // sampled shared ceiling from T1+20 → T_chart_max
+        ...wLine,                       // sampled effective hot-side ceiling from T1+20 → T_chart_max
         [T_chart_max, 0],               // chart bottom-right
         [T_ev78,  0],                   // T1+21 / 0%   (shared Evap v8)
         [T_ev78,  rh_ev78_wP1],         // T1+21 / W_P1 (shared MC+NV v7)
