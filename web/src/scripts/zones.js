@@ -255,6 +255,46 @@ function wgPerKgFromTRH(T, RH, p_hPa = 1013.25) {
   return w; // g/kg
 }
 
+function intersectSegmentAtW(start, end, targetW_gpkg, p_hPa = 1013.25) {
+  if (!Array.isArray(start) || !Array.isArray(end) || !Number.isFinite(targetW_gpkg)) return null;
+
+  const [startT, startRH] = start;
+  const [endT, endRH] = end;
+  const startW = wgPerKgFromTRH(startT, startRH, p_hPa);
+  const endW = wgPerKgFromTRH(endT, endRH, p_hPa);
+
+  if (!Number.isFinite(startW) || !Number.isFinite(endW)) return null;
+  if (Math.abs(startW - targetW_gpkg) <= 1e-6) return [startT, startRH];
+  if (Math.abs(endW - targetW_gpkg) <= 1e-6) return [endT, endRH];
+
+  const startDelta = startW - targetW_gpkg;
+  const endDelta = endW - targetW_gpkg;
+  if (startDelta * endDelta > 0) return null;
+
+  let lo = 0;
+  let hi = 1;
+  for (let iter = 0; iter < 50; iter++) {
+    const mid = (lo + hi) / 2;
+    const temp = startT + (endT - startT) * mid;
+    const rh = startRH + (endRH - startRH) * mid;
+    const w = wgPerKgFromTRH(temp, rh, p_hPa) ?? targetW_gpkg;
+    const delta = w - targetW_gpkg;
+    if (delta === 0) {
+      lo = mid;
+      hi = mid;
+      break;
+    }
+    if (delta * startDelta > 0) lo = mid;
+    else hi = mid;
+  }
+
+  const t = (lo + hi) / 2;
+  return [
+    startT + (endT - startT) * t,
+    startRH + (endRH - startRH) * t,
+  ];
+}
+
 // W absolute humidity limit (g/kg) – upper boundary of passive strategy zones.
 const W_LIMIT_GPKG = 16.0;
 // BASELINE_MEDIAN_T is already defined above (28°C) — that's the median for which ZONES polygons were authored.
@@ -327,9 +367,9 @@ function createZonesForMedianTemp(medianTemp, opts = {}) {
   const rh_hot_limit_pm = rhAtW(T_pm, hotUpperW_gpkg);                 // Pm: hot-side boundary stays on the effective shared ceiling
   // W_P1: absolute humidity at Comfort P1 (T1/20%) — dry-floor isohumidity for MC, MC+NV, Evap, AC
   const W_P1  = wgPerKgFromTRH(T1, 20);        // ≈3.4 g/kg at baseline
-  const T_pmc = T1 + 20;   const rh_pmc = rhAtW(T_pmc, hotUpperW_gpkg); // Pmc: MC+NV vertex 4 / AC+D / AC on the effective shared ceiling
+  const T_pmc = T1 + 20;   const rh_pmc = rhAtW(T_pmc, hotUpperW_gpkg); // Pmc: MC+NV vertex 4 / AC on the effective shared ceiling
   const T_pn  = T1 + 24;   // MC+NV right / AC left boundary
-  // Shared MC / MC+NV / AC+D anchor points
+  // Shared MC / MC+NV anchor points
   const T_mc5 = T1 + 13;
   const rh_mc5 = rhAtW(T_mc5, hotUpperW_gpkg);                         // Pm_mc: T1+13 on the effective shared ceiling
   const T_mc_right = T1 + 17;                                           // MC/MC+NV right column
@@ -337,6 +377,9 @@ function createZonesForMedianTemp(medianTemp, opts = {}) {
   const rh_pn_wP1  = rhAtW(T_pn, W_P1 ?? 3.43);                       // T1+24/W_P1 (MC+NV/AC shared)
   const T_ev78     = T1 + 21;                                           // Evap v7/v8 / AC+MC+NV shared T
   const rh_ev78_wP1 = rhAtW(T_ev78, W_P1 ?? 3.43);                    // T1+21/W_P1 (Evap/MC+NV/AC shared)
+  const ventPeak = [T_p5, 100];
+  const ventUpper = [T_pm, 50];
+  const acdJoin = intersectSegmentAtW(ventPeak, ventUpper, W_LIMIT_GPKG) ?? ventUpper;
 
   return useZones.map(z => {
     if (!z || !z.poly) return { ...z };
@@ -368,8 +411,8 @@ function createZonesForMedianTemp(medianTemp, opts = {}) {
       const poly = [
         [T1,    rh2],         // shared Comfort T2 (T1 / 80%)
         [T1,    100],         // top-left saturation
-        [T_p5,  100],         // peak saturation (T1+7 / 100%)
-        [T_pm,  50],          // hottest limit is fixed at T1+12 on the 50% RH line
+        ventPeak,             // peak saturation (T1+7 / 100%)
+        ventUpper,            // hottest limit is fixed at T1+12 on the 50% RH line
         [T_pm,  20],          // vertical hottest edge drops to 20% at the same temperature
         [T_p5,  20],          // shared Comfort P6  (T_p5 = T1+7)
         [T_p5,  50],          // shared Comfort P5
@@ -453,24 +496,26 @@ function createZonesForMedianTemp(medianTemp, opts = {}) {
     }
 
     // ── Air Conditioning + Dehumidifier ────────────────────────────────────────
-    // "Fill the rest" above the shared upper ceiling: everything above that
+    // "Fill the rest" above the hard 16 g/kg ceiling: everything above that
     // sampled ceiling trace not already covered by Ventilation.
-    // Left corner: the shared Ventilation hottest point at T1+12 / 50% RH.
+    // Left corner: the hard-16 join with Ventilation.
+    //   Cool medians: use the V3 -> V4 crossover before V4.
+    //   Warm medians: keep V4 when the diagonal stays above 16 g/kg.
     // Top:    100% RH → T_chart_max
-    // Bottom: sampled effective hot-side ceiling from T_chart_max back to T1+12
+    // Bottom: sampled hard 16 g/kg ceiling from T_chart_max back to T1+12
     if (z.id === 'Air Conditioning + Dehumidifier') {
       const N_ACD = 12;
       const T_acd_floor = T_pm;
       const wLine = [];
       for (let i = 0; i <= N_ACD; i++) {
         const T_s = T_acd_floor + (T_chart_max - T_acd_floor) * i / N_ACD;
-        wLine.push([T_s, rhAtW(T_s, hotUpperW_gpkg)]);
+        wLine.push([T_s, rhAtWLimit(T_s)]);
       }
       return { ...z, poly: [
-        [T_pm, 50],                  // shared hottest Ventilation point
-        [T_p5, 100],                 // Ventilation top-right   (T1+7  / 100%)
+        acdJoin,                     // hard-16 join with Ventilation
+        ventPeak,                    // Ventilation top-right   (T1+7  / 100%)
         [T_chart_max, 100],          // chart top-right
-        ...wLine.slice().reverse(),  // sampled effective hot-side ceiling from T_chart_max ← T1+12
+        ...wLine.slice().reverse(),  // sampled hard 16 g/kg ceiling from T_chart_max ← T1+12
       ]};
     }
 
