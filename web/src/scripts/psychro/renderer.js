@@ -64,6 +64,10 @@ export function createPsychroRenderer(containerEl, options = {}) {
   let lastFrameTime = 0;
   let dataPoints = [];
   let padLeft = 48, padRight = 30, padTop = 6, padBottom = 24;
+  // ── Dev-only annotation module ─────────────────────────────────────────────
+  // _devAnnotations is per-renderer so each instance triggers its own re-render
+  // after the async load. Vite dead-code-eliminates all DEV branches in prod.
+  let _devAnnotations = null;
 
   function computePadding() {
     const baseWidth = 420, baseHeight = 300;
@@ -104,6 +108,11 @@ export function createPsychroRenderer(containerEl, options = {}) {
 
     window.addEventListener('resize', handleResize);
     renderBackground();
+    // Dev-only: load annotation module then re-render so labels appear even
+    // before any data is loaded (renderBackground already ran above without labels).
+    if (import.meta.env.DEV) {
+      import('./dev-annotations.js').then(m => { _devAnnotations = m; renderBackground(); });
+    }
   }
 
   function handleResize() {
@@ -269,6 +278,10 @@ export function createPsychroRenderer(containerEl, options = {}) {
     ctx.clearRect(0, 0, width, height); try { ctx.drawImage(offscreenCanvas, 0, 0, width, height); } catch (err) { if (typeof console !== 'undefined' && typeof console.debug === 'function') console.debug('drawImage offscreen failed', err); }
     drawLabels(ctx);
     drawZoneLabels(ctx);
+    // Dev-only: draw vertex names for every zone polygon
+    if (import.meta.env.DEV && _devAnnotations) {
+      _devAnnotations.drawPointLabels(ctx, currentZones, psychroToCanvas, opts.p);
+    }
   }
 
   function setZones(newZones) {
@@ -455,6 +468,10 @@ export function createPsychroRenderer(containerEl, options = {}) {
         try { ctx.drawImage(offscreenCanvas, 0, 0, width, height); } catch (err) { if (typeof console !== 'undefined' && typeof console.debug === 'function') console.debug('ctx.drawImage failed', err); }
         drawLabels(ctx);
         drawZoneLabels(ctx);
+        // Dev-only: vertex point labels redrawn every frame so data dots don't overwrite them
+        if (import.meta.env.DEV && _devAnnotations) {
+          _devAnnotations.drawPointLabels(ctx, currentZones, psychroToCanvas, opts.p);
+        }
         ctx.fillStyle = '#ff4444';
         dataPoints.forEach((point, i) => {
           if (!point || typeof point.T !== 'number' || typeof point.W !== 'number') return;
