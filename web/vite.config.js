@@ -7,6 +7,15 @@ export default defineConfig({
   ],
   base: '/passive-design-helper/',
   build: {
-    outDir: 'dist'
+    outDir: 'dist',
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          chartjs: ['chart.js', 'svelte5-chartjs', 'chartjs-adapter-date-fns'],
+          leaflet: ['leaflet'],
+          psychrolib: ['psychrolib']
+        }
+      }
+    }
   }
 });
