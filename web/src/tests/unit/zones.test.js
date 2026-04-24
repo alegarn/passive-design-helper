@@ -219,15 +219,13 @@ describe('Zone Adaptive Logic', () => {
       expect(lower[1]).toBeCloseTo(20, 6);
       expect(upper[0]).toBeCloseTo(lower[0], 6);
       expect(upper[1]).toBeGreaterThan(lower[1]);
-      expect(hotTemperature + EPS).toBeGreaterThanOrEqual(tPm);
-      if (med < 23) {
-        expect(hotTemperature).toBeGreaterThan(tPm);
-      }
+      expect(hotTemperature).toBeCloseTo(tPm, 6);
+      expectSamePoint(upper, [tPm, 50], `Ventilation hottest point at median ${med}`);
       expectSamePoint(acd.poly[0], upper, `AC+D hottest point at median ${med}`);
     }
   });
 
-  it('starts the AC+D shared-ceiling boundary at the Ventilation hottest point and lowers the linked hot-side limit only when Comfort does', () => {
+  it('starts the AC+D shared-ceiling boundary at T1+12 and lowers the linked hot-side limit only when Comfort does', () => {
     for (const med of [17, 19, 23, 28]) {
       const zones = createZonesForMedianTemp(med);
       const comfort = zoneById(zones, 'Comfort');
@@ -249,7 +247,6 @@ describe('Zone Adaptive Logic', () => {
       const acdBoundaryStart = acdBoundary[acdBoundary.length - 1];
       const acCeiling = airConditioningCeiling(ac.poly);
       const acAtTpmc = ac.poly[0];
-      const expectedAcdStart = Math.max(tPm, ventUpper[0]);
 
       if (med < 23) {
         expect(sharedUpperW_gpkg).toBeLessThan(16);
@@ -257,16 +254,14 @@ describe('Zone Adaptive Logic', () => {
         expect(Math.abs(sharedUpperW_gpkg - 16)).toBeLessThanOrEqual(W_TOLERANCE_GPKG);
       }
 
+      expectSamePoint(ventUpper, [tPm, 50], `Ventilation hottest point at median ${med}`);
+      expectSamePoint(acd.poly[0], ventUpper, `AC+D hottest point at median ${med}`);
       expectHumidityRatioNear(massAtTpm, sharedUpperW_gpkg, 'Mass Cooling T1+12', med);
       expectHumidityRatioNear(mcnvAtTmc5, sharedUpperW_gpkg, 'MC+NV T1+13', med);
       expectHumidityRatioNear(mcnvAtTpmc, sharedUpperW_gpkg, 'MC+NV T1+20', med);
-      expect(acdBoundaryStart[0]).toBeCloseTo(expectedAcdStart, 6);
+      expect(acdBoundaryStart[0]).toBeCloseTo(tPm, 6);
       expectHumidityRatioNear(acdBoundaryStart, sharedUpperW_gpkg, 'AC+D lower-boundary start', med);
-      if (med < 23) {
-        expect(acdBoundary.every(([temp]) => temp + EPS >= ventUpper[0])).toBe(true);
-      } else {
-        expect(acdBoundaryStart[0]).toBeCloseTo(tPm, 6);
-      }
+      expect(acdBoundary.every(([temp]) => temp + EPS >= tPm)).toBe(true);
       acdBoundary.forEach((point, index) => {
         expectHumidityRatioNear(point, sharedUpperW_gpkg, `AC+D lower-boundary sample ${index}`, med);
       });
