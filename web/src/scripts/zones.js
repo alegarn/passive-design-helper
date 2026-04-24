@@ -12,6 +12,7 @@ function p(t, rh) {
   return [Number(t), Number(rh)];
 }
 import { ZONE_COLORS } from './theme.js';
+import { W_from_RH_T } from './psychro/math.js';
 
 // zones points for 28°C median (BASELINE_MEDIAN_T=28), in °C + % RH.
 // Comfort P1 anchor at baseline: T1=22.8, RH1=20%.
@@ -45,14 +46,15 @@ const ZONES = [
   //   boundary shared with Mass Cooling and Evaporative Cooling below
   //   right edge: P1+24.06°C=46.86°C from 5% RH up to 20% RH (W~16g/kg)
   { id: 'Mass Cooling & Night Ventilation (or AC)', color: ZONE_COLORS['Mass Cooling & Night Ventilation (or AC)'], type: 'hybrid', poly: [ p(39.8, 7), p(39.8, 30), p(35.8, 42), p(42.8, 28), p(46.86, 20), p(46.86, 5), ], description: 'Hybrid strategy using building mass plus night ventilation to cool; when insufficient, AC supplements performance.', complexity: 'Medium', examples: ['High-mass homes with night purge ventilation', 'Night ventilation combined with zoned AC as backup'], icon: '🌙🪟', howToApply: { beginner: ['Use night purge ventilation and ceiling fans to cool heavy mass', 'Use AC only as backup when comfort limits exceeded'], advanced: ['Automate ventilation controls to exploit nocturnal cooling', 'Combine with thermal storage and intelligent HVAC staging'] } },
-  // AC + Dehumidifier — ALWAYS above W=16g/kg. Baseline at 28°C (P1=22.8°C):
-  //   AC+D P1: P1+7°C=29.8°C / 100% RH  (shared top-left with Ventilation)
-  //   AC+D P2: P1+12°C=34.8°C / 50% RH  (shared right edge with Ventilation)
-  //   AC+D P3: P1+12°C=34.8°C / W=16g/kg (join Mass Cooling boundary)
-  //   AC+D P4: P1+20°C=42.8°C / W=16g/kg (join Mass Cooling+NV boundary)
-  // AC + Dehumidifier — "fill the rest" above W=16g/kg, right of Ventilation.
-  // Approximate baseline poly; rebuilt by createZonesForMedianTemp with sampled 16g/kg isoline.
-  { id: 'Air Conditioning + Dehumidifier', color: ZONE_COLORS['Air Conditioning + Dehumidifier'], type: 'active', poly: [ p(29.8, 100), p(50, 100), p(50, 40), p(42.8, 28), p(34.8, 42), p(34.8, 50), ], note: 'AC+Dehumidifier — always above W=16g/kg; lower boundary follows sampled 16g/kg isoline', description: 'Mechanical cooling with simultaneous dehumidification is required to maintain comfortable humidity and temperature.', complexity: 'Medium', examples: ['Packaged AC with integrated dehumidifier', 'Separate dehumidifier combined with split AC'], icon: '❄️+💧', howToApply: { beginner: ['Ensure correct AC sizing and run for humidity control', 'Add portable dehumidifier to remove moisture when needed'], advanced: ['Use dedicated dehumidification integrated into HVAC', 'Add smart humidistat controls and ventilation management'] } },
+  // AC + Dehumidifier — above the effective shared upper humidity limit.
+  // At the 28°C baseline that shared limit stays close to 16 g/kg.
+  //   AC+D P1: Ventilation diagonal crossover on the shared upper limit
+  //   AC+D P2: P1+7°C=29.8°C / 100% RH  (shared top-left with Ventilation)
+  //   AC+D P3: P1+12°C=34.8°C / shared upper limit (join Mass Cooling boundary)
+  //   AC+D P4: P1+20°C=42.8°C / shared upper limit (join Mass Cooling+NV boundary)
+  // AC + Dehumidifier — "fill the rest" above the shared upper humidity limit, right of Ventilation.
+  // Approximate baseline poly; rebuilt by createZonesForMedianTemp with sampled shared-limit points.
+  { id: 'Air Conditioning + Dehumidifier', color: ZONE_COLORS['Air Conditioning + Dehumidifier'], type: 'active', poly: [ p(29.8, 100), p(50, 100), p(50, 40), p(42.8, 28), p(34.8, 42), p(34.8, 50), ], note: 'AC+Dehumidifier — above the shared upper humidity limit; lower boundary follows the sampled shared limit', description: 'Mechanical cooling with simultaneous dehumidification is required to maintain comfortable humidity and temperature.', complexity: 'Medium', examples: ['Packaged AC with integrated dehumidifier', 'Separate dehumidifier combined with split AC'], icon: '❄️+💧', howToApply: { beginner: ['Ensure correct AC sizing and run for humidity control', 'Add portable dehumidifier to remove moisture when needed'], advanced: ['Use dedicated dehumidification integrated into HVAC', 'Add smart humidistat controls and ventilation management'] } },
   // Air Conditioning — "fill the rest" below W=16g/kg, right of MC+NV and Evap.
   // Approximate baseline poly; rebuilt by createZonesForMedianTemp with sampled 16g/kg isoline.
   { id: 'Air Conditioning', color: ZONE_COLORS['Air Conditioning'], type: 'active', poly: [ p(43.8, 0), p(43.8, 10), p(46.86, 20), p(50, 18), p(50, 0), ], description: 'Mechanical cooling used to lower temperatures and/or manage humidity when passive measures are insufficient.', complexity: 'Low', examples: ['Split-system AC units', 'Ducted central air conditioning'], icon: '❄️', howToApply: { beginner: ['Install appropriately sized AC units and maintain filter cleanliness', 'Use efficient setpoints and fan control to minimize runtime'], advanced: ['Implement zoned cooling with variable speed compressors', 'Use smart thermostats for schedule and integration with ventilation'] } }
@@ -255,6 +257,34 @@ function wgPerKgFromTRH(T, RH, p_hPa = 1013.25) {
   return w; // g/kg
 }
 
+function wgPerKgFromChartTRH(T, RH, p_hPa = 1013.25) {
+  if (!Number.isFinite(T) || !Number.isFinite(RH)) return null;
+  const w = W_from_RH_T(RH / 100, T, p_hPa * 100);
+  return Number.isFinite(w) ? w * 1000 : null;
+}
+
+function intersectSegmentAtW(start, end, targetW_gpkg, p_hPa = 1013.25) {
+  if (!Array.isArray(start) || !Array.isArray(end) || !Number.isFinite(targetW_gpkg)) return null;
+
+  const [startT, startRH] = start;
+  const [endT, endRH] = end;
+  const startW = wgPerKgFromChartTRH(startT, startRH, p_hPa);
+  const endW = wgPerKgFromChartTRH(endT, endRH, p_hPa);
+
+  if (!Number.isFinite(startW) || !Number.isFinite(endW)) return null;
+  if (Math.abs(startW - targetW_gpkg) <= 1e-6) return [startT, startRH];
+  if (Math.abs(endW - targetW_gpkg) <= 1e-6) return [endT, endRH];
+
+  const startDelta = startW - targetW_gpkg;
+  const endDelta = endW - targetW_gpkg;
+  if (startDelta * endDelta > 0 || Math.abs(endW - startW) <= 1e-6) return null;
+
+  const t = Math.max(0, Math.min(1, (targetW_gpkg - startW) / (endW - startW)));
+  const temp = startT + (endT - startT) * t;
+  const rh = rhFromWgPerKg(temp, targetW_gpkg, p_hPa);
+  return Number.isFinite(rh) ? [temp, rh] : null;
+}
+
 // W absolute humidity limit (g/kg) – upper boundary of passive strategy zones.
 const W_LIMIT_GPKG = 16.0;
 // BASELINE_MEDIAN_T is already defined above (28°C) — that's the median for which ZONES polygons were authored.
@@ -281,11 +311,11 @@ function comfortT1(median) {
  *   P5  = T1+7   / 50%     (comfort P5, ventilation, mass cooling)
  *   P6  = T1+7   / 20%     (comfort P6, ventilation, mass cooling, evap cooling)
  *   Pv7 = T1+12  / 50%     (ventilation right-upper, AC+D lower-boundary)
- *   Pm  = T1+12  / 16g/kg  (ventilation/AC+D shared lower-right)
- *   Pm_mc = T1+13 / 16g/kg (mass cooling upper-right, 1°C right of Pm)
+ *   Pm  = T1+12  / hotUpperW_gpkg  (effective hot-side ceiling shared by MC/AC+D)
+ *   Pm_mc = T1+13 / hotUpperW_gpkg (mass cooling upper-right, 1°C right of Pm)
  *   Pe  = T1+19  / W(T1,20%) (evap/MC+NV/AC bottom triple-point, ≈3.5g/kg)
- *   Pmc = T1+20  / 16g/kg  (MC+NV top-left, AC+D lower)
- *   Pn1 = T1+24  / 16g/kg  (MC+NV top-right, AC top-left — same W, same T)
+ *   Pmc = T1+20  / hotUpperW_gpkg  (MC+NV top-left, AC+D lower)
+ *   Pn1 = T1+24  / 20%     (MC+NV top-right, AC top-left)
  *   Pn2 = T1+24  / 20%     (MC+NV right lower, AC left lower)
  *
  * Mass Cooling lowest-W vertex = T1/20% = Comfort P1 (same absolute humidity).
@@ -305,8 +335,11 @@ function createZonesForMedianTemp(medianTemp, opts = {}) {
   const T_chart_max = opts.Tmax || 50;
 
   // Pre-compute all shared anchor vertices
-  const T_p4  = T1 + 5;    const rh_p4  = rhAtWLimit(T_p4);          // T1+5 on 16g/kg (MassCool/shared)
-  const rh_T4  = Math.min(80, rh_p4);                                   // T4: T1+5 / min(80%, 16g/kg)
+  const T_p4 = T1 + 5;
+  const rh_p4_wLimit = rhAtWLimit(T_p4);                               // T1+5 on the hard 16g/kg ceiling
+  const rh_T4 = Math.min(80, rh_p4_wLimit);                            // T4: T1+5 / min(80%, 16g/kg)
+  const sharedUpperW_gpkg = wgPerKgFromTRH(T_p4, rh_T4) ?? W_LIMIT_GPKG;
+  const hotUpperW_gpkg = sharedUpperW_gpkg;
 
   // T_w16_80: fixed temperature where the 80% RH line crosses the 16 g/kg isoline (~25.1°C).
   // When T_w16_80 falls between T1 and T1+5, Comfort has a separate T3 vertex.
@@ -319,20 +352,24 @@ function createZonesForMedianTemp(medianTemp, opts = {}) {
   const T_w16_80 = (_lo + _hi) / 2;  // ~25.08°C
   const hasT3 = T_w16_80 > T1 + 0.05 && T_w16_80 < T_p4 - 0.05;
 
-  const T_p5  = T1 + 7;    // P5/P6: Comfort/Vent/MassCool/Evap corner at T1+7
-  const T_pm  = T1 + 12;   const rh_pm  = rhAtWLimit(T_pm);           // Pm: Ventilation right (T1+12/16g/kg)
+  const T_p5 = T1 + 7;     // P5/P6: Comfort/Vent/MassCool/Evap corner at T1+7
+  const T_pm = T1 + 12;
+  const rh_hot_limit_pm = rhAtW(T_pm, hotUpperW_gpkg);                 // Pm: hot-side boundary stays on the effective shared ceiling
   // W_P1: absolute humidity at Comfort P1 (T1/20%) — dry-floor isohumidity for MC, MC+NV, Evap, AC
   const W_P1  = wgPerKgFromTRH(T1, 20);        // ≈3.4 g/kg at baseline
-  const T_pe  = T1 + 19;   const rh_pe  = rhAtW(T_pe, W_P1 ?? 3.5);  // Pe: triple-point Evap/AC
-  const T_pmc = T1 + 20;   const rh_pmc = rhAtWLimit(T_pmc);          // Pmc: MC+NV vertex 4 / AC+D / AC
+  const T_pmc = T1 + 20;   const rh_pmc = rhAtW(T_pmc, hotUpperW_gpkg); // Pmc: MC+NV vertex 4 / AC on the effective shared ceiling
   const T_pn  = T1 + 24;   // MC+NV right / AC left boundary
-  // Shared MC / MC+NV / AC+D anchor points
-  const T_mc5      = T1 + 13;  const rh_mc5 = rhAtWLimit(T_mc5);      // Pm_mc: T1+13/16g/kg
+  // Shared MC / MC+NV anchor points
+  const T_mc5 = T1 + 13;
+  const rh_mc5 = rhAtW(T_mc5, hotUpperW_gpkg);                         // Pm_mc: T1+13 on the effective shared ceiling
   const T_mc_right = T1 + 17;                                           // MC/MC+NV right column
   const rh_mc_dry  = rhAtW(T_mc_right, W_P1 ?? 3.43);                  // T1+17/W_P1 (dry floor)
   const rh_pn_wP1  = rhAtW(T_pn, W_P1 ?? 3.43);                       // T1+24/W_P1 (MC+NV/AC shared)
   const T_ev78     = T1 + 21;                                           // Evap v7/v8 / AC+MC+NV shared T
   const rh_ev78_wP1 = rhAtW(T_ev78, W_P1 ?? 3.43);                    // T1+21/W_P1 (Evap/MC+NV/AC shared)
+  const ventPeak = [T_p5, 100];
+  const ventUpper = [T_pm, 50];
+  const acdJoin = intersectSegmentAtW(ventPeak, ventUpper, hotUpperW_gpkg) ?? ventUpper;
 
   return useZones.map(z => {
     if (!z || !z.poly) return { ...z };
@@ -364,10 +401,9 @@ function createZonesForMedianTemp(medianTemp, opts = {}) {
       const poly = [
         [T1,    rh2],         // shared Comfort T2 (T1 / 80%)
         [T1,    100],         // top-left saturation
-        [T_p5,  100],         // peak saturation (T1+7 / 100%)
-        [T_pm,  50],          // T1+12 / 50% (shared with AC+D)
-        [T_pm,  rh_pm],       // T1+12 / 16g/kg (shared with AC+D and Mass Cooling)
-        [T_pm,  20],          // Pv8: right lower
+        ventPeak,             // peak saturation (T1+7 / 100%)
+        ventUpper,            // hottest limit is fixed at T1+12 on the 50% RH line
+        [T_pm,  20],          // vertical hottest edge drops to 20% at the same temperature
         [T_p5,  20],          // shared Comfort P6  (T_p5 = T1+7)
         [T_p5,  50],          // shared Comfort P5
         [T_p4,  rh_T4],       // shared Comfort T4: T1+5 / min(80%, 16g/kg)
@@ -383,8 +419,8 @@ function createZonesForMedianTemp(medianTemp, opts = {}) {
     //   1: T1     / 20%      Comfort P1 — driest point (W = W_P1, dry floor base)
     //   2: T1+7   / 20%      Comfort P6 (shared Comfort/Ventilation/Evap)
     //   3: T1+7   / 50%      Comfort P5
-    //   4: T1+5   / 16g/kg   Comfort P4 (shared Comfort/Vent)
-    //   5: T1+13  / 16g/kg   Pm_mc upper-right (shared MC+NV vertex 3 and AC+D)
+    //   4: T1+5   / shared ceiling   Comfort P4 (shared Comfort/Vent)
+    //   5: T1+13  / shared ceiling   Pm_mc upper-right (shared MC+NV vertex 3 and AC+D)
     //   6: T1+17  / 30%      (shared MC+NV vertex 2)
     //   7: T1+17  / W_P1     dry floor (shared MC+NV vertex 1; same W as Comfort P1)
     if (z.id === 'Mass Cooling') {
@@ -392,9 +428,9 @@ function createZonesForMedianTemp(medianTemp, opts = {}) {
         [T1,          20],          // 1: Comfort P1 (W = W_P1)
         [T_p5,        20],          // 2: Comfort P6 (T1+7 / 20%)
         [T_p5,        50],          // 3: Comfort P5 (T1+7 / 50%)
-        [T_p4,        rh_p4],       // 4: Comfort P4 (T1+5 / 16g/kg)
-        [T_pm,        rh_pm],        // 4b: T1+12 / 16g/kg (shared Ventilation/AC+D)
-        [T_mc5,       rh_mc5],      // 5: T1+13 / 16g/kg (Pm_mc, shared MC+NV/AC+D)
+        [T_p4,        rh_T4],       // 4: Comfort P4 on the effective shared ceiling
+        [T_pm,        rh_hot_limit_pm], // 4b: T1+12 on the effective hot-side ceiling
+        [T_mc5,       rh_mc5],      // 5: T1+13 on the effective hot-side ceiling
         [T_mc_right,  30],          // 6: T1+17 / 30% (shared MC+NV)
         [T_mc_right,  rh_mc_dry],   // 7: T1+17 / W_P1 (dry floor, shared MC+NV)
       ]};
@@ -405,7 +441,7 @@ function createZonesForMedianTemp(medianTemp, opts = {}) {
     //   1: T1     / 20%    Comfort P1 (shared Comfort/Mass Cooling)
     //   2: T1+7   / 20%    Comfort P6 (shared Comfort/Ventilation/Mass Cooling)
     //   3: T1+7   / 50%    Comfort P5 (shared Comfort/Ventilation)
-    //   4: T1+5   / 16g/kg Comfort P4 (shared Comfort/Ventilation/Mass Cooling)
+    //   4: T1+5   / shared ceiling Comfort P4 (shared Comfort/Ventilation/Mass Cooling)
     //   5: T1+16  / 30%
     //   6: T1+19  / 20%
     //   7: T1+21  / 10%
@@ -420,7 +456,7 @@ function createZonesForMedianTemp(medianTemp, opts = {}) {
         [T1,      20],          // 1: Comfort P1
         [T_p5,    20],          // 2: Comfort P6 (T1+7 / 20%)
         [T_p5,    50],          // 3: Comfort P5 (T1+7 / 50%)
-        [T_p4,    rh_p4],       // 4: Comfort P4 (T1+5 / 16g/kg)
+        [T_p4,    rh_T4],       // 4: Comfort P4 on the effective shared ceiling
         [T_ev5,   30],          // 5: T1+16 / 30%
         [T_ev6,   20],          // 6: T1+19 / 20%
         [T_ev78,  10],          // 7: T1+21 / 10%
@@ -433,16 +469,16 @@ function createZonesForMedianTemp(medianTemp, opts = {}) {
     // Vertex definition (anchor-relative from T1):
     //   1: T1+17 / W_P1      driest (shared MC vertex 7; dry floor at W=W_P1)
     //   2: T1+17 / 30%       (shared MC vertex 6)
-    //   3: T1+13 / 16g/kg    Pm_mc upper-left (shared MC vertex 5 and AC+D)
-    //   4: T1+20 / 16g/kg    Pmc (shared AC+D/AC)
+    //   3: T1+13 / shared ceiling    Pm_mc upper-left (shared MC vertex 5 and AC+D)
+    //   4: T1+20 / shared ceiling    Pmc (shared AC+D/AC)
     //   5: T1+24 / 20%       Pn upper-right (shared AC)
     //   6: T1+24 / W_P1      Pn driest (shared AC; dry floor at W=W_P1)
     if (z.id === 'Mass Cooling & Night Ventilation (or AC)') {
       return { ...z, poly: [
         [T_mc_right,  rh_mc_dry],   // 1: T1+17 / W_P1 (shared MC dry floor)
         [T_mc_right,  30],          // 2: T1+17 / 30% (shared MC)
-        [T_mc5,       rh_mc5],      // 3: T1+13 / 16g/kg (Pm_mc, shared MC/AC+D)
-        [T_pmc,       rh_pmc],      // 4: T1+20 / 16g/kg (shared AC+D/AC)
+        [T_mc5,       rh_mc5],      // 3: T1+13 on the effective hot-side ceiling
+        [T_pmc,       rh_pmc],      // 4: T1+20 on the effective hot-side ceiling
         [T_pn,        20],          // 5: T1+24 / 20% (shared AC)
         [T_pn,        rh_pn_wP1],   // 6: T1+24 / W_P1 (shared AC)
         [T_ev78,      rh_ev78_wP1], // 7: T1+21 / W_P1 (shared AC and Evap)
@@ -450,56 +486,45 @@ function createZonesForMedianTemp(medianTemp, opts = {}) {
     }
 
     // ── Air Conditioning + Dehumidifier ────────────────────────────────────────
-    // "Fill the rest" above 16 g/kg: everything above the sampled 16 g/kg
-    // isoline not already covered by Ventilation.
-    // Left corner: where the Ventilation right edge (T1+7/100% → T1+12/50%)
-    //   crosses the 16 g/kg isoline (~T1+11.5 at 19°C median).
+    // "Fill the rest" above the shared upper humidity limit: everything above
+    // that sampled ceiling trace not already covered by Ventilation.
+    // Left corner: the Ventilation-diagonal join on the shared upper limit.
+    //   Cool medians: use the V3 -> V4 crossover before V4.
+    //   Warm medians: keep V4 when the diagonal stays above the shared limit.
     // Top:    100% RH → T_chart_max
-    // Bottom: sampled 16 g/kg isoline from T_chart_max back to that intersection
+    // Bottom: sampled shared upper limit from T_chart_max back to T1+12
     if (z.id === 'Air Conditioning + Dehumidifier') {
-      // Find where line [T_p5,100]→[T_pm,50] crosses the 16g/kg isoline (bisection)
-      let tLo = 0, tHi = 1;
-      for (let iter = 0; iter < 40; iter++) {
-        const tMid = (tLo + tHi) / 2;
-        const T_s  = T_p5 + (T_pm - T_p5) * tMid;
-        const rh_s = 100  + (50 - 100)     * tMid;
-        const w_s  = wgPerKgFromTRH(T_s, rh_s) ?? 0;
-        if (w_s > W_LIMIT_GPKG) tLo = tMid; else tHi = tMid;
-      }
-      const tCross   = (tLo + tHi) / 2;
-      const T_cross  = T_p5 + (T_pm - T_p5) * tCross;
-      const rh_cross = 100  + (50 - 100)     * tCross;
-
       const N_ACD = 12;
+      const T_acd_floor = T_pm;
       const wLine = [];
       for (let i = 0; i <= N_ACD; i++) {
-        const T_s = T_cross + (T_chart_max - T_cross) * i / N_ACD;
-        wLine.push([T_s, rhAtWLimit(T_s)]);
+        const T_s = T_acd_floor + (T_chart_max - T_acd_floor) * i / N_ACD;
+        wLine.push([T_s, rhAtW(T_s, hotUpperW_gpkg)]);
       }
       return { ...z, poly: [
-        [T_cross, rh_cross],         // Ventilation/MassCooling/AC+D triple-point on 16g/kg
-        [T_p5, 100],                 // Ventilation top-right   (T1+7  / 100%)
+        acdJoin,                     // shared-limit join with Ventilation
+        ventPeak,                    // Ventilation top-right   (T1+7  / 100%)
         [T_chart_max, 100],          // chart top-right
-        ...wLine.slice().reverse(),  // sampled 16 g/kg from T_chart_max ← T_cross
+        ...wLine.slice().reverse(),  // sampled shared limit from T_chart_max ← T1+12
       ]};
     }
 
     // ── Air Conditioning ───────────────────────────────────────────────────────
-    // "Fill the rest" below 16 g/kg: everything below the sampled 16 g/kg
-    // isoline to the right of MC+NV and Evaporative Cooling.
-    // Top:    sampled 16 g/kg from MC+NV top-right (T1+20) → T_chart_max
+    // "Fill the rest" below the shared ceiling: everything below the sampled
+    // shared ceiling trace to the right of MC+NV and Evaporative Cooling.
+    // Top:    sampled shared ceiling from MC+NV top-right (T1+20) → T_chart_max
     // Right:  T_chart_max down to 0%
     // Bottom: 0% from T_chart_max ← T1+21 (Evap right edge)
-    // Left:   MC+NV right boundary back up to 16 g/kg
+    // Left:   MC+NV right boundary back up to the shared ceiling
     if (z.id === 'Air Conditioning') {
       const N_AC = 10;
       const wLine = [];
       for (let i = 0; i <= N_AC; i++) {
         const T_s = T_pmc + (T_chart_max - T_pmc) * i / N_AC;
-        wLine.push([T_s, rhAtWLimit(T_s)]);
+        wLine.push([T_s, rhAtW(T_s, hotUpperW_gpkg)]);
       }
       return { ...z, poly: [
-        ...wLine,                       // sampled 16 g/kg from T1+20 → T_chart_max
+        ...wLine,                       // sampled effective hot-side ceiling from T1+20 → T_chart_max
         [T_chart_max, 0],               // chart bottom-right
         [T_ev78,  0],                   // T1+21 / 0%   (shared Evap v8)
         [T_ev78,  rh_ev78_wP1],         // T1+21 / W_P1 (shared MC+NV v7)
